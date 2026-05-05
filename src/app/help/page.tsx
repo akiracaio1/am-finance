@@ -8,12 +8,14 @@ import {
   ArrowUpCircle, 
   Link2, 
   PieChart, 
-  CalendarClock,
+  CalendarClock, 
   BookOpen,
   Sparkles,
-  Info
+  Info,
+  HelpCircle
 } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { cn } from "@/lib/utils";
 
 const modules = [
   {
