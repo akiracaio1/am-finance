@@ -10,7 +10,8 @@ import {
   Link2, 
   PieChart, 
   CalendarClock,
-  BookOpen
+  BookOpen,
+  HelpCircle
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -57,8 +58,18 @@ export function AppSidebar() {
           </Link>
         ))}
       </nav>
-      <div className="p-4 border-t bg-muted/50">
-        <div className="flex items-center gap-3">
+      <div className="p-4 border-t space-y-4">
+        <Link
+          href="/help"
+          className={cn(
+            "flex items-center gap-3 px-3 py-2 rounded-md text-xs font-medium transition-data",
+            pathname === "/help" ? "bg-accent text-accent-foreground" : "text-muted-foreground hover:bg-muted"
+          )}
+        >
+          <HelpCircle className="w-4 h-4" />
+          Central de Ajuda
+        </Link>
+        <div className="flex items-center gap-3 bg-muted/50 p-3 rounded-lg">
           <div className="w-8 h-8 rounded-full bg-accent flex items-center justify-center text-accent-foreground font-bold">
             YY
           </div>
