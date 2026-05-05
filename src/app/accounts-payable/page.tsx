@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { 
   Table, 
   TableBody, 
@@ -11,7 +11,6 @@ import {
 } from "@/components/ui/table";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { 
   Select, 
@@ -33,7 +32,12 @@ import { MOCK_ENTRIES, MOCK_SUPPLIERS } from "@/lib/mock-data";
 import { cn } from "@/lib/utils";
 
 export default function AccountsPayablePage() {
+  const [mounted, setMounted] = useState(false);
   const [filterStatus, setFilterStatus] = useState("all");
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
   
   const entries = MOCK_ENTRIES.filter(e => e.type === 'payable');
   const filteredEntries = filterStatus === 'all' 
@@ -75,7 +79,7 @@ export default function AccountsPayablePage() {
         <Card className="bg-destructive/5 border-destructive/20">
           <CardContent className="pt-6">
             <p className="text-sm font-medium text-destructive/80">Total em Atraso</p>
-            <div className="text-2xl font-bold text-destructive">R$ 4.500,00</div>
+            <div className="text-2xl font-bold">R$ 4.500,00</div>
           </CardContent>
         </Card>
         <Card className="bg-primary/5 border-primary/20">
@@ -126,7 +130,7 @@ export default function AccountsPayablePage() {
               {filteredEntries.map((entry) => (
                 <TableRow key={entry.id} className="group">
                   <TableCell className="font-mono text-sm">
-                    {new Date(entry.dueDate).toLocaleDateString('pt-BR')}
+                    {mounted ? new Date(entry.dueDate).toLocaleDateString('pt-BR') : '...'}
                   </TableCell>
                   <TableCell>
                     {MOCK_SUPPLIERS.find(s => s.id === entry.supplierId)?.name || 'N/A'}

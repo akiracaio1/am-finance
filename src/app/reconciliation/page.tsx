@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { 
   Table, 
   TableBody, 
@@ -26,7 +26,12 @@ import { MOCK_OFX_ITEMS, MOCK_ENTRIES } from "@/lib/mock-data";
 import { cn } from "@/lib/utils";
 
 export default function ReconciliationPage() {
+  const [mounted, setMounted] = useState(false);
   const [items, setItems] = useState(MOCK_OFX_ITEMS);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   const handleMatch = (id: string) => {
     setItems(items.map(item => 
@@ -107,7 +112,9 @@ export default function ReconciliationPage() {
             <TableBody>
               {items.map((item) => (
                 <TableRow key={item.id} className={cn(item.matchedEntryId ? "bg-emerald-50/30" : "")}>
-                  <TableCell className="font-mono text-xs">{new Date(item.date).toLocaleDateString('pt-BR')}</TableCell>
+                  <TableCell className="font-mono text-xs">
+                    {mounted ? new Date(item.date).toLocaleDateString('pt-BR') : '...'}
+                  </TableCell>
                   <TableCell className="font-medium text-sm">{item.description}</TableCell>
                   <TableCell className={cn(
                     "text-right font-bold",

@@ -1,5 +1,6 @@
 "use client";
 
+import { useState, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { CalendarClock, ArrowUpCircle, ArrowDownCircle, ChevronLeft, ChevronRight } from "lucide-react";
@@ -17,6 +18,12 @@ const PLANNING_DAYS = [
 ];
 
 export default function PlanningPage() {
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
       <div className="flex justify-between items-end">
@@ -42,7 +49,9 @@ export default function PlanningPage() {
           )}>
             <CardHeader className="p-4 border-b">
               <div className="text-xs font-bold uppercase tracking-widest text-muted-foreground">{day.day}</div>
-              <div className="text-lg font-bold">{new Date(day.date).getDate()} Mar</div>
+              <div className="text-lg font-bold">
+                {mounted ? `${new Date(day.date).getDate()} Mar` : '...'}
+              </div>
             </CardHeader>
             <CardContent className="p-4 space-y-4">
               <div className="space-y-1">

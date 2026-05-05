@@ -1,5 +1,6 @@
 "use client";
 
+import { useState, useEffect } from "react";
 import { 
   Table, 
   TableBody, 
@@ -22,6 +23,12 @@ import { MOCK_ENTRIES } from "@/lib/mock-data";
 import { cn } from "@/lib/utils";
 
 export default function AccountsReceivablePage() {
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
   const entries = MOCK_ENTRIES.filter(e => e.type === 'receivable');
 
   return (
@@ -97,7 +104,9 @@ export default function AccountsReceivablePage() {
               <TableBody>
                 {entries.map((entry) => (
                   <TableRow key={entry.id}>
-                    <TableCell className="font-mono text-xs">{new Date(entry.dueDate).toLocaleDateString('pt-BR')}</TableCell>
+                    <TableCell className="font-mono text-xs">
+                      {mounted ? new Date(entry.dueDate).toLocaleDateString('pt-BR') : '...'}
+                    </TableCell>
                     <TableCell>
                       <Badge variant="outline" className="bg-accent/5 text-accent border-accent/20">
                         {entry.category}

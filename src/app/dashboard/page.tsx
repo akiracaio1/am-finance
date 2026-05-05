@@ -1,5 +1,6 @@
 "use client";
 
+import { useState, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { 
   TrendingUp, 
@@ -31,6 +32,12 @@ const data = [
 ];
 
 export default function DashboardPage() {
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
   const totalBalance = MOCK_BANK_ACCOUNTS.reduce((acc, curr) => acc + curr.balance, 0);
   const receivables = MOCK_ENTRIES.filter(e => e.type === 'receivable' && e.status !== 'paid').reduce((acc, curr) => acc + curr.amount, 0);
   const payables = MOCK_ENTRIES.filter(e => e.type === 'payable' && e.status !== 'paid').reduce((acc, curr) => acc + curr.amount, 0);
@@ -136,7 +143,9 @@ export default function DashboardPage() {
                   </div>
                   <div className="space-y-1">
                     <p className="text-sm font-medium leading-none">{entry.description}</p>
-                    <p className="text-xs text-muted-foreground">{new Date(entry.dueDate).toLocaleDateString('pt-BR')}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {mounted ? new Date(entry.dueDate).toLocaleDateString('pt-BR') : '...'}
+                    </p>
                   </div>
                   <div className="ml-auto font-medium">
                     {entry.type === 'receivable' ? '+' : '-'}R$ {entry.amount.toLocaleString('pt-BR')}
