@@ -7,12 +7,12 @@ import {
   Plus, 
   FolderTree, 
   ChevronRight, 
-  ChevronDown,
-  Tag
+  ChevronDown
 } from "lucide-react";
 import { MOCK_CHART_OF_ACCOUNTS } from "@/lib/mock-data";
 import { useState } from "react";
 import { cn } from "@/lib/utils";
+import { Badge } from "@/components/ui/badge";
 
 export default function ChartOfAccountsPage() {
   const [expanded, setExpanded] = useState<string[]>(['1', '4']);
@@ -32,7 +32,7 @@ export default function ChartOfAccountsPage() {
       <div key={id} className="select-none">
         <div 
           className={cn(
-            "flex items-center gap-2 py-2 px-3 rounded-md transition-data cursor-pointer",
+            "flex items-center gap-2 py-2 px-3 rounded-md transition-data cursor-pointer group",
             level === 0 ? "font-bold bg-muted/50 mt-4 first:mt-0" : "hover:bg-muted/30 ml-6",
             level > 1 ? "ml-12" : ""
           )}
@@ -63,12 +63,12 @@ export default function ChartOfAccountsPage() {
         <div>
           <h1 className="text-3xl font-bold flex items-center gap-3">
             <BookOpen className="text-primary w-8 h-8" />
-            Chart of Accounts
+            Plano de Contas
           </h1>
-          <p className="text-muted-foreground">The structural hierarchy of your business categories.</p>
+          <p className="text-muted-foreground">A hierarquia estrutural das categorias do seu negócio.</p>
         </div>
         <Button className="gap-2">
-          <Plus className="w-4 h-4" /> New Category
+          <Plus className="w-4 h-4" /> Nova Categoria
         </Button>
       </div>
 
@@ -77,7 +77,7 @@ export default function ChartOfAccountsPage() {
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <FolderTree className="w-5 h-5 text-primary" />
-              Account Hierarchy
+              Hierarquia de Contas
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -90,29 +90,29 @@ export default function ChartOfAccountsPage() {
         <div className="space-y-6">
           <Card className="bg-primary/5">
             <CardHeader>
-              <CardTitle className="text-sm">Why it matters?</CardTitle>
+              <CardTitle className="text-sm">Por que isso importa?</CardTitle>
             </CardHeader>
             <CardContent className="text-xs text-muted-foreground leading-relaxed">
-              A well-structured chart of accounts allows for granular analysis of your business costs. 
-              By separating "Fish" from general "Supplies", Yumi Yumi can identify exactly where gross margins are being impacted.
+              Um plano de contas bem estruturado permite uma análise granular dos custos do seu negócio. 
+              Ao separar "Peixe" de "Suprimentos" gerais, a Yumi Yumi pode identificar exatamente onde as margens brutas estão sendo impactadas.
             </CardContent>
           </Card>
           
           <Card>
             <CardHeader>
-              <CardTitle className="text-sm">Quick Statistics</CardTitle>
+              <CardTitle className="text-sm">Estatísticas Rápidas</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="flex justify-between items-center">
-                <span className="text-xs font-medium">Main Groups</span>
+                <span className="text-xs font-medium">Grupos Principais</span>
                 <Badge>2</Badge>
               </div>
               <div className="flex justify-between items-center">
-                <span className="text-xs font-medium">Sub-Categories</span>
+                <span className="text-xs font-medium">Subcategorias</span>
                 <Badge>3</Badge>
               </div>
               <div className="flex justify-between items-center">
-                <span className="text-xs font-medium">Active Categories</span>
+                <span className="text-xs font-medium">Categorias Ativas</span>
                 <Badge variant="outline" className="border-primary text-primary">5</Badge>
               </div>
             </CardContent>
