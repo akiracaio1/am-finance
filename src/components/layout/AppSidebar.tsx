@@ -15,14 +15,14 @@ import {
 import { cn } from "@/lib/utils";
 
 const menuItems = [
-  { name: "Dashboard", icon: LayoutDashboard, href: "/dashboard" },
-  { name: "Suppliers", icon: Users, href: "/suppliers" },
-  { name: "Accounts Payable", icon: ArrowDownCircle, href: "/accounts-payable" },
-  { name: "Accounts Receivable", icon: ArrowUpCircle, href: "/accounts-receivable" },
-  { name: "Reconciliation", icon: Link2, href: "/reconciliation" },
-  { name: "Planning", icon: CalendarClock, href: "/planning" },
-  { name: "Reports & AI", icon: PieChart, href: "/reports" },
-  { name: "Chart of Accounts", icon: BookOpen, href: "/chart-of-accounts" },
+  { name: "Painel", icon: LayoutDashboard, href: "/dashboard" },
+  { name: "Fornecedores", icon: Users, href: "/suppliers" },
+  { name: "Contas a Pagar", icon: ArrowDownCircle, href: "/accounts-payable" },
+  { name: "Contas a Receber", icon: ArrowUpCircle, href: "/accounts-receivable" },
+  { name: "Conciliação", icon: Link2, href: "/reconciliation" },
+  { name: "Planejamento", icon: CalendarClock, href: "/planning" },
+  { name: "Relatórios & IA", icon: PieChart, href: "/reports" },
+  { name: "Plano de Contas", icon: BookOpen, href: "/chart-of-accounts" },
 ];
 
 export function AppSidebar() {
@@ -35,7 +35,7 @@ export function AppSidebar() {
           <span>Yumi Yumi</span>
           <span className="text-xl">🍣</span>
         </h1>
-        <p className="text-xs text-muted-foreground mt-1">Finance Suite</p>
+        <p className="text-xs text-muted-foreground mt-1">Gestão Financeira</p>
       </div>
       <nav className="flex-1 overflow-y-auto p-4 space-y-1">
         {menuItems.map((item) => (
@@ -64,7 +64,7 @@ export function AppSidebar() {
           </div>
           <div>
             <p className="text-xs font-bold">Chef Yumi</p>
-            <p className="text-[10px] text-muted-foreground">Owner</p>
+            <p className="text-[10px] text-muted-foreground">Proprietária</p>
           </div>
         </div>
       </div>

@@ -23,6 +23,7 @@ import {
 import { MOCK_ENTRIES } from "@/lib/mock-data";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
+import { cn } from "@/lib/utils";
 
 export default function ReportsPage() {
   const [isAnalyzing, setIsAnalyzing] = useState(false);
@@ -31,7 +32,6 @@ export default function ReportsPage() {
   const runAIAnalysis = async () => {
     setIsAnalyzing(true);
     try {
-      // Mock data formatted for the AI Flow
       const input: AnalyzeFinancialDataWithAIInput = {
         simplifiedDRE: {
           revenue: 48000,
@@ -39,8 +39,8 @@ export default function ReportsPage() {
           netResult: 16000
         },
         cashFlowStatement: [
-          { period: "March 2024", inflows: 48000, outflows: 32000, netFlow: 16000 },
-          { period: "February 2024", inflows: 52000, outflows: 35000, netFlow: 17000 }
+          { period: "Março 2024", inflows: 48000, outflows: 32000, netFlow: 16000 },
+          { period: "Fevereiro 2024", inflows: 52000, outflows: 35000, netFlow: 17000 }
         ],
         overdueAccounts: MOCK_ENTRIES
           .filter(e => e.status === 'overdue')
@@ -63,7 +63,7 @@ export default function ReportsPage() {
       const result = await analyzeFinancialDataWithAI(input);
       setAnalysisResult(result);
     } catch (error) {
-      console.error("AI Analysis failed", error);
+      console.error("Análise de IA falhou", error);
     } finally {
       setIsAnalyzing(false);
     }
@@ -75,13 +75,13 @@ export default function ReportsPage() {
         <div>
           <h1 className="text-3xl font-bold flex items-center gap-3">
             <PieChart className="text-primary w-8 h-8" />
-            Financial Reports
+            Relatórios Financeiros
           </h1>
-          <p className="text-muted-foreground">Detailed statements and AI-driven business intelligence.</p>
+          <p className="text-muted-foreground">Demonstrativos detalhados e inteligência de negócios impulsionada por IA.</p>
         </div>
         <div className="flex gap-3">
           <Button variant="outline" className="gap-2">
-            <FileText className="w-4 h-4" /> Download PDF
+            <FileText className="w-4 h-4" /> Baixar PDF
           </Button>
           <Button 
             onClick={runAIAnalysis} 
@@ -89,7 +89,7 @@ export default function ReportsPage() {
             className="gap-2 bg-gradient-to-r from-primary to-accent hover:opacity-90 border-none shadow-lg"
           >
             {isAnalyzing ? <RotateCcw className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
-            {isAnalyzing ? "Analyzing..." : "Analyze with AI"}
+            {isAnalyzing ? "Analisando..." : "Analisar com IA"}
           </Button>
         </div>
       </div>
@@ -97,37 +97,37 @@ export default function ReportsPage() {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <Card>
           <CardHeader>
-            <CardTitle>Simplified DRE (P&L)</CardTitle>
-            <CardDescription>Income Statement for March 2024</CardDescription>
+            <CardTitle>DRE Simplificado (P&L)</CardTitle>
+            <CardDescription>Demonstração de Resultado para Março 2024</CardDescription>
           </CardHeader>
           <CardContent className="space-y-6">
             <div className="flex justify-between items-end">
               <div>
-                <p className="text-sm text-muted-foreground uppercase font-bold tracking-tighter">Gross Revenue</p>
-                <p className="text-3xl font-bold text-emerald-600">$ 48,000.00</p>
+                <p className="text-sm text-muted-foreground uppercase font-bold tracking-tighter">Receita Bruta</p>
+                <p className="text-3xl font-bold text-emerald-600">R$ 48.000,00</p>
               </div>
-              <Badge variant="outline" className="bg-emerald-50 text-emerald-700 border-emerald-100">+12% vs LW</Badge>
+              <Badge variant="outline" className="bg-emerald-50 text-emerald-700 border-emerald-100">+12% vs sem. ant.</Badge>
             </div>
             
             <div className="space-y-2">
               <div className="flex justify-between text-sm">
-                <span>Operating Expenses (COGS)</span>
-                <span className="font-bold">$ 22,000.00</span>
+                <span>Custos Operacionais (Insumos)</span>
+                <span className="font-bold">R$ 22.000,00</span>
               </div>
               <Progress value={45} className="h-2" />
             </div>
 
             <div className="space-y-2">
               <div className="flex justify-between text-sm">
-                <span>Fixed Costs & Admin</span>
-                <span className="font-bold">$ 10,000.00</span>
+                <span>Custos Fixos e Admin</span>
+                <span className="font-bold">R$ 10.000,00</span>
               </div>
               <Progress value={20} className="h-2" />
             </div>
 
             <div className="pt-4 border-t flex justify-between items-center">
-              <p className="text-lg font-bold">Net Operating Result</p>
-              <p className="text-2xl font-bold text-primary">$ 16,000.00</p>
+              <p className="text-lg font-bold">Resultado Líquido</p>
+              <p className="text-2xl font-bold text-primary">R$ 16.000,00</p>
             </div>
           </CardContent>
         </Card>
@@ -139,9 +139,9 @@ export default function ReportsPage() {
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <Sparkles className="w-5 h-5 text-accent" />
-              AI Intelligence Center
+              Centro de Inteligência IA
             </CardTitle>
-            <CardDescription>Insights generated from your financial data.</CardDescription>
+            <CardDescription>Insights gerados a partir dos seus dados financeiros.</CardDescription>
           </CardHeader>
           <CardContent>
             {!analysisResult ? (
@@ -149,9 +149,9 @@ export default function ReportsPage() {
                 <div className="w-16 h-16 rounded-full bg-accent/10 flex items-center justify-center mb-4">
                   <Lightbulb className="w-8 h-8 text-accent" />
                 </div>
-                <h3 className="font-bold text-lg">No Analysis Yet</h3>
+                <h3 className="font-bold text-lg">Nenhuma análise disponível</h3>
                 <p className="text-sm text-muted-foreground max-w-xs mx-auto mt-2">
-                  Click the "Analyze with AI" button above to get expert financial advice based on your current numbers.
+                  Clique no botão "Analisar com IA" acima para obter consultoria financeira baseada nos seus números reais.
                 </p>
               </div>
             ) : (
@@ -165,7 +165,7 @@ export default function ReportsPage() {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="space-y-3">
                     <h4 className="text-xs font-bold uppercase text-accent flex items-center gap-1">
-                      <Target className="w-3 h-3" /> Recommendations
+                      <Target className="w-3 h-3" /> Recomendações
                     </h4>
                     <ul className="text-xs space-y-2">
                       {analysisResult.strategicRecommendations.map((rec, i) => (
@@ -177,7 +177,7 @@ export default function ReportsPage() {
                   </div>
                   <div className="space-y-3">
                     <h4 className="text-xs font-bold uppercase text-destructive flex items-center gap-1">
-                      <AlertTriangle className="w-3 h-3" /> Risks
+                      <AlertTriangle className="w-3 h-3" /> Riscos
                     </h4>
                     <ul className="text-xs space-y-2">
                       {analysisResult.potentialRisks.map((risk, i) => (
@@ -191,7 +191,7 @@ export default function ReportsPage() {
 
                 <div className="pt-4 border-t">
                   <h4 className="text-xs font-bold uppercase text-emerald-600 flex items-center gap-1 mb-2">
-                    <Zap className="w-3 h-3" /> Quick Opportunities
+                    <Zap className="w-3 h-3" /> Oportunidades Rápidas
                   </h4>
                   <div className="flex flex-wrap gap-2">
                     {analysisResult.opportunities.map((opp, i) => (

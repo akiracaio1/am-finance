@@ -34,11 +34,11 @@ export default function SuppliersPage() {
     <div className="space-y-6 animate-in fade-in duration-500">
       <div className="flex justify-between items-end">
         <div>
-          <h1 className="text-3xl font-bold">Suppliers</h1>
-          <p className="text-muted-foreground">Manage your partnerships and service providers.</p>
+          <h1 className="text-3xl font-bold">Fornecedores</h1>
+          <p className="text-muted-foreground">Gerencie suas parcerias e prestadores de serviço.</p>
         </div>
         <Button className="gap-2">
-          <Plus className="w-4 h-4" /> Add Supplier
+          <Plus className="w-4 h-4" /> Adicionar Fornecedor
         </Button>
       </div>
 
@@ -47,7 +47,7 @@ export default function SuppliersPage() {
           <div className="relative max-w-sm">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
             <Input 
-              placeholder="Search by name or CNPJ..." 
+              placeholder="Buscar por nome ou CNPJ..." 
               className="pl-9"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
@@ -58,11 +58,11 @@ export default function SuppliersPage() {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Supplier</TableHead>
+                <TableHead>Fornecedor</TableHead>
                 <TableHead>CNPJ</TableHead>
-                <TableHead>Category</TableHead>
-                <TableHead>Contact</TableHead>
-                <TableHead className="text-right">Actions</TableHead>
+                <TableHead>Categoria</TableHead>
+                <TableHead>Contato</TableHead>
+                <TableHead className="text-right">Ações</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -95,9 +95,9 @@ export default function SuppliersPage() {
                         </Button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end">
-                        <DropdownMenuItem>Edit Details</DropdownMenuItem>
-                        <DropdownMenuItem>View Ledger</DropdownMenuItem>
-                        <DropdownMenuItem className="text-destructive">Archive</DropdownMenuItem>
+                        <DropdownMenuItem>Editar Detalhes</DropdownMenuItem>
+                        <DropdownMenuItem>Ver Extrato</DropdownMenuItem>
+                        <DropdownMenuItem className="text-destructive">Arquivar</DropdownMenuItem>
                       </DropdownMenuContent>
                     </DropdownMenu>
                   </TableCell>

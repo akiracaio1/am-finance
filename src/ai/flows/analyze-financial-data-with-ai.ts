@@ -1,56 +1,56 @@
 'use server';
 /**
- * @fileOverview An AI agent for analyzing financial data and providing insights and recommendations.
+ * @fileOverview Um agente de IA para analisar dados financeiros e fornecer insights e recomendações.
  *
- * - analyzeFinancialDataWithAI - A function that handles the financial data analysis process.
- * - AnalyzeFinancialDataWithAIInput - The input type for the analyzeFinancialDataWithAI function.
- * - AnalyzeFinancialDataWithAIOutput - The return type for the analyzeFinancialDataWithAI function.
+ * - analyzeFinancialDataWithAI - Uma função que gerencia o processo de análise de dados financeiros.
+ * - AnalyzeFinancialDataWithAIInput - O tipo de entrada para a função analyzeFinancialDataWithAI.
+ * - AnalyzeFinancialDataWithAIOutput - O tipo de retorno para a função analyzeFinancialDataWithAI.
  */
 
 import {ai} from '@/ai/genkit';
 import {z} from 'genkit';
 
 const SimplifiedDRESchema = z.object({
-  revenue: z.number().describe('Total revenue for the period.'),
-  expenses: z.number().describe('Total expenses for the period.'),
-  netResult: z.number().describe('Net result (revenue - expenses) for the period. (revenue - expenses)'),
+  revenue: z.number().describe('Receita total do período.'),
+  expenses: z.number().describe('Despesas totais do período.'),
+  netResult: z.number().describe('Resultado líquido (receita - despesas) do período.'),
 });
 
 const CashFlowPeriodSchema = z.object({
-  period: z.string().describe('The period for the cash flow entry (e.g., "Last Month", "Q1 2024").'),
-  inflows: z.number().describe('Total cash inflows for the period.'),
-  outflows: z.number().describe('Total cash outflows for the period.'),
-  netFlow: z.number().describe('Net cash flow for the period.'),
+  period: z.string().describe('O período da entrada de fluxo de caixa (ex: "Mês Passado", "Q1 2024").'),
+  inflows: z.number().describe('Entradas totais de caixa no período.'),
+  outflows: z.number().describe('Saídas totais de caixa no período.'),
+  netFlow: z.number().describe('Fluxo líquido de caixa no período.'),
 });
 
 const OverdueAccountSchema = z.object({
-  description: z.string().describe('Description of the overdue account.'),
-  amount: z.number().describe('Amount of the overdue account.'),
-  dueDate: z.string().describe('Due date of the overdue account in ISO format.'),
-  daysOverdue: z.number().describe('Number of days the account is overdue.'),
+  description: z.string().describe('Descrição da conta em atraso.'),
+  amount: z.number().describe('Valor da conta em atraso.'),
+  dueDate: z.string().describe('Data de vencimento da conta em atraso no formato ISO.'),
+  daysOverdue: z.number().describe('Número de dias que a conta está em atraso.'),
 });
 
 const UpcomingAccountSchema = z.object({
-  description: z.string().describe('Description of the upcoming account.'),
-  amount: z.number().describe('Amount of the upcoming account.'),
-  dueDate: z.string().describe('Due date of the upcoming account in ISO format.'),
-  type: z.enum(['payable', 'receivable']).describe('Type of the upcoming account (payable or receivable).'),
+  description: z.string().describe('Descrição da conta futura.'),
+  amount: z.number().describe('Valor da conta futura.'),
+  dueDate: z.string().describe('Data de vencimento da conta futura no formato ISO.'),
+  type: z.enum(['payable', 'receivable']).describe('Tipo da conta futura (a pagar ou a receber).'),
 });
 
 export const AnalyzeFinancialDataWithAIInputSchema = z.object({
-  simplifiedDRE: SimplifiedDRESchema.describe('Simplified Income Statement data.'),
-  cashFlowStatement: z.array(CashFlowPeriodSchema).describe('Cash Flow Statement data for various periods.'),
-  overdueAccounts: z.array(OverdueAccountSchema).describe('List of overdue accounts.'),
-  upcomingAccounts: z.array(UpcomingAccountSchema).describe('List of upcoming accounts.'),
+  simplifiedDRE: SimplifiedDRESchema.describe('Dados simplificados da Demonstração de Resultado do Exercício.'),
+  cashFlowStatement: z.array(CashFlowPeriodSchema).describe('Dados do Fluxo de Caixa para vários períodos.'),
+  overdueAccounts: z.array(OverdueAccountSchema).describe('Lista de contas em atraso.'),
+  upcomingAccounts: z.array(UpcomingAccountSchema).describe('Lista de contas futuras.'),
 });
 export type AnalyzeFinancialDataWithAIInput = z.infer<typeof AnalyzeFinancialDataWithAIInputSchema>;
 
 export const AnalyzeFinancialDataWithAIOutputSchema = z.object({
-  overallSummary: z.string().describe('A concise overall summary of the financial performance.'),
-  keyInsights: z.array(z.string()).describe('Key insights derived from the financial data.'),
-  strategicRecommendations: z.array(z.string()).describe('Strategic recommendations for improving financial performance.'),
-  potentialRisks: z.array(z.string()).describe('Potential financial risks identified.'),
-  opportunities: z.array(z.string()).describe('Potential financial opportunities identified.'),
+  overallSummary: z.string().describe('Um resumo conciso e geral do desempenho financeiro.'),
+  keyInsights: z.array(z.string()).describe('Insights chave derivados dos dados financeiros.'),
+  strategicRecommendations: z.array(z.string()).describe('Recomendações estratégicas para melhorar o desempenho financeiro.'),
+  potentialRisks: z.array(z.string()).describe('Riscos financeiros potenciais identificados.'),
+  opportunities: z.array(z.string()).describe('Oportunidades financeiras potenciais identificadas.'),
 });
 export type AnalyzeFinancialDataWithAIOutput = z.infer<typeof AnalyzeFinancialDataWithAIOutputSchema>;
 
@@ -62,50 +62,50 @@ const analyzeFinancialDataPrompt = ai.definePrompt({
   name: 'analyzeFinancialDataPrompt',
   input: {schema: AnalyzeFinancialDataWithAIInputSchema},
   output: {schema: AnalyzeFinancialDataWithAIOutputSchema},
-  prompt: `You are an expert financial analyst for a small business named Yumi Yumi 🍣, specializing in sushi. Your goal is to analyze the provided financial data and generate insights and actionable recommendations to help the business owner make better decisions.
+  prompt: `Você é um analista financeiro especialista para uma pequena empresa chamada Yumi Yumi 🍣, especializada em sushi. Seu objetivo é analisar os dados financeiros fornecidos e gerar insights e recomendações acionáveis para ajudar o proprietário da empresa a tomar melhores decisões.
 
-Analyze the following financial reports:
+Analise os seguintes relatórios financeiros:
 
-Simplified Income Statement (DRE):
-Revenue: {{{simplifiedDRE.revenue}}}
-Expenses: {{{simplifiedDRE.expenses}}}
-Net Result: {{{simplifiedDRE.netResult}}}
+Demonstração de Resultado Simplificada (DRE):
+Receita: {{{simplifiedDRE.revenue}}}
+Despesas: {{{simplifiedDRE.expenses}}}
+Resultado Líquido: {{{simplifiedDRE.netResult}}}
 
-Cash Flow Statement (by period):
+Fluxo de Caixa (por período):
 {{#each cashFlowStatement}}
-Period: {{{period}}}
-Inflows: {{{inflows}}}
-Outflows: {{{outflows}}}
-Net Flow: {{{netFlow}}}
+Período: {{{period}}}
+Entradas: {{{inflows}}}
+Saídas: {{{outflows}}}
+Fluxo Líquido: {{{netFlow}}}
 ---
 {{/each}}
 
-Overdue Accounts:
+Contas em Atraso:
 {{#if overdueAccounts}}
 {{#each overdueAccounts}}
-- Description: {{{description}}}, Amount: {{{amount}}}, Due Date: {{{dueDate}}}, Days Overdue: {{{daysOverdue}}}
+- Descrição: {{{description}}}, Valor: {{{amount}}}, Vencimento: {{{dueDate}}}, Dias em Atraso: {{{daysOverdue}}}
 {{/each}}
 {{else}}
-No overdue accounts.
+Não há contas em atraso.
 {{/if}}
 
-Upcoming Accounts:
+Contas Futuras:
 {{#if upcomingAccounts}}
 {{#each upcomingAccounts}}
-- Description: {{{description}}}, Amount: {{{amount}}}, Due Date: {{{dueDate}}}, Type: {{{type}}}
+- Descrição: {{{description}}}, Valor: {{{amount}}}, Vencimento: {{{dueDate}}}, Tipo: {{{type}}}
 {{/each}}
 {{else}}
-No upcoming accounts.
+Não há contas futuras previstas.
 {{/if}}
 
-Based on this data, provide:
-1. An overall summary of the financial performance.
-2. Key insights about the business's financial health.
-3. Strategic and actionable recommendations for improvement.
-4. Identification of any potential risks.
-5. Identification of any potential opportunities.
+Com base nesses dados, forneça:
+1. Um resumo geral do desempenho financeiro.
+2. Insights principais sobre a saúde financeira do negócio.
+3. Recomendações estratégicas e acionáveis para melhoria.
+4. Identificação de quaisquer riscos potenciais.
+5. Identificação de quaisquer oportunidades potenciais.
 
-Ensure your analysis is comprehensive, easy to understand, and directly addresses the business owner's need for better decision-making.`,
+Responda em PORTUGUÊS (Brasil). Certifique-se de que sua análise seja abrangente, fácil de entender e enderece diretamente a necessidade do proprietário de tomar decisões melhores.`,
 });
 
 const analyzeFinancialDataWithAIFlow = ai.defineFlow(
