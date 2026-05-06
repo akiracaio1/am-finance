@@ -35,7 +35,8 @@ import {
   CalendarDays,
   Layers,
   Repeat,
-  FileText
+  FileText,
+  Edit2
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useUser, useFirestore, useCollection, useMemoFirebase } from "@/firebase";
@@ -85,6 +86,7 @@ export default function AccountsPayablePage() {
   const { user } = useUser();
   const db = useFirestore();
   const [isNewEntryOpen, setIsNewEntryOpen] = useState(false);
+  const [editingEntry, setEditingEntry] = useState<AccountsPayableEntry | null>(null);
   const [isPaymentOpen, setIsPaymentOpen] = useState(false);
   const [entryToPay, setEntryToPay] = useState<AccountsPayableEntry | null>(null);
   const [todayStr, setTodayStr] = useState("");
@@ -113,8 +115,10 @@ export default function AccountsPayablePage() {
   useEffect(() => {
     const nowStr = format(new Date(), "yyyy-MM-dd");
     setTodayStr(nowStr);
-    setBaseDueDate(nowStr);
-  }, []);
+    if (!editingEntry) {
+      setBaseDueDate(nowStr);
+    }
+  }, [editingEntry]);
 
   const handleDatePresetChange = (preset: string) => {
     setDatePreset(preset);
@@ -229,44 +233,58 @@ export default function AccountsPayablePage() {
     e.preventDefault();
     if (!db || !user) return;
     const formData = new FormData(e.currentTarget);
+    
     const baseData = {
       supplierId: formData.get("supplierId") as string,
       accountCategoryId: formData.get("categoryId") as string,
       costCenterId: (formData.get("costCenterId") as string) || "",
       description: formData.get("description") as string,
-      issueDate: formData.get("issueDate") as string,
-      paymentMethod: formData.get("paymentMethod") as string,
+      issueDate: (formData.get("issueDate") as string) || "",
+      paymentMethod: (formData.get("paymentMethod") as string) || "Pix",
       entryType: formData.get("entryType") as EntryType,
-      status: 'Open' as const,
-      createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
 
-    if (repetitionType === 'single') {
-      const entryId = `pay_${Date.now()}`;
-      const entryRef = doc(db, "users", user.uid, "accountsPayableEntries", entryId);
-      setDocumentNonBlocking(entryRef, {
+    if (editingEntry) {
+      const entryRef = doc(db, "users", user.uid, "accountsPayableEntries", editingEntry.id);
+      updateDocumentNonBlocking(entryRef, {
         ...baseData,
-        id: entryId,
         originalAmount: Number(formData.get("amount")),
         dueDate: formData.get("dueDate") as string,
-      }, { merge: true });
+      });
+      toast({ title: "Lançamento atualizado" });
     } else {
-      generatedInstallments.forEach((inst, index) => {
-        const entryId = `pay_${Date.now()}_${index}`;
+      if (repetitionType === 'single') {
+        const entryId = `pay_${Date.now()}`;
         const entryRef = doc(db, "users", user.uid, "accountsPayableEntries", entryId);
         setDocumentNonBlocking(entryRef, {
           ...baseData,
           id: entryId,
-          originalAmount: inst.amount,
-          dueDate: inst.date,
-          installmentInfo: repetitionType === 'installments' ? `${index + 1}/${numRepetitions}` : `Mensalidade ${index + 1}/${numRepetitions}`
+          status: 'Open',
+          originalAmount: Number(formData.get("amount")),
+          dueDate: formData.get("dueDate") as string,
+          createdAt: new Date().toISOString(),
         }, { merge: true });
-      });
+      } else {
+        generatedInstallments.forEach((inst, index) => {
+          const entryId = `pay_${Date.now()}_${index}`;
+          const entryRef = doc(db, "users", user.uid, "accountsPayableEntries", entryId);
+          setDocumentNonBlocking(entryRef, {
+            ...baseData,
+            id: entryId,
+            status: 'Open',
+            originalAmount: inst.amount,
+            dueDate: inst.date,
+            installmentInfo: repetitionType === 'installments' ? `${index + 1}/${numRepetitions}` : `Mensalidade ${index + 1}/${numRepetitions}`,
+            createdAt: new Date().toISOString(),
+          }, { merge: true });
+        });
+      }
+      toast({ title: "Lançamento(s) criado(s)" });
     }
 
-    toast({ title: "Lançamento(s) criado(s)", description: "Os registros foram agendados com sucesso." });
     setIsNewEntryOpen(false);
+    setEditingEntry(null);
     setRepetitionType("single");
     setBaseAmount(0);
   };
@@ -316,6 +334,13 @@ export default function AccountsPayablePage() {
     toast({ title: "Lançamento excluído" });
   };
 
+  const handleOpenEdit = (entry: AccountsPayableEntry) => {
+    setEditingEntry(entry);
+    setBaseAmount(entry.originalAmount);
+    setBaseDueDate(entry.dueDate);
+    setIsNewEntryOpen(true);
+  };
+
   return (
     <div className="space-y-6 pb-10">
       <div className="flex justify-between items-end">
@@ -335,6 +360,7 @@ export default function AccountsPayablePage() {
           <Dialog open={isNewEntryOpen} onOpenChange={(open) => {
             setIsNewEntryOpen(open);
             if (!open) {
+              setEditingEntry(null);
               setRepetitionType("single");
               setBaseAmount(0);
             }
@@ -344,23 +370,23 @@ export default function AccountsPayablePage() {
                 <Plus className="w-4 h-4" /> Novo Lançamento
               </Button>
             </DialogTrigger>
-            <DialogContent className="max-w-3xl overflow-y-auto max-h-[90vh]">
+            <DialogContent className="max-w-3xl overflow-y-auto max-h-[90vh]" key={editingEntry?.id || 'new'}>
               <form onSubmit={handleSaveEntry}>
                 <DialogHeader>
-                  <DialogTitle>Novo Lançamento</DialogTitle>
+                  <DialogTitle>{editingEntry ? 'Editar Lançamento' : 'Novo Lançamento'}</DialogTitle>
                 </DialogHeader>
                 
                 <Tabs defaultValue="basic" className="mt-4">
                   <TabsList className="grid w-full grid-cols-2">
                     <TabsTrigger value="basic">Dados Principais</TabsTrigger>
-                    <TabsTrigger value="repeat">Repetir / Parcelar</TabsTrigger>
+                    <TabsTrigger value="repeat" disabled={!!editingEntry}>Repetir / Parcelar</TabsTrigger>
                   </TabsList>
                   
                   <TabsContent value="basic" className="space-y-4 pt-4">
                     <div className="grid grid-cols-2 gap-4">
                       <div className="grid gap-2">
                         <Label>Tipo de Lançamento</Label>
-                        <Select name="entryType" defaultValue="Confirmed">
+                        <Select name="entryType" defaultValue={editingEntry?.entryType || "Confirmed"}>
                           <SelectTrigger>
                             <SelectValue />
                           </SelectTrigger>
@@ -372,7 +398,7 @@ export default function AccountsPayablePage() {
                       </div>
                       <div className="grid gap-2">
                         <Label>Descrição *</Label>
-                        <Input id="description" name="description" placeholder="Ex: Conta de Luz" required />
+                        <Input id="description" name="description" placeholder="Ex: Conta de Luz" defaultValue={editingEntry?.description} required />
                       </div>
                     </div>
 
@@ -402,14 +428,14 @@ export default function AccountsPayablePage() {
                       </div>
                       <div className="grid gap-2">
                         <Label>Emissão</Label>
-                        <Input id="issueDate" name="issueDate" type="date" />
+                        <Input id="issueDate" name="issueDate" type="date" defaultValue={editingEntry?.issueDate} />
                       </div>
                     </div>
 
                     <div className="grid grid-cols-2 gap-4">
                       <div className="grid gap-2">
                         <Label>Fornecedor *</Label>
-                        <Select name="supplierId" required>
+                        <Select name="supplierId" defaultValue={editingEntry?.supplierId} required>
                           <SelectTrigger><SelectValue placeholder="Selecione..." /></SelectTrigger>
                           <SelectContent>
                             {suppliers?.map(s => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}
@@ -418,7 +444,7 @@ export default function AccountsPayablePage() {
                       </div>
                       <div className="grid gap-2">
                         <Label>Categoria *</Label>
-                        <Select name="categoryId" required>
+                        <Select name="categoryId" defaultValue={editingEntry?.accountCategoryId} required>
                           <SelectTrigger><SelectValue placeholder="Selecione..." /></SelectTrigger>
                           <SelectContent>
                             {categories?.map(c => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}
@@ -430,7 +456,7 @@ export default function AccountsPayablePage() {
                     <div className="grid grid-cols-2 gap-4">
                       <div className="grid gap-2">
                         <Label>Forma de Pagamento</Label>
-                        <Select name="paymentMethod" defaultValue="Pix">
+                        <Select name="paymentMethod" defaultValue={editingEntry?.paymentMethod || "Pix"}>
                           <SelectTrigger>
                             <SelectValue />
                           </SelectTrigger>
@@ -445,7 +471,7 @@ export default function AccountsPayablePage() {
                       </div>
                       <div className="grid gap-2">
                         <Label>Centro de Custo (Opcional)</Label>
-                        <Select name="costCenterId">
+                        <Select name="costCenterId" defaultValue={editingEntry?.costCenterId}>
                           <SelectTrigger><SelectValue placeholder="Selecione..." /></SelectTrigger>
                           <SelectContent>
                             <SelectItem value="null">Nenhum</SelectItem>
@@ -517,7 +543,7 @@ export default function AccountsPayablePage() {
 
                 <DialogFooter className="mt-6">
                   <Button type="submit" className="w-full">
-                    {repetitionType === 'single' ? 'Salvar Lançamento' : `Salvar ${numRepetitions} Lançamentos`}
+                    {editingEntry ? 'Salvar Alterações' : repetitionType === 'single' ? 'Salvar Lançamento' : `Salvar ${numRepetitions} Lançamentos`}
                   </Button>
                 </DialogFooter>
               </form>
@@ -653,6 +679,9 @@ export default function AccountsPayablePage() {
                             <Wallet className="w-4 h-4 mr-2" /> Pagar
                           </DropdownMenuItem>
                         )}
+                        <DropdownMenuItem onClick={() => handleOpenEdit(entry)}>
+                          <Edit2 className="w-4 h-4 mr-2" /> Editar
+                        </DropdownMenuItem>
                         <DropdownMenuItem onClick={() => toggleConfirmed(entry)}>
                           <RotateCcw className="w-4 h-4 mr-2" /> {entry.entryType === 'Provision' ? 'Confirmar' : 'Marcar Provisão'}
                         </DropdownMenuItem>
