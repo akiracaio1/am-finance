@@ -1,5 +1,5 @@
 
-export type TransactionStatus = 'Open' | 'Paid' | 'Overdue' | 'canceled';
+export type TransactionStatus = 'Open' | 'Paid' | 'Overdue' | 'DueToday' | 'canceled';
 export type AccountType = 'payable' | 'receivable';
 export type PersonType = 'Pessoa Física' | 'Pessoa Jurídica';
 
@@ -45,7 +45,7 @@ export interface AccountsPayableEntry {
   issueDate?: string;
   dueDate: string;
   paymentMethod?: string;
-  status: 'Open' | 'Paid' | 'Overdue';
+  status: 'Open' | 'Paid' | 'Overdue' | 'DueToday';
   createdAt: string;
   updatedAt: string;
 }

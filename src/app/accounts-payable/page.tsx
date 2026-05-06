@@ -1,7 +1,7 @@
 
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useEffect } from "react";
 import { 
   Table, 
   TableBody, 
@@ -25,7 +25,8 @@ import {
   Check,
   ChevronDown,
   AlertTriangle,
-  CreditCard
+  CreditCard,
+  Clock
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useUser, useFirestore, useCollection, useMemoFirebase } from "@/firebase";
@@ -62,12 +63,12 @@ export default function AccountsPayablePage() {
   const db = useFirestore();
   const [filterStatus, setFilterStatus] = useState("all");
   const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const [todayStr, setTodayStr] = useState("");
 
-  // Form selections state
-  const [selectedSupplierId, setSelectedSupplierId] = useState<string>("");
-  const [selectedCategoryId, setSelectedCategoryId] = useState<string>("");
-  const [selectedCostCenterId, setSelectedCostCenterId] = useState<string>("");
-  const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<string>("");
+  useEffect(() => {
+    // Definir a data de hoje no formato YYYY-MM-DD para comparações consistentes
+    setTodayStr(new Date().toISOString().split('T')[0]);
+  }, []);
 
   // Firestore Queries
   const entriesQuery = useMemoFirebase(() => {
@@ -95,22 +96,35 @@ export default function AccountsPayablePage() {
   const { data: categories } = useCollection<AccountCategory>(categoriesQuery);
   const { data: centers } = useCollection<CostCenter>(centersQuery);
 
-  const filteredEntries = entries?.filter(e => {
-    if (filterStatus === 'all') return true;
-    return e.status.toLowerCase() === filterStatus.toLowerCase();
-  }) || [];
+  // Função para calcular o status dinamicamente
+  const getDynamicStatus = (entry: AccountsPayableEntry) => {
+    if (entry.status === 'Paid') return 'Paid';
+    if (!todayStr) return entry.status;
 
-  // Stats calculation
-  const totalOverdue = entries?.filter(e => e.status === 'Overdue').reduce((acc, curr) => acc + curr.originalAmount, 0) || 0;
-  const totalOpen = entries?.filter(e => e.status === 'Open').reduce((acc, curr) => acc + curr.originalAmount, 0) || 0;
-  const totalPaid = entries?.filter(e => e.status === 'Paid').reduce((acc, curr) => acc + curr.originalAmount, 0) || 0;
+    if (entry.dueDate < todayStr) return 'Overdue';
+    if (entry.dueDate === todayStr) return 'DueToday';
+    return 'Open';
+  };
+
+  const processedEntries = entries?.map(entry => ({
+    ...entry,
+    dynamicStatus: getDynamicStatus(entry)
+  })) || [];
+
+  const filteredEntries = processedEntries.filter(e => {
+    if (filterStatus === 'all') return true;
+    return e.dynamicStatus.toLowerCase() === filterStatus.toLowerCase();
+  });
+
+  // Cálculos baseados nos status dinâmicos
+  const totalOverdue = processedEntries.filter(e => e.dynamicStatus === 'Overdue').reduce((acc, curr) => acc + curr.originalAmount, 0);
+  const totalDueToday = processedEntries.filter(e => e.dynamicStatus === 'DueToday').reduce((acc, curr) => acc + curr.originalAmount, 0);
+  const totalOpen = processedEntries.filter(e => e.dynamicStatus === 'Open').reduce((acc, curr) => acc + curr.originalAmount, 0);
+  const totalPaid = processedEntries.filter(e => e.dynamicStatus === 'Paid').reduce((acc, curr) => acc + curr.originalAmount, 0);
 
   const handleSaveEntry = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    if (!db || !user || !selectedSupplierId || !selectedCategoryId) {
-      toast({ variant: "destructive", title: "Erro", description: "Preencha os campos obrigatórios (Fornecedor e Categoria)." });
-      return;
-    }
+    if (!db || !user) return;
 
     const formData = new FormData(e.currentTarget);
     const entryId = `pay_${Date.now()}`;
@@ -118,14 +132,14 @@ export default function AccountsPayablePage() {
 
     const newEntry: AccountsPayableEntry = {
       id: entryId,
-      supplierId: selectedSupplierId,
-      accountCategoryId: selectedCategoryId,
-      costCenterId: selectedCostCenterId === "none" ? "" : selectedCostCenterId,
+      supplierId: formData.get("supplierId") as string,
+      accountCategoryId: formData.get("categoryId") as string,
+      costCenterId: (formData.get("costCenterId") as string) || "",
       description: formData.get("description") as string,
       originalAmount: Number(formData.get("amount")),
       issueDate: formData.get("issueDate") as string,
       dueDate: formData.get("dueDate") as string,
-      paymentMethod: selectedPaymentMethod,
+      paymentMethod: formData.get("paymentMethod") as string,
       status: 'Open',
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
@@ -134,12 +148,6 @@ export default function AccountsPayablePage() {
     setDocumentNonBlocking(entryRef, newEntry, { merge: true });
     toast({ title: "Lançamento criado", description: "A conta foi agendada com sucesso." });
     setIsDialogOpen(false);
-    
-    // Reset selections
-    setSelectedSupplierId("");
-    setSelectedCategoryId("");
-    setSelectedCostCenterId("");
-    setSelectedPaymentMethod("");
   };
 
   const markAsPaid = (entry: AccountsPayableEntry) => {
@@ -157,11 +165,13 @@ export default function AccountsPayablePage() {
   };
 
   const getStatusBadge = (status: string) => {
-    switch (status.toLowerCase()) {
-      case 'paid':
+    switch (status) {
+      case 'Paid':
         return <Badge className="bg-emerald-100 text-emerald-700 hover:bg-emerald-200 border-none"><CheckCircle2 className="w-3 h-3 mr-1" /> Pago</Badge>;
-      case 'overdue':
-        return <Badge variant="destructive" className="border-none"><AlertTriangle className="w-3 h-3 mr-1" /> Atrasado</Badge>;
+      case 'Overdue':
+        return <Badge variant="destructive" className="border-none animate-pulse"><AlertTriangle className="w-3 h-3 mr-1" /> Atrasado</Badge>;
+      case 'DueToday':
+        return <Badge className="bg-amber-100 text-amber-700 hover:bg-amber-200 border-none"><Clock className="w-3 h-3 mr-1" /> Vence Hoje</Badge>;
       default:
         return <Badge variant="outline" className="text-muted-foreground"><Calendar className="w-3 h-3 mr-1" /> Aberto</Badge>;
     }
@@ -175,128 +185,132 @@ export default function AccountsPayablePage() {
             <ArrowDownCircle className="text-destructive w-8 h-8" />
             Contas a Pagar
           </h1>
-          <p className="text-muted-foreground">Acompanhe e gerencie suas próximas despesas e contas.</p>
+          <p className="text-muted-foreground">Gestão inteligente de despesas e prazos.</p>
         </div>
-        <div className="flex gap-3">
-          <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-            <DialogTrigger asChild>
-              <Button className="gap-2">
-                <Plus className="w-4 h-4" /> Novo Lançamento
-              </Button>
-            </DialogTrigger>
-            <DialogContent className="max-w-2xl">
-              <form onSubmit={handleSaveEntry}>
-                <DialogHeader>
-                  <DialogTitle>Novo Lançamento de Despesa</DialogTitle>
-                </DialogHeader>
-                <div className="grid gap-4 py-4">
+        
+        <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
+          <DialogTrigger asChild>
+            <Button className="gap-2">
+              <Plus className="w-4 h-4" /> Novo Lançamento
+            </Button>
+          </DialogTrigger>
+          <DialogContent className="max-w-2xl">
+            <form onSubmit={handleSaveEntry}>
+              <DialogHeader>
+                <DialogTitle>Novo Lançamento de Despesa</DialogTitle>
+              </DialogHeader>
+              <div className="grid gap-4 py-4">
+                <div className="grid gap-2">
+                  <Label htmlFor="description">Descrição / Item *</Label>
+                  <Input id="description" name="description" placeholder="Ex: Compra de Insumos" required />
+                </div>
+                
+                <div className="grid grid-cols-2 gap-4">
                   <div className="grid gap-2">
-                    <Label htmlFor="description">Descrição / Item *</Label>
-                    <Input id="description" name="description" placeholder="Ex: Compra de Insumos" required />
+                    <Label htmlFor="amount">Valor (R$) *</Label>
+                    <Input id="amount" name="amount" type="number" step="0.01" placeholder="0,00" required />
                   </div>
-                  
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="grid gap-2">
-                      <Label htmlFor="amount">Valor (R$) *</Label>
-                      <Input id="amount" name="amount" type="number" step="0.01" placeholder="0,00" required />
-                    </div>
-                    <div className="grid gap-2">
-                      <Label>Forma de Pagamento</Label>
-                      <Select value={selectedPaymentMethod} onValueChange={setSelectedPaymentMethod}>
-                        <SelectTrigger>
-                          <SelectValue placeholder="Selecione a forma" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="Pix">Pix</SelectItem>
-                          <SelectItem value="Boleto">Boleto</SelectItem>
-                          <SelectItem value="Cartão">Cartão</SelectItem>
-                          <SelectItem value="Transferência">Transferência</SelectItem>
-                          <SelectItem value="Dinheiro">Dinheiro</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="grid gap-2">
-                      <Label htmlFor="issueDate">Data de Emissão (Opcional)</Label>
-                      <Input id="issueDate" name="issueDate" type="date" />
-                    </div>
-                    <div className="grid gap-2">
-                      <Label htmlFor="dueDate">Vencimento *</Label>
-                      <Input id="dueDate" name="dueDate" type="date" required />
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="grid gap-2">
-                      <Label>Fornecedor *</Label>
-                      <Select value={selectedSupplierId} onValueChange={setSelectedSupplierId}>
-                        <SelectTrigger>
-                          <SelectValue placeholder="Selecione o fornecedor" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {suppliers?.map((s) => (
-                            <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div className="grid gap-2">
-                      <Label>Categoria Financeira *</Label>
-                      <Select value={selectedCategoryId} onValueChange={setSelectedCategoryId}>
-                        <SelectTrigger>
-                          <SelectValue placeholder="Selecione a categoria" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {categories?.map((c) => (
-                            <SelectItem key={c.id} value={c.id}>{c.code ? `${c.code} - ` : ""}{c.name}</SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  </div>
-
                   <div className="grid gap-2">
-                    <Label>Centro de Custo (Opcional)</Label>
-                    <Select value={selectedCostCenterId} onValueChange={setSelectedCostCenterId}>
+                    <Label htmlFor="paymentMethod">Forma de Pagamento</Label>
+                    <Select name="paymentMethod">
                       <SelectTrigger>
-                        <SelectValue placeholder="Selecione o centro de custo" />
+                        <SelectValue placeholder="Selecione..." />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="none">Nenhum</SelectItem>
-                        {centers?.map((cc) => (
-                          <SelectItem key={cc.id} value={cc.id}>{cc.name}</SelectItem>
+                        <SelectItem value="Pix">Pix</SelectItem>
+                        <SelectItem value="Boleto">Boleto</SelectItem>
+                        <SelectItem value="Cartão">Cartão</SelectItem>
+                        <SelectItem value="Transferência">Transferência</SelectItem>
+                        <SelectItem value="Dinheiro">Dinheiro</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="grid gap-2">
+                    <Label htmlFor="issueDate">Data de Emissão (Opcional)</Label>
+                    <Input id="issueDate" name="issueDate" type="date" />
+                  </div>
+                  <div className="grid gap-2">
+                    <Label htmlFor="dueDate">Vencimento *</Label>
+                    <Input id="dueDate" name="dueDate" type="date" required />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="grid gap-2">
+                    <Label htmlFor="supplierId">Fornecedor *</Label>
+                    <Select name="supplierId" required>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Selecione..." />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {suppliers?.map((s) => (
+                          <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="grid gap-2">
+                    <Label htmlFor="categoryId">Categoria Financeira *</Label>
+                    <Select name="categoryId" required>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Selecione..." />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {categories?.map((c) => (
+                          <SelectItem key={c.id} value={c.id}>{c.code ? `${c.code} - ` : ""}{c.name}</SelectItem>
                         ))}
                       </SelectContent>
                     </Select>
                   </div>
                 </div>
-                <DialogFooter>
-                  <Button type="submit">Salvar Lançamento</Button>
-                </DialogFooter>
-              </form>
-            </DialogContent>
-          </Dialog>
-        </div>
+
+                <div className="grid gap-2">
+                  <Label htmlFor="costCenterId">Centro de Custo (Opcional)</Label>
+                  <Select name="costCenterId">
+                    <SelectTrigger>
+                      <SelectValue placeholder="Selecione..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {centers?.map((cc) => (
+                        <SelectItem key={cc.id} value={cc.id}>{cc.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+              <DialogFooter>
+                <Button type="submit">Salvar Lançamento</Button>
+              </DialogFooter>
+            </form>
+          </DialogContent>
+        </Dialog>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <Card className="bg-destructive/5 border-destructive/20">
-          <CardHeader className="pt-6">
-            <p className="text-sm font-medium text-destructive/80">Total em Atraso</p>
+          <CardHeader className="pt-6 pb-2">
+            <p className="text-xs font-bold text-destructive/80 uppercase tracking-tighter">Em Atraso</p>
             <div className="text-2xl font-bold text-destructive">R$ {totalOverdue.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</div>
           </CardHeader>
         </Card>
+        <Card className="bg-amber-50 border-amber-100">
+          <CardHeader className="pt-6 pb-2">
+            <p className="text-xs font-bold text-amber-700 uppercase tracking-tighter">Vence Hoje</p>
+            <div className="text-2xl font-bold text-amber-800">R$ {totalDueToday.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</div>
+          </CardHeader>
+        </Card>
         <Card className="bg-primary/5 border-primary/20">
-          <CardHeader className="pt-6">
-            <p className="text-sm font-medium text-primary/80">Total em Aberto</p>
+          <CardHeader className="pt-6 pb-2">
+            <p className="text-xs font-bold text-primary/80 uppercase tracking-tighter">Próximos Dias</p>
             <div className="text-2xl font-bold text-primary">R$ {totalOpen.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</div>
           </CardHeader>
         </Card>
         <Card className="bg-emerald-50 border-emerald-100">
-          <CardHeader className="pt-6">
-            <p className="text-sm font-medium text-emerald-700">Total Pago</p>
+          <CardHeader className="pt-6 pb-2">
+            <p className="text-xs font-bold text-emerald-700 uppercase tracking-tighter">Total Pago</p>
             <div className="text-2xl font-bold text-emerald-800">R$ {totalPaid.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</div>
           </CardHeader>
         </Card>
@@ -304,7 +318,7 @@ export default function AccountsPayablePage() {
 
       <Card>
         <CardHeader className="flex flex-row items-center justify-between border-b bg-muted/20">
-          <CardTitle className="text-lg">Lista de Despesas</CardTitle>
+          <CardTitle className="text-lg">Fluxo de Despesas</CardTitle>
           <div className="flex items-center gap-2">
             <Filter className="w-4 h-4 text-muted-foreground" />
             <DropdownMenu>
@@ -316,9 +330,10 @@ export default function AccountsPayablePage() {
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
                 <DropdownMenuItem onClick={() => setFilterStatus("all")}>Todos</DropdownMenuItem>
-                <DropdownMenuItem onClick={() => setFilterStatus("Open")}>Aberto</DropdownMenuItem>
-                <DropdownMenuItem onClick={() => setFilterStatus("Paid")}>Pago</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setFilterStatus("DueToday")}>Vence Hoje</DropdownMenuItem>
                 <DropdownMenuItem onClick={() => setFilterStatus("Overdue")}>Atrasado</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setFilterStatus("Open")}>Aberto (Futuro)</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setFilterStatus("Paid")}>Pago</DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
           </div>
@@ -332,10 +347,8 @@ export default function AccountsPayablePage() {
           ) : filteredEntries.length === 0 ? (
             <div className="text-center py-20 border-2 border-dashed rounded-lg">
               <Calendar className="w-12 h-12 text-muted-foreground/30 mx-auto mb-4" />
-              <h3 className="text-lg font-medium text-muted-foreground">Nenhum lançamento encontrado</h3>
-              <p className="text-sm text-muted-foreground max-w-xs mx-auto mt-2">
-                Use o botão acima para cadastrar sua primeira conta a pagar.
-              </p>
+              <h3 className="text-lg font-medium text-muted-foreground">Nenhum lançamento nesta categoria</h3>
+              <p className="text-sm text-muted-foreground mt-2">Altere o filtro ou adicione uma nova conta.</p>
             </div>
           ) : (
             <Table>
@@ -350,12 +363,12 @@ export default function AccountsPayablePage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filteredEntries.map((entry) => (
+                {filteredEntries.sort((a,b) => a.dueDate.localeCompare(b.dueDate)).map((entry) => (
                   <TableRow key={entry.id} className="group">
                     <TableCell className="font-mono text-sm">
                       {new Date(entry.dueDate + 'T00:00:00').toLocaleDateString('pt-BR')}
                     </TableCell>
-                    <TableCell>
+                    <TableCell className="font-medium">
                       {suppliers?.find(s => s.id === entry.supplierId)?.name || 'N/A'}
                     </TableCell>
                     <TableCell className="max-w-[200px] truncate">
@@ -364,11 +377,6 @@ export default function AccountsPayablePage() {
                           {categories?.find(c => c.id === entry.accountCategoryId)?.name || 'Sem Categoria'}
                         </span>
                         <span>{entry.description}</span>
-                        {entry.costCenterId && (
-                          <span className="text-[10px] text-primary/70">
-                            CC: {centers?.find(c => c.id === entry.costCenterId)?.name}
-                          </span>
-                        )}
                         {entry.paymentMethod && (
                           <span className="flex items-center gap-1 text-[9px] text-muted-foreground">
                             <CreditCard className="w-2 h-2" /> {entry.paymentMethod}
@@ -377,11 +385,12 @@ export default function AccountsPayablePage() {
                       </div>
                     </TableCell>
                     <TableCell>
-                      {getStatusBadge(entry.status)}
+                      {getStatusBadge(entry.dynamicStatus)}
                     </TableCell>
                     <TableCell className={cn(
                       "text-right font-bold",
-                      entry.status === 'Overdue' ? "text-destructive" : ""
+                      entry.dynamicStatus === 'Overdue' ? "text-destructive" : "",
+                      entry.dynamicStatus === 'DueToday' ? "text-amber-600" : ""
                     )}>
                       R$ {entry.originalAmount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
                     </TableCell>
