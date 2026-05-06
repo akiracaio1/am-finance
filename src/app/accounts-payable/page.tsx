@@ -69,6 +69,11 @@ export default function AccountsPayablePage() {
   const [entryToPay, setEntryToPay] = useState<AccountsPayableEntry | null>(null);
   const [todayStr, setTodayStr] = useState("");
 
+  // Estados para cálculo dinâmico no modal de pagamento
+  const [interest, setInterest] = useState(0);
+  const [fine, setFine] = useState(0);
+  const [discount, setDiscount] = useState(0);
+
   useEffect(() => {
     setTodayStr(new Date().toISOString().split('T')[0]);
   }, []);
@@ -158,9 +163,9 @@ export default function AccountsPayablePage() {
       status: 'Paid',
       paymentDate: formData.get("paymentDate") as string,
       bankAccountId: formData.get("bankAccountId") as string,
-      interest: Number(formData.get("interest")) || 0,
-      fine: Number(formData.get("fine")) || 0,
-      discount: Number(formData.get("discount")) || 0,
+      interest: interest,
+      fine: fine,
+      discount: discount,
       updatedAt: new Date().toISOString()
     };
 
@@ -171,12 +176,13 @@ export default function AccountsPayablePage() {
       description: `A conta "${entryToPay.description}" foi marcada como paga.` 
     });
     
-    // Primeiro fechamos o modal
     setIsPaymentOpen(false);
     
-    // Aguardamos a transição de saída antes de limpar o estado do registro
     setTimeout(() => {
       setEntryToPay(null);
+      setInterest(0);
+      setFine(0);
+      setDiscount(0);
     }, 300);
   };
 
@@ -214,6 +220,8 @@ export default function AccountsPayablePage() {
         return <Badge variant="outline" className="text-muted-foreground"><Calendar className="w-3 h-3 mr-1" /> Aberto</Badge>;
     }
   };
+
+  const finalSettlementAmount = (entryToPay?.originalAmount || 0) + interest + fine - discount;
 
   return (
     <div className="space-y-6 animate-in fade-in duration-500 pb-10">
@@ -467,7 +475,12 @@ export default function AccountsPayablePage() {
       <Dialog open={isPaymentOpen} onOpenChange={(open) => {
         if (!open) {
           setIsPaymentOpen(false);
-          setTimeout(() => setEntryToPay(null), 300);
+          setTimeout(() => {
+            setEntryToPay(null);
+            setInterest(0);
+            setFine(0);
+            setDiscount(0);
+          }, 300);
         } else {
           setIsPaymentOpen(true);
         }
@@ -506,15 +519,36 @@ export default function AccountsPayablePage() {
                 <div className="grid grid-cols-3 gap-2">
                   <div className="grid gap-2">
                     <Label htmlFor="interest">Juros (R$)</Label>
-                    <Input id="interest" name="interest" type="number" step="0.01" defaultValue="0" />
+                    <Input 
+                      id="interest" 
+                      name="interest" 
+                      type="number" 
+                      step="0.01" 
+                      value={interest}
+                      onChange={(e) => setInterest(Number(e.target.value) || 0)}
+                    />
                   </div>
                   <div className="grid gap-2">
                     <Label htmlFor="fine">Multa (R$)</Label>
-                    <Input id="fine" name="fine" type="number" step="0.01" defaultValue="0" />
+                    <Input 
+                      id="fine" 
+                      name="fine" 
+                      type="number" 
+                      step="0.01" 
+                      value={fine}
+                      onChange={(e) => setFine(Number(e.target.value) || 0)}
+                    />
                   </div>
                   <div className="grid gap-2">
                     <Label htmlFor="discount">Desconto (R$)</Label>
-                    <Input id="discount" name="discount" type="number" step="0.01" defaultValue="0" />
+                    <Input 
+                      id="discount" 
+                      name="discount" 
+                      type="number" 
+                      step="0.01" 
+                      value={discount}
+                      onChange={(e) => setDiscount(Number(e.target.value) || 0)}
+                    />
                   </div>
                 </div>
 
@@ -525,7 +559,7 @@ export default function AccountsPayablePage() {
                   </div>
                   <div className="flex justify-between text-sm font-bold border-t pt-2">
                     <span>Valor da Liquidação:</span>
-                    <span className="text-primary">R$ {entryToPay.originalAmount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
+                    <span className="text-primary">R$ {finalSettlementAmount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
                   </div>
                 </div>
               </div>
