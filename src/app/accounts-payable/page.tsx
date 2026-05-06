@@ -25,7 +25,8 @@ import {
   Check,
   Search,
   ChevronDown,
-  AlertTriangle
+  AlertTriangle,
+  X
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useUser, useFirestore, useCollection, useMemoFirebase } from "@/firebase";
@@ -54,6 +55,8 @@ import {
 } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import { toast } from "@/hooks/use-toast";
 import { Supplier, AccountCategory, CostCenter, AccountsPayableEntry } from "@/lib/types";
 
@@ -67,6 +70,11 @@ export default function AccountsPayablePage() {
   const [selectedSupplierId, setSelectedSupplierId] = useState<string>("");
   const [selectedCategoryId, setSelectedCategoryId] = useState<string>("");
   const [selectedCostCenterId, setSelectedCostCenterId] = useState<string>("");
+  const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<string>("");
+
+  // Search states
+  const [supplierSearch, setSupplierSearch] = useState("");
+  const [categorySearch, setCategorySearch] = useState("");
 
   // Firestore Queries
   const entriesQuery = useMemoFirebase(() => {
@@ -99,6 +107,15 @@ export default function AccountsPayablePage() {
     return e.status.toLowerCase() === filterStatus.toLowerCase();
   }) || [];
 
+  const filteredSuppliers = suppliers?.filter(s => 
+    s.name.toLowerCase().includes(supplierSearch.toLowerCase())
+  ) || [];
+
+  const filteredCategories = categories?.filter(c => 
+    c.name.toLowerCase().includes(categorySearch.toLowerCase()) ||
+    c.code?.toLowerCase().includes(categorySearch.toLowerCase())
+  ) || [];
+
   // Stats calculation
   const totalOverdue = entries?.filter(e => e.status === 'Overdue').reduce((acc, curr) => acc + curr.originalAmount, 0) || 0;
   const totalOpen = entries?.filter(e => e.status === 'Open').reduce((acc, curr) => acc + curr.originalAmount, 0) || 0;
@@ -124,7 +141,7 @@ export default function AccountsPayablePage() {
       originalAmount: Number(formData.get("amount")),
       issueDate: formData.get("issueDate") as string,
       dueDate: formData.get("dueDate") as string,
-      paymentMethod: formData.get("paymentMethod") as string,
+      paymentMethod: selectedPaymentMethod,
       status: 'Open',
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
@@ -138,6 +155,9 @@ export default function AccountsPayablePage() {
     setSelectedSupplierId("");
     setSelectedCategoryId("");
     setSelectedCostCenterId("");
+    setSelectedPaymentMethod("");
+    setSupplierSearch("");
+    setCategorySearch("");
   };
 
   const markAsPaid = (entry: AccountsPayableEntry) => {
@@ -182,6 +202,7 @@ export default function AccountsPayablePage() {
               setSelectedSupplierId("");
               setSelectedCategoryId("");
               setSelectedCostCenterId("");
+              setSelectedPaymentMethod("");
             }
           }}>
             <DialogTrigger asChild>
@@ -206,8 +227,19 @@ export default function AccountsPayablePage() {
                       <Input id="amount" name="amount" type="number" step="0.01" placeholder="0,00" required />
                     </div>
                     <div className="grid gap-2">
-                      <Label htmlFor="paymentMethod">Forma de Pagamento (Opcional)</Label>
-                      <Input id="paymentMethod" name="paymentMethod" placeholder="Ex: Pix, Boleto, Cartão" />
+                      <Label>Forma de Pagamento (Opcional)</Label>
+                      <Select value={selectedPaymentMethod} onValueChange={setSelectedPaymentMethod}>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Selecione a forma" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="Pix">Pix</SelectItem>
+                          <SelectItem value="Boleto">Boleto</SelectItem>
+                          <SelectItem value="Cartão">Cartão</SelectItem>
+                          <SelectItem value="Transferência">Transferência</SelectItem>
+                          <SelectItem value="Dinheiro">Dinheiro</SelectItem>
+                        </SelectContent>
+                      </Select>
                     </div>
                   </div>
 
@@ -225,29 +257,97 @@ export default function AccountsPayablePage() {
                   <div className="grid grid-cols-2 gap-4">
                     <div className="grid gap-2">
                       <Label>Fornecedor *</Label>
-                      <Select value={selectedSupplierId} onValueChange={setSelectedSupplierId}>
-                        <SelectTrigger>
-                          <SelectValue placeholder="Selecione o fornecedor" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {suppliers?.map((s) => (
-                            <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
+                      <Popover>
+                        <PopoverTrigger asChild>
+                          <Button variant="outline" className="w-full justify-between font-normal">
+                            {selectedSupplierId ? suppliers?.find(s => s.id === selectedSupplierId)?.name : "Selecione o fornecedor"}
+                            <ChevronDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                          </Button>
+                        </PopoverTrigger>
+                        <PopoverContent className="w-[300px] p-0" align="start">
+                          <div className="p-2 border-b">
+                            <div className="flex items-center gap-2 px-2 bg-muted rounded-md">
+                              <Search className="h-4 w-4 opacity-50" />
+                              <Input 
+                                placeholder="Buscar fornecedor..." 
+                                className="border-none shadow-none focus-visible:ring-0 h-8 text-xs"
+                                value={supplierSearch}
+                                onChange={(e) => setSupplierSearch(e.target.value)}
+                              />
+                            </div>
+                          </div>
+                          <ScrollArea className="h-60">
+                            <div className="p-1">
+                              {filteredSuppliers.map((s) => (
+                                <button
+                                  key={s.id}
+                                  type="button"
+                                  className={cn(
+                                    "w-full text-left px-3 py-2 text-sm rounded-sm hover:bg-accent",
+                                    selectedSupplierId === s.id && "bg-accent"
+                                  )}
+                                  onClick={() => {
+                                    setSelectedSupplierId(s.id);
+                                    setSupplierSearch("");
+                                  }}
+                                >
+                                  {s.name}
+                                </button>
+                              ))}
+                              {filteredSuppliers.length === 0 && (
+                                <p className="p-4 text-xs text-center text-muted-foreground">Nenhum fornecedor encontrado</p>
+                              )}
+                            </div>
+                          </ScrollArea>
+                        </PopoverContent>
+                      </Popover>
                     </div>
                     <div className="grid gap-2">
                       <Label>Categoria Financeira *</Label>
-                      <Select value={selectedCategoryId} onValueChange={setSelectedCategoryId}>
-                        <SelectTrigger>
-                          <SelectValue placeholder="Selecione a categoria" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {categories?.map((c) => (
-                            <SelectItem key={c.id} value={c.id}>{c.code ? `${c.code} - ` : ""}{c.name}</SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
+                      <Popover>
+                        <PopoverTrigger asChild>
+                          <Button variant="outline" className="w-full justify-between font-normal">
+                            {selectedCategoryId ? categories?.find(c => c.id === selectedCategoryId)?.name : "Selecione a categoria"}
+                            <ChevronDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                          </Button>
+                        </PopoverTrigger>
+                        <PopoverContent className="w-[300px] p-0" align="start">
+                          <div className="p-2 border-b">
+                            <div className="flex items-center gap-2 px-2 bg-muted rounded-md">
+                              <Search className="h-4 w-4 opacity-50" />
+                              <Input 
+                                placeholder="Buscar categoria..." 
+                                className="border-none shadow-none focus-visible:ring-0 h-8 text-xs"
+                                value={categorySearch}
+                                onChange={(e) => setCategorySearch(e.target.value)}
+                              />
+                            </div>
+                          </div>
+                          <ScrollArea className="h-60">
+                            <div className="p-1">
+                              {filteredCategories.map((c) => (
+                                <button
+                                  key={c.id}
+                                  type="button"
+                                  className={cn(
+                                    "w-full text-left px-3 py-2 text-sm rounded-sm hover:bg-accent",
+                                    selectedCategoryId === c.id && "bg-accent"
+                                  )}
+                                  onClick={() => {
+                                    setSelectedCategoryId(c.id);
+                                    setCategorySearch("");
+                                  }}
+                                >
+                                  {c.code ? `${c.code} - ` : ""}{c.name}
+                                </button>
+                              ))}
+                              {filteredCategories.length === 0 && (
+                                <p className="p-4 text-xs text-center text-muted-foreground">Nenhuma categoria encontrada</p>
+                              )}
+                            </div>
+                          </ScrollArea>
+                        </PopoverContent>
+                      </Popover>
                     </div>
                   </div>
 
