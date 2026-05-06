@@ -104,7 +104,7 @@ export default function ChartOfAccountsPage() {
                 Ao separar <strong>Insumos</strong> de <strong>Custos Fixos</strong>, a AM Finance consegue calcular sua Margem de Contribuição real.
               </p>
               <p>
-                A estrutura <strong>Grupo > Subgrupo > Item</strong> permite que você veja o macro (quanto gasto com Operacional) e o micro (quanto gasto com Gás GLP).
+                A estrutura <strong>Grupo &gt; Subgrupo &gt; Item</strong> permite que você veja o macro (quanto gasto com Operacional) e o micro (quanto gasto com Gás GLP).
               </p>
             </CardContent>
           </Card>
