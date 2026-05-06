@@ -14,7 +14,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { Search, Plus, MoreVertical, Mail, Building2, Loader2, CreditCard, User } from "lucide-react";
+import { Search, Plus, MoreVertical, Mail, Building2, Loader2, CreditCard, User, Edit2, FileText, Trash2 } from "lucide-react";
 import { 
   DropdownMenu, 
   DropdownMenuContent, 
@@ -29,9 +29,8 @@ import {
   SelectValue 
 } from "@/components/ui/select";
 import { useUser, useFirestore, useCollection, useMemoFirebase } from "@/firebase";
-import { collection, doc, setDoc } from "firebase/firestore";
-import { errorEmitter } from "@/firebase/error-emitter";
-import { FirestorePermissionError } from "@/firebase/errors";
+import { collection, doc } from "firebase/firestore";
+import { setDocumentNonBlocking, updateDocumentNonBlocking, deleteDocumentNonBlocking } from "@/firebase/non-blocking-updates";
 import { 
   Dialog, 
   DialogContent, 
@@ -40,16 +39,30 @@ import {
   DialogTrigger,
   DialogFooter
 } from "@/components/ui/dialog";
+import { 
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Label } from "@/components/ui/label";
 import { toast } from "@/hooks/use-toast";
 import { Supplier, PersonType } from "@/lib/types";
+import { useRouter } from "next/navigation";
 
 export default function SuppliersPage() {
   const { user } = useUser();
   const db = useFirestore();
+  const router = useRouter();
   const [searchTerm, setSearchTerm] = useState("");
-  const [isAdding, setIsAdding] = useState(false);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
+  const [editingSupplier, setEditingSupplier] = useState<Supplier | null>(null);
+  const [supplierToDelete, setSupplierToDelete] = useState<Supplier | null>(null);
   const [selectedPersonType, setSelectedPersonType] = useState<PersonType>("Pessoa Jurídica");
 
   // Memoize the collection reference based on the logged-in user
@@ -66,15 +79,15 @@ export default function SuppliersPage() {
     s.pixKey?.toLowerCase().includes(searchTerm.toLowerCase())
   ) || [];
 
-  const handleAddSupplier = async (e: React.FormEvent<HTMLFormElement>) => {
+  const handleSaveSupplier = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (!db || !user) return;
 
     const formData = new FormData(e.currentTarget);
-    const supplierId = `sup_${Date.now()}`;
+    const supplierId = editingSupplier ? editingSupplier.id : `sup_${Date.now()}`;
     const supplierRef = doc(db, "users", user.uid, "suppliers", supplierId);
     
-    const newSupplier: Supplier = {
+    const supplierData: Supplier = {
       id: supplierId,
       name: formData.get("name") as string,
       personType: selectedPersonType,
@@ -83,30 +96,58 @@ export default function SuppliersPage() {
       phone: (formData.get("phone") as string) || "",
       category: (formData.get("category") as string) || "",
       pixKey: (formData.get("pixKey") as string) || "",
-      createdAt: new Date().toISOString(),
+      createdAt: editingSupplier ? editingSupplier.createdAt : new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
 
-    setIsAdding(true);
-    
-    setDoc(supplierRef, newSupplier)
-      .then(() => {
-        setIsDialogOpen(false);
-        toast({
-          title: "Fornecedor adicionado",
-          description: `${newSupplier.name} foi cadastrado com sucesso.`,
-        });
-      })
-      .catch(async (error) => {
-        errorEmitter.emit('permission-error', new FirestorePermissionError({
-          path: supplierRef.path,
-          operation: 'create',
-          requestResourceData: newSupplier,
-        }));
-      })
-      .finally(() => {
-        setIsAdding(false);
+    if (editingSupplier) {
+      updateDocumentNonBlocking(supplierRef, supplierData);
+      toast({
+        title: "Fornecedor atualizado",
+        description: `${supplierData.name} foi atualizado com sucesso.`,
       });
+    } else {
+      setDocumentNonBlocking(supplierRef, supplierData, { merge: true });
+      toast({
+        title: "Fornecedor adicionado",
+        description: `${supplierData.name} foi cadastrado com sucesso.`,
+      });
+    }
+
+    setIsDialogOpen(false);
+    setEditingSupplier(null);
+  };
+
+  const openEditDialog = (supplier: Supplier) => {
+    setEditingSupplier(supplier);
+    setSelectedPersonType(supplier.personType);
+    setIsDialogOpen(true);
+  };
+
+  const openDeleteDialog = (supplier: Supplier) => {
+    setSupplierToDelete(supplier);
+    setIsDeleteDialogOpen(true);
+  };
+
+  const confirmDelete = () => {
+    if (!db || !user || !supplierToDelete) return;
+    const supplierRef = doc(db, "users", user.uid, "suppliers", supplierToDelete.id);
+    deleteDocumentNonBlocking(supplierRef);
+    toast({
+      title: "Fornecedor arquivado",
+      description: `${supplierToDelete.name} foi removido da sua lista ativa.`,
+    });
+    setIsDeleteDialogOpen(false);
+    setSupplierToDelete(null);
+  };
+
+  const handleViewStatement = (supplier: Supplier) => {
+    // Redireciona para contas a pagar filtrando pelo fornecedor
+    router.push(`/accounts-payable?supplierId=${supplier.id}`);
+    toast({
+      title: "Abrindo extrato",
+      description: `Filtrando movimentações de ${supplier.name}.`,
+    });
   };
 
   return (
@@ -117,21 +158,30 @@ export default function SuppliersPage() {
           <p className="text-muted-foreground">Gerencie suas parcerias e prestadores de serviço.</p>
         </div>
         
-        <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
+        <Dialog open={isDialogOpen} onOpenChange={(open) => {
+          setIsDialogOpen(open);
+          if (!open) setEditingSupplier(null);
+        }}>
           <DialogTrigger asChild>
             <Button className="gap-2">
               <Plus className="w-4 h-4" /> Adicionar Fornecedor
             </Button>
           </DialogTrigger>
           <DialogContent className="max-w-md">
-            <form onSubmit={handleAddSupplier}>
+            <form onSubmit={handleSaveSupplier}>
               <DialogHeader>
-                <DialogTitle>Novo Fornecedor</DialogTitle>
+                <DialogTitle>{editingSupplier ? "Editar Fornecedor" : "Novo Fornecedor"}</DialogTitle>
               </DialogHeader>
               <div className="grid gap-4 py-4">
                 <div className="grid gap-2">
                   <Label htmlFor="name">Nome / Razão Social *</Label>
-                  <Input id="name" name="name" placeholder="Ex: Peixaria Central" required />
+                  <Input 
+                    id="name" 
+                    name="name" 
+                    placeholder="Ex: Peixaria Central" 
+                    defaultValue={editingSupplier?.name} 
+                    required 
+                  />
                 </div>
                 
                 <div className="grid gap-2">
@@ -152,33 +202,58 @@ export default function SuppliersPage() {
 
                 <div className="grid gap-2">
                   <Label htmlFor="pixKey">Chave Pix</Label>
-                  <Input id="pixKey" name="pixKey" placeholder="E-mail, CPF, CNPJ ou Aleatória" />
+                  <Input 
+                    id="pixKey" 
+                    name="pixKey" 
+                    placeholder="E-mail, CPF, CNPJ ou Aleatória" 
+                    defaultValue={editingSupplier?.pixKey}
+                  />
                 </div>
 
                 <div className="grid grid-cols-2 gap-4">
                   <div className="grid gap-2">
                     <Label htmlFor="cnpj">{selectedPersonType === 'Pessoa Física' ? 'CPF' : 'CNPJ'}</Label>
-                    <Input id="cnpj" name="cnpj" placeholder="000.000.000-00" />
+                    <Input 
+                      id="cnpj" 
+                      name="cnpj" 
+                      placeholder="000.000.000-00" 
+                      defaultValue={editingSupplier?.cnpj}
+                    />
                   </div>
                   <div className="grid gap-2">
                     <Label htmlFor="category">Categoria</Label>
-                    <Input id="category" name="category" placeholder="Ex: Insumos" />
+                    <Input 
+                      id="category" 
+                      name="category" 
+                      placeholder="Ex: Insumos" 
+                      defaultValue={editingSupplier?.category}
+                    />
                   </div>
                 </div>
                 
                 <div className="grid gap-2">
                   <Label htmlFor="email">E-mail de Contato</Label>
-                  <Input id="email" name="email" type="email" placeholder="contato@empresa.com" />
+                  <Input 
+                    id="email" 
+                    name="email" 
+                    type="email" 
+                    placeholder="contato@empresa.com" 
+                    defaultValue={editingSupplier?.email}
+                  />
                 </div>
                 <div className="grid gap-2">
                   <Label htmlFor="phone">Telefone</Label>
-                  <Input id="phone" name="phone" placeholder="(00) 00000-0000" />
+                  <Input 
+                    id="phone" 
+                    name="phone" 
+                    placeholder="(00) 00000-0000" 
+                    defaultValue={editingSupplier?.phone}
+                  />
                 </div>
               </div>
               <DialogFooter>
-                <Button type="submit" disabled={isAdding}>
-                  {isAdding ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
-                  Salvar Fornecedor
+                <Button type="submit">
+                  {editingSupplier ? "Atualizar Fornecedor" : "Salvar Fornecedor"}
                 </Button>
               </DialogFooter>
             </form>
@@ -265,9 +340,18 @@ export default function SuppliersPage() {
                           </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
-                          <DropdownMenuItem>Editar Detalhes</DropdownMenuItem>
-                          <DropdownMenuItem>Ver Extrato</DropdownMenuItem>
-                          <DropdownMenuItem className="text-destructive">Arquivar</DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => openEditDialog(supplier)}>
+                            <Edit2 className="w-4 h-4 mr-2" /> Editar Detalhes
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => handleViewStatement(supplier)}>
+                            <FileText className="w-4 h-4 mr-2" /> Ver Extrato
+                          </DropdownMenuItem>
+                          <DropdownMenuItem 
+                            className="text-destructive focus:text-destructive" 
+                            onClick={() => openDeleteDialog(supplier)}
+                          >
+                            <Trash2 className="w-4 h-4 mr-2" /> Arquivar
+                          </DropdownMenuItem>
                         </DropdownMenuContent>
                       </DropdownMenu>
                     </TableCell>
@@ -278,6 +362,24 @@ export default function SuppliersPage() {
           )}
         </CardContent>
       </Card>
+
+      <AlertDialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Arquivar Fornecedor?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Você está prestes a arquivar <strong>{supplierToDelete?.name}</strong>. 
+              Isso removerá o fornecedor da sua lista ativa, mas não afetará lançamentos financeiros já existentes.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmDelete} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+              Arquivar
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
