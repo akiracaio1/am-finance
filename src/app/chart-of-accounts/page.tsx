@@ -12,13 +12,14 @@ import {
   ChevronDown,
   Loader2,
   FolderPlus,
-  Sparkles
+  Sparkles,
+  Trash2
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { useUser, useFirestore, useCollection, useMemoFirebase } from "@/firebase";
 import { collection, doc } from "firebase/firestore";
-import { setDocumentNonBlocking } from "@/firebase/non-blocking-updates";
+import { setDocumentNonBlocking, deleteDocumentNonBlocking } from "@/firebase/non-blocking-updates";
 import { 
   Dialog, 
   DialogContent, 
@@ -27,6 +28,16 @@ import {
   DialogFooter,
   DialogDescription
 } from "@/components/ui/dialog";
+import { 
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -100,6 +111,8 @@ export default function ChartOfAccountsPage() {
   const db = useFirestore();
   const [expanded, setExpanded] = useState<string[]>([]);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
+  const [categoryToDelete, setCategoryToDelete] = useState<AccountCategory | null>(null);
   const [isProvisioning, setIsProvisioning] = useState(false);
   const [parentForNew, setParentForNew] = useState<AccountCategory | null>(null);
 
@@ -117,6 +130,23 @@ export default function ChartOfAccountsPage() {
   const handleOpenNew = (parent?: AccountCategory) => {
     setParentForNew(parent || null);
     setIsDialogOpen(true);
+  };
+
+  const openDeleteDialog = (category: AccountCategory) => {
+    setCategoryToDelete(category);
+    setIsDeleteDialogOpen(true);
+  };
+
+  const confirmDelete = () => {
+    if (!db || !user || !categoryToDelete) return;
+    const categoryRef = doc(db, "users", user.uid, "accountCategories", categoryToDelete.id);
+    deleteDocumentNonBlocking(categoryRef);
+    toast({
+      title: "Categoria excluída",
+      description: `${categoryToDelete.name} foi removida com sucesso.`,
+    });
+    setIsDeleteDialogOpen(false);
+    setCategoryToDelete(null);
   };
 
   const handleProvisionDefaults = async () => {
@@ -213,17 +243,30 @@ export default function ChartOfAccountsPage() {
           </span>
           <span className="flex-1 truncate">{item.name}</span>
           
-          <Button 
-            variant="ghost" 
-            size="icon" 
-            className="h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity"
-            onClick={(e) => {
-              e.stopPropagation();
-              handleOpenNew(item);
-            }}
-          >
-            <Plus className="w-3 h-3" />
-          </Button>
+          <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+            <Button 
+              variant="ghost" 
+              size="icon" 
+              className="h-6 w-6"
+              onClick={(e) => {
+                e.stopPropagation();
+                handleOpenNew(item);
+              }}
+            >
+              <Plus className="w-3 h-3" />
+            </Button>
+            <Button 
+              variant="ghost" 
+              size="icon" 
+              className="h-6 w-6 text-destructive hover:text-destructive hover:bg-destructive/10"
+              onClick={(e) => {
+                e.stopPropagation();
+                openDeleteDialog(item);
+              }}
+            >
+              <Trash2 className="w-3 h-3" />
+            </Button>
+          </div>
         </div>
         
         {isExpanded && children.map(child => renderItem(child.id, level + 1))}
@@ -299,7 +342,7 @@ export default function ChartOfAccountsPage() {
             </CardHeader>
             <CardContent className="text-xs text-muted-foreground leading-relaxed space-y-2">
               <p>
-                A estrutura <strong>Grupo {`&gt;`} Subgrupo {`&gt;`} Item</strong> permite que você veja o macro (quanto gasto com Operacional) e o micro (quanto gasto com Gás GLP).
+                A estrutura <strong>Grupo &gt; Subgrupo &gt; Item</strong> permite que você veja o macro (quanto gasto com Operacional) e o micro (quanto gasto com Gás GLP).
               </p>
               <p>
                 Isso é fundamental para calcular sua Margem de Contribuição e identificar onde estão os gargalos do seu caixa.
@@ -363,6 +406,24 @@ export default function ChartOfAccountsPage() {
           </form>
         </DialogContent>
       </Dialog>
+
+      <AlertDialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Excluir Categoria?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Você está prestes a excluir <strong>{categoryToDelete?.name}</strong>. 
+              Esta ação não pode ser desfeita e pode afetar a visualização de lançamentos vinculados a esta categoria.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmDelete} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+              Excluir
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
