@@ -8,6 +8,7 @@ import { initializeFirebase, FirebaseClientProvider } from "@/firebase";
 import './globals.css';
 import { Toaster } from "@/components/ui/toaster";
 import { AppSidebar } from "@/components/layout/AppSidebar";
+import { FirebaseErrorListener } from "@/components/FirebaseErrorListener";
 import { cn } from "@/lib/utils";
 
 export default function RootLayout({
@@ -19,13 +20,16 @@ export default function RootLayout({
   const pathname = usePathname();
   const router = useRouter();
   const [loading, setLoading] = useState(true);
+  const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
+    setMounted(true);
     const data = initializeFirebase();
     setFirebaseData(data);
 
     const unsubscribe = onAuthStateChanged(data.auth, (user) => {
-      if (!user && pathname !== "/login" && pathname !== "/register" && pathname !== "/forgot-password") {
+      const isAuthPage = pathname === "/login" || pathname === "/register" || pathname === "/forgot-password";
+      if (!user && !isAuthPage) {
         router.push("/login");
       }
       setLoading(false);
@@ -34,9 +38,7 @@ export default function RootLayout({
     return () => unsubscribe();
   }, [pathname, router]);
 
-  const isAuthPage = pathname === "/login" || pathname === "/register" || pathname === "/forgot-password";
-
-  if (loading) {
+  if (!mounted || (loading && pathname !== "/login" && pathname !== "/register" && pathname !== "/forgot-password")) {
     return (
       <html lang="pt-BR">
         <body className="flex items-center justify-center min-h-screen bg-background">
@@ -45,6 +47,8 @@ export default function RootLayout({
       </html>
     );
   }
+
+  const isAuthPage = pathname === "/login" || pathname === "/register" || pathname === "/forgot-password";
 
   return (
     <html lang="pt-BR">
@@ -67,6 +71,7 @@ export default function RootLayout({
                 {children}
               </main>
             </div>
+            <FirebaseErrorListener />
             <Toaster />
           </FirebaseClientProvider>
         )}

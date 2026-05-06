@@ -6,6 +6,8 @@ import { useRouter } from "next/navigation";
 import { createUserWithEmailAndPassword } from "firebase/auth";
 import { doc, setDoc, serverTimestamp } from "firebase/firestore";
 import { useAuth, useFirestore } from "@/firebase";
+import { errorEmitter } from "@/firebase/error-emitter";
+import { FirestorePermissionError } from "@/firebase/errors";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -41,33 +43,64 @@ export default function RegisterPage() {
       const userCredential = await createUserWithEmailAndPassword(auth, email, password);
       const user = userCredential.user;
 
-      // Criar ID da empresa
       const companyId = `comp_${Date.now()}`;
 
-      // Salvar Empresa
-      await setDoc(doc(db, "companies", companyId), {
+      // Tenta criar a empresa
+      const companyRef = doc(db, "companies", companyId);
+      const companyData = {
         name: companyName,
         createdAt: serverTimestamp(),
         lgpdConsent: true,
-      });
+      };
 
-      // Salvar Perfil do Usuário
-      await setDoc(doc(db, "users", user.uid), {
+      setDoc(companyRef, companyData)
+        .catch(async (error) => {
+          const permissionError = new FirestorePermissionError({
+            path: companyRef.path,
+            operation: 'create',
+            requestResourceData: companyData,
+          });
+          errorEmitter.emit('permission-error', permissionError);
+        });
+
+      // Tenta criar o perfil do usuário
+      const userRef = doc(db, "users", user.uid);
+      const userData = {
         email,
         companyId,
         displayName: companyName,
-      });
+      };
+
+      setDoc(userRef, userData)
+        .catch(async (error) => {
+          const permissionError = new FirestorePermissionError({
+            path: userRef.path,
+            operation: 'create',
+            requestResourceData: userData,
+          });
+          errorEmitter.emit('permission-error', permissionError);
+        });
 
       toast({
         title: "Sucesso!",
-        description: "Empresa cadastrada com sucesso no AM Finance.",
+        description: "Cadastro realizado. Redirecionando...",
       });
-      router.push("/dashboard");
+      
+      setTimeout(() => router.push("/dashboard"), 1500);
     } catch (error: any) {
+      let message = "Não foi possível realizar o cadastro.";
+      if (error.code === 'auth/operation-not-allowed') {
+        message = "O cadastro por E-mail/Senha está desativado no Console do Firebase.";
+      } else if (error.code === 'auth/email-already-in-use') {
+        message = "Este e-mail já está sendo utilizado.";
+      } else if (error.code === 'auth/weak-password') {
+        message = "A senha deve ter pelo menos 6 caracteres.";
+      }
+      
       toast({
         variant: "destructive",
         title: "Erro no cadastro",
-        description: error.message || "Não foi possível realizar o cadastro.",
+        description: message,
       });
     } finally {
       setLoading(false);
@@ -104,7 +137,7 @@ export default function RegisterPage() {
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="password">Senha</Label>
+              <Label htmlFor="password">Senha (mín. 6 caracteres)</Label>
               <Input 
                 id="password" 
                 type="password" 
