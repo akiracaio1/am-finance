@@ -17,26 +17,14 @@ import {
   ArrowDownCircle, 
   Filter, 
   MoreHorizontal, 
-  CheckCircle2, 
-  Calendar,
-  Plus,
-  Loader2,
-  Trash2,
-  Check,
-  ChevronDown,
-  AlertTriangle,
-  CreditCard,
-  Clock,
-  RotateCcw,
-  Wallet,
-  X,
-  Search,
-  FilterX,
-  CalendarDays,
-  Layers,
-  Repeat,
-  FileText,
-  Edit2
+  Plus, 
+  Trash2, 
+  Check, 
+  AlertTriangle, 
+  Wallet, 
+  FilterX, 
+  Edit2,
+  RotateCcw
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useUser, useFirestore, useCollection, useMemoFirebase } from "@/firebase";
@@ -66,9 +54,9 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { Collapsible, CollapsibleContent } from "@/components/ui/collapsible";
 import { toast } from "@/hooks/use-toast";
-import { Supplier, AccountCategory, CostCenter, AccountsPayableEntry, EntryType } from "@/lib/types";
+import { Supplier, AccountCategory, AccountsPayableEntry, EntryType } from "@/lib/types";
 import { 
   format, 
   startOfWeek, 
@@ -76,9 +64,6 @@ import {
   addWeeks, 
   startOfMonth, 
   endOfMonth, 
-  subMonths, 
-  startOfYear, 
-  endOfYear,
   addMonths
 } from "date-fns";
 
@@ -105,9 +90,18 @@ export default function AccountsPayablePage() {
   const [fine, setFine] = useState(0);
   const [discount, setDiscount] = useState(0);
 
-  // Estados para Novo Lançamento (Captura Reativa)
-  const [baseAmount, setBaseAmount] = useState<number>(0);
-  const [baseDueDate, setBaseDueDate] = useState<string>("");
+  // ESTADOS DO FORMULÁRIO (CONTROLADOS)
+  const [formType, setFormType] = useState<EntryType>("Confirmed");
+  const [formDescription, setFormDescription] = useState("");
+  const [formAmount, setFormAmount] = useState<number>(0);
+  const [formDueDate, setFormDueDate] = useState("");
+  const [formIssueDate, setFormIssueDate] = useState("");
+  const [formSupplierId, setFormSupplierId] = useState("");
+  const [formCategoryId, setFormCategoryId] = useState("");
+  const [formPaymentMethod, setFormPaymentMethod] = useState("Pix");
+  const [formCostCenterId, setFormCostCenterId] = useState("");
+
+  // Estados para Repetição/Parcelamento
   const [repetitionType, setRepetitionType] = useState<"single" | "fixed" | "installments">("single");
   const [numRepetitions, setNumRepetitions] = useState(1);
   const [generatedInstallments, setGeneratedInstallments] = useState<{date: string, amount: number}[]>([]);
@@ -115,10 +109,32 @@ export default function AccountsPayablePage() {
   useEffect(() => {
     const nowStr = format(new Date(), "yyyy-MM-dd");
     setTodayStr(nowStr);
-    if (!editingEntry) {
-      setBaseDueDate(nowStr);
+  }, []);
+
+  // Sincroniza formulário ao abrir para edição ou novo
+  useEffect(() => {
+    if (editingEntry) {
+      setFormType(editingEntry.entryType);
+      setFormDescription(editingEntry.description);
+      setFormAmount(editingEntry.originalAmount);
+      setFormDueDate(editingEntry.dueDate);
+      setFormIssueDate(editingEntry.issueDate || "");
+      setFormSupplierId(editingEntry.supplierId);
+      setFormCategoryId(editingEntry.accountCategoryId);
+      setFormPaymentMethod(editingEntry.paymentMethod || "Pix");
+      setFormCostCenterId(editingEntry.costCenterId || "");
+    } else {
+      setFormType("Confirmed");
+      setFormDescription("");
+      setFormAmount(0);
+      setFormDueDate(format(new Date(), "yyyy-MM-dd"));
+      setFormIssueDate("");
+      setFormSupplierId("");
+      setFormCategoryId("");
+      setFormPaymentMethod("Pix");
+      setFormCostCenterId("");
     }
-  }, [editingEntry]);
+  }, [editingEntry, isNewEntryOpen]);
 
   const handleDatePresetChange = (preset: string) => {
     setDatePreset(preset);
@@ -150,7 +166,6 @@ export default function AccountsPayablePage() {
     }
   };
 
-  // Queries
   const entriesQuery = useMemoFirebase(() => {
     if (!db || !user) return null;
     return collection(db, "users", user.uid, "accountsPayableEntries");
@@ -166,7 +181,7 @@ export default function AccountsPayablePage() {
     return collection(db, "users", user.uid, "accountCategories");
   }, [db, user]);
 
-  const { data: entries, isLoading: entriesLoading } = useCollection<AccountsPayableEntry>(entriesQuery);
+  const { data: entries } = useCollection<AccountsPayableEntry>(entriesQuery);
   const { data: suppliers } = useCollection<Supplier>(suppliersQuery);
   const { data: categories } = useCollection<AccountCategory>(categoriesQuery);
 
@@ -207,19 +222,19 @@ export default function AccountsPayablePage() {
 
   const hasActiveFilters = filterStatus !== "all" || filterSupplierId !== "all" || filterCategoryId !== "all" || filterDueDateStart || filterDueDateEnd;
 
-  // Lógica de geração de parcelas/repetições reativa
+  // Lógica de geração de parcelas reativa
   useEffect(() => {
-    if (repetitionType === 'single') {
+    if (repetitionType === 'single' || !formDueDate) {
       setGeneratedInstallments([]);
       return;
     }
     
     const newInstallments = [];
     for (let i = 0; i < numRepetitions; i++) {
-      const date = addMonths(new Date(baseDueDate + 'T12:00:00'), i);
+      const date = addMonths(new Date(formDueDate + 'T12:00:00'), i);
       const amount = repetitionType === 'installments' 
-        ? Number((baseAmount / numRepetitions).toFixed(2)) 
-        : baseAmount;
+        ? Number((formAmount / numRepetitions).toFixed(2)) 
+        : formAmount;
 
       newInstallments.push({
         date: format(date, "yyyy-MM-dd"),
@@ -227,21 +242,20 @@ export default function AccountsPayablePage() {
       });
     }
     setGeneratedInstallments(newInstallments);
-  }, [repetitionType, numRepetitions, baseAmount, baseDueDate]);
+  }, [repetitionType, numRepetitions, formAmount, formDueDate]);
 
   const handleSaveEntry = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (!db || !user) return;
-    const formData = new FormData(e.currentTarget);
     
     const baseData = {
-      supplierId: formData.get("supplierId") as string,
-      accountCategoryId: formData.get("categoryId") as string,
-      costCenterId: (formData.get("costCenterId") as string) || "",
-      description: formData.get("description") as string,
-      issueDate: (formData.get("issueDate") as string) || "",
-      paymentMethod: (formData.get("paymentMethod") as string) || "Pix",
-      entryType: formData.get("entryType") as EntryType,
+      supplierId: formSupplierId,
+      accountCategoryId: formCategoryId,
+      costCenterId: formCostCenterId,
+      description: formDescription,
+      issueDate: formIssueDate,
+      paymentMethod: formPaymentMethod,
+      entryType: formType,
       updatedAt: new Date().toISOString(),
     };
 
@@ -249,8 +263,8 @@ export default function AccountsPayablePage() {
       const entryRef = doc(db, "users", user.uid, "accountsPayableEntries", editingEntry.id);
       updateDocumentNonBlocking(entryRef, {
         ...baseData,
-        originalAmount: Number(formData.get("amount")),
-        dueDate: formData.get("dueDate") as string,
+        originalAmount: formAmount,
+        dueDate: formDueDate,
       });
       toast({ title: "Lançamento atualizado" });
     } else {
@@ -261,8 +275,8 @@ export default function AccountsPayablePage() {
           ...baseData,
           id: entryId,
           status: 'Open',
-          originalAmount: Number(formData.get("amount")),
-          dueDate: formData.get("dueDate") as string,
+          originalAmount: formAmount,
+          dueDate: formDueDate,
           createdAt: new Date().toISOString(),
         }, { merge: true });
       } else {
@@ -285,8 +299,6 @@ export default function AccountsPayablePage() {
 
     setIsNewEntryOpen(false);
     setEditingEntry(null);
-    setRepetitionType("single");
-    setBaseAmount(0);
   };
 
   const handleConfirmPayment = (e: React.FormEvent<HTMLFormElement>) => {
@@ -336,8 +348,6 @@ export default function AccountsPayablePage() {
 
   const handleOpenEdit = (entry: AccountsPayableEntry) => {
     setEditingEntry(entry);
-    setBaseAmount(entry.originalAmount);
-    setBaseDueDate(entry.dueDate);
     setIsNewEntryOpen(true);
   };
 
@@ -362,7 +372,6 @@ export default function AccountsPayablePage() {
             if (!open) {
               setEditingEntry(null);
               setRepetitionType("single");
-              setBaseAmount(0);
             }
           }}>
             <DialogTrigger asChild>
@@ -370,7 +379,7 @@ export default function AccountsPayablePage() {
                 <Plus className="w-4 h-4" /> Novo Lançamento
               </Button>
             </DialogTrigger>
-            <DialogContent className="max-w-3xl overflow-y-auto max-h-[90vh]" key={editingEntry?.id || 'new'}>
+            <DialogContent className="max-w-3xl overflow-y-auto max-h-[90vh]">
               <form onSubmit={handleSaveEntry}>
                 <DialogHeader>
                   <DialogTitle>{editingEntry ? 'Editar Lançamento' : 'Novo Lançamento'}</DialogTitle>
@@ -386,7 +395,7 @@ export default function AccountsPayablePage() {
                     <div className="grid grid-cols-2 gap-4">
                       <div className="grid gap-2">
                         <Label>Tipo de Lançamento</Label>
-                        <Select name="entryType" defaultValue={editingEntry?.entryType || "Confirmed"}>
+                        <Select value={formType} onValueChange={(v: EntryType) => setFormType(v)}>
                           <SelectTrigger>
                             <SelectValue />
                           </SelectTrigger>
@@ -398,7 +407,12 @@ export default function AccountsPayablePage() {
                       </div>
                       <div className="grid gap-2">
                         <Label>Descrição *</Label>
-                        <Input id="description" name="description" placeholder="Ex: Conta de Luz" defaultValue={editingEntry?.description} required />
+                        <Input 
+                          placeholder="Ex: Conta de Luz" 
+                          value={formDescription} 
+                          onChange={e => setFormDescription(e.target.value)} 
+                          required 
+                        />
                       </div>
                     </div>
 
@@ -406,36 +420,36 @@ export default function AccountsPayablePage() {
                       <div className="grid gap-2">
                         <Label>Valor (R$) *</Label>
                         <Input 
-                          id="amount" 
-                          name="amount" 
                           type="number" 
                           step="0.01" 
                           required 
-                          value={baseAmount || ""}
-                          onChange={(e) => setBaseAmount(Number(e.target.value))}
+                          value={formAmount || ""}
+                          onChange={(e) => setFormAmount(Number(e.target.value))}
                         />
                       </div>
                       <div className="grid gap-2">
                         <Label>Vencimento *</Label>
                         <Input 
-                          id="dueDate" 
-                          name="dueDate" 
                           type="date" 
                           required 
-                          value={baseDueDate}
-                          onChange={(e) => setBaseDueDate(e.target.value)}
+                          value={formDueDate}
+                          onChange={(e) => setFormDueDate(e.target.value)}
                         />
                       </div>
                       <div className="grid gap-2">
                         <Label>Emissão</Label>
-                        <Input id="issueDate" name="issueDate" type="date" defaultValue={editingEntry?.issueDate} />
+                        <Input 
+                          type="date" 
+                          value={formIssueDate} 
+                          onChange={e => setFormIssueDate(e.target.value)} 
+                        />
                       </div>
                     </div>
 
                     <div className="grid grid-cols-2 gap-4">
                       <div className="grid gap-2">
                         <Label>Fornecedor *</Label>
-                        <Select name="supplierId" defaultValue={editingEntry?.supplierId} required>
+                        <Select value={formSupplierId} onValueChange={setFormSupplierId} required>
                           <SelectTrigger><SelectValue placeholder="Selecione..." /></SelectTrigger>
                           <SelectContent>
                             {suppliers?.map(s => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}
@@ -444,7 +458,7 @@ export default function AccountsPayablePage() {
                       </div>
                       <div className="grid gap-2">
                         <Label>Categoria *</Label>
-                        <Select name="categoryId" defaultValue={editingEntry?.accountCategoryId} required>
+                        <Select value={formCategoryId} onValueChange={setFormCategoryId} required>
                           <SelectTrigger><SelectValue placeholder="Selecione..." /></SelectTrigger>
                           <SelectContent>
                             {categories?.map(c => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}
@@ -456,7 +470,7 @@ export default function AccountsPayablePage() {
                     <div className="grid grid-cols-2 gap-4">
                       <div className="grid gap-2">
                         <Label>Forma de Pagamento</Label>
-                        <Select name="paymentMethod" defaultValue={editingEntry?.paymentMethod || "Pix"}>
+                        <Select value={formPaymentMethod} onValueChange={setFormPaymentMethod}>
                           <SelectTrigger>
                             <SelectValue />
                           </SelectTrigger>
@@ -471,7 +485,7 @@ export default function AccountsPayablePage() {
                       </div>
                       <div className="grid gap-2">
                         <Label>Centro de Custo (Opcional)</Label>
-                        <Select name="costCenterId" defaultValue={editingEntry?.costCenterId}>
+                        <Select value={formCostCenterId} onValueChange={setFormCostCenterId}>
                           <SelectTrigger><SelectValue placeholder="Selecione..." /></SelectTrigger>
                           <SelectContent>
                             <SelectItem value="null">Nenhum</SelectItem>
@@ -492,8 +506,8 @@ export default function AccountsPayablePage() {
                           <SelectTrigger><SelectValue /></SelectTrigger>
                           <SelectContent>
                             <SelectItem value="single">Lançamento Único</SelectItem>
-                            <SelectItem value="fixed">Fixo Mensal (Repetir Valor R$ {baseAmount})</SelectItem>
-                            <SelectItem value="installments">Parcelado (Dividir Valor R$ {baseAmount})</SelectItem>
+                            <SelectItem value="fixed">Fixo Mensal (Repetir Valor R$ {formAmount})</SelectItem>
+                            <SelectItem value="installments">Parcelado (Dividir Valor R$ {formAmount})</SelectItem>
                           </SelectContent>
                         </Select>
                       </div>
