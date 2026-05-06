@@ -1,0 +1,74 @@
+
+{
+  "entities": {
+    "UserProfile": {
+      "title": "Perfil do Usuário",
+      "description": "Dados do usuário e vínculo com a empresa.",
+      "type": "object",
+      "properties": {
+        "displayName": { "type": "string" },
+        "email": { "type": "string", "format": "email" },
+        "companyId": { "type": "string", "description": "ID da empresa à qual o usuário pertence." }
+      },
+      "required": ["email", "companyId"]
+    },
+    "Company": {
+      "title": "Empresa",
+      "description": "Dados da empresa proprietária dos dados financeiros.",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "cnpj": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "lgpdConsent": { "type": "boolean", "description": "Se a empresa aceitou os termos da LGPD." }
+      },
+      "required": ["name", "lgpdConsent"]
+    },
+    "Supplier": {
+      "title": "Fornecedor",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "cnpj": { "type": "string" },
+        "contact": { "type": "string" },
+        "category": { "type": "string" }
+      },
+      "required": ["name", "cnpj"]
+    },
+    "FinancialEntry": {
+      "title": "Lançamento Financeiro",
+      "type": "object",
+      "properties": {
+        "description": { "type": "string" },
+        "amount": { "type": "number" },
+        "dueDate": { "type": "string", "format": "date" },
+        "status": { "type": "string", "enum": ["open", "paid", "overdue", "canceled"] },
+        "type": { "type": "string", "enum": ["payable", "receivable"] },
+        "category": { "type": "string" },
+        "supplierId": { "type": "string" }
+      },
+      "required": ["description", "amount", "dueDate", "type"]
+    }
+  },
+  "auth": {
+    "providers": ["password"]
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "#/backend/entities/UserProfile",
+      "description": "Perfis de usuário vinculados a empresas."
+    },
+    "/companies/{companyId}": {
+      "schema": "#/backend/entities/Company",
+      "description": "Dados mestres da empresa."
+    },
+    "/companies/{companyId}/suppliers/{supplierId}": {
+      "schema": "#/backend/entities/Supplier",
+      "description": "Catálogo de fornecedores isolado por empresa."
+    },
+    "/companies/{companyId}/entries/{entryId}": {
+      "schema": "#/backend/entities/FinancialEntry",
+      "description": "Movimentações financeiras isoladas por empresa."
+    }
+  }
+}
