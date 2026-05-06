@@ -1,3 +1,4 @@
+
 {
   "entities": {
     "Supplier": {
@@ -14,9 +15,18 @@
           "type": "string",
           "description": "The official name of the supplier."
         },
+        "personType": {
+          "type": "string",
+          "description": "Type of person: 'Pessoa Física' or 'Pessoa Jurídica'.",
+          "enum": ["Pessoa Física", "Pessoa Jurídica"]
+        },
+        "pixKey": {
+          "type": "string",
+          "description": "PIX key for financial transactions."
+        },
         "cnpj": {
           "type": "string",
-          "description": "Brazilian National Register of Legal Entities number (CNPJ) of the supplier. (Format: XX.XXX.XXX/XXXX-XX)"
+          "description": "Tax ID (CNPJ or CPF) of the supplier."
         },
         "contactName": {
           "type": "string",
@@ -33,7 +43,7 @@
         },
         "category": {
           "type": "string",
-          "description": "General category or type of products/services provided by the supplier (e.g., 'Food Ingredients', 'Packaging', 'Utilities')."
+          "description": "General category or type of products/services provided by the supplier."
         },
         "notes": {
           "type": "string",
@@ -53,10 +63,7 @@
       "required": [
         "id",
         "name",
-        "cnpj",
-        "email",
-        "phone",
-        "category",
+        "personType",
         "createdAt",
         "updatedAt"
       ]
@@ -623,6 +630,6 @@
         }
       }
     ],
-    "reasoning": "The recommended Firestore structure is based on strong user-centric data segregation, adhering strictly to the 'Private Data: Path-Based ownership' and 'Hierarchical Paths for User-Owned Data' mandates. Given that Yumi Yumi 🍣 Finance is designed for personal use, all primary financial entities are nested directly under a specific user's ID. This radical segregation ensures maximum security, simplifies access control, and inherently supports Queryable Access Patterns (QAPs).\n\n**Authorization Independence:** All collections are structured as `/users/{userId}/<collectionName>/{documentId}` or further nested as `/users/{userId}/bankAccounts/{bankAccountId}/bankTransactions/{transactionId}`. This design achieves authorization independence by embedding the `userId` directly into the path of every document. Consequently, security rules will not require any `get()` calls to verify ownership. The rule will simply check if `request.auth.uid == userId` (where `userId` is the wildcard in the path). This makes rules atomic, highly performant, and easy to debug, as authorization is determined solely by the request context and the document's physical location.\n\n**Queryable Access Patterns (QAPs):** The user-scoped structure naturally supports secure `list` operations. Firestore's security rules automatically enforce that `list` queries must include a filter on the `userId` corresponding to the `request.auth.uid` in the path. For instance, a user can only query their own `/users/{request.auth.uid}/suppliers` collection, and attempting to query `/users/anotherUser/suppliers` will be denied. This inherently prevents unauthorized data access during list operations, satisfying the QAPs principle by ensuring rules are not filters, but rather access grants based on path ownership.\n\n**Structural Segregation:** Each collection (`suppliers`, `accountCategories`, `bankAccounts`, `accountsPayableEntries`, `accountsReceivableEntries`, `cashFlowProjections`) under a user's path is designed to hold documents of a single entity type with homogeneous security requirements (i.e., owned by the `userId` in the path). The `bankTransactions` collection is further segregated under specific `bankAccounts` to reflect their natural hierarchical relationship while maintaining the same user-ownership security posture.\n\n**Denormalization:** In this user-specific context, explicit denormalization of authorization context is largely unnecessary as the `userId` in the path serves as the ultimate authorization context for all documents within that user's scope. Data references (e.g., `supplierId` in `AccountsPayableEntry`) are internal logical links, not authorization dependencies, as the linked `Supplier` entity is also owned by the same `userId`."
+    "reasoning": "The recommended Firestore structure is based on strong user-centric data segregation..."
   }
 }

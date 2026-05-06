@@ -1,12 +1,20 @@
+
 export type TransactionStatus = 'open' | 'paid' | 'overdue' | 'canceled';
 export type AccountType = 'payable' | 'receivable';
+export type PersonType = 'Pessoa Física' | 'Pessoa Jurídica';
 
 export interface Supplier {
   id: string;
   name: string;
-  cnpj: string;
-  contact: string;
-  category: string;
+  personType: PersonType;
+  cnpj?: string; // Serves as CPF or CNPJ
+  contact?: string; // Legacy field
+  email?: string;
+  phone?: string;
+  category?: string;
+  pixKey?: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface ChartOfAccount {
