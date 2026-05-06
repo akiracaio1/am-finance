@@ -28,7 +28,10 @@ import {
   CreditCard,
   Clock,
   RotateCcw,
-  Wallet
+  Wallet,
+  X,
+  Search,
+  FilterX
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useUser, useFirestore, useCollection, useMemoFirebase } from "@/firebase";
@@ -57,17 +60,27 @@ import {
 } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { toast } from "@/hooks/use-toast";
 import { Supplier, AccountCategory, CostCenter, AccountsPayableEntry } from "@/lib/types";
 
 export default function AccountsPayablePage() {
   const { user } = useUser();
   const db = useFirestore();
-  const [filterStatus, setFilterStatus] = useState("all");
   const [isNewEntryOpen, setIsNewEntryOpen] = useState(false);
   const [isPaymentOpen, setIsPaymentOpen] = useState(false);
   const [entryToPay, setEntryToPay] = useState<AccountsPayableEntry | null>(null);
   const [todayStr, setTodayStr] = useState("");
+  const [showFilters, setShowFilters] = useState(false);
+
+  // Estados dos Filtros
+  const [filterStatus, setFilterStatus] = useState("all");
+  const [filterSupplierId, setFilterSupplierId] = useState("all");
+  const [filterCategoryId, setFilterCategoryId] = useState("all");
+  const [filterDueDateStart, setFilterDueDateStart] = useState("");
+  const [filterDueDateEnd, setFilterDueDateEnd] = useState("");
+  const [filterIssueDateStart, setFilterIssueDateStart] = useState("");
+  const [filterIssueDateEnd, setFilterIssueDateEnd] = useState("");
 
   // Estados para cálculo dinâmico no modal de pagamento
   const [interest, setInterest] = useState(0);
@@ -118,9 +131,32 @@ export default function AccountsPayablePage() {
   })) || [];
 
   const filteredEntries = processedEntries.filter(e => {
-    if (filterStatus === 'all') return true;
-    return e.dynamicStatus.toLowerCase() === filterStatus.toLowerCase();
+    const statusMatch = filterStatus === 'all' || e.dynamicStatus.toLowerCase() === filterStatus.toLowerCase();
+    const supplierMatch = filterSupplierId === 'all' || e.supplierId === filterSupplierId;
+    const categoryMatch = filterCategoryId === 'all' || e.accountCategoryId === filterCategoryId;
+    
+    const dueDateMatch = (!filterDueDateStart || e.dueDate >= filterDueDateStart) && 
+                         (!filterDueDateEnd || e.dueDate <= filterDueDateEnd);
+    
+    const issueDateMatch = !e.issueDate || (
+      (!filterIssueDateStart || e.issueDate >= filterIssueDateStart) && 
+      (!filterIssueDateEnd || e.issueDate <= filterIssueDateEnd)
+    );
+
+    return statusMatch && supplierMatch && categoryMatch && dueDateMatch && issueDateMatch;
   });
+
+  const clearFilters = () => {
+    setFilterStatus("all");
+    setFilterSupplierId("all");
+    setFilterCategoryId("all");
+    setFilterDueDateStart("");
+    setFilterDueDateEnd("");
+    setFilterIssueDateStart("");
+    setFilterIssueDateEnd("");
+  };
+
+  const hasActiveFilters = filterStatus !== "all" || filterSupplierId !== "all" || filterCategoryId !== "all" || filterDueDateStart || filterDueDateEnd || filterIssueDateStart || filterIssueDateEnd;
 
   const totalOverdue = processedEntries.filter(e => e.dynamicStatus === 'Overdue').reduce((acc, curr) => acc + curr.originalAmount, 0);
   const totalDueToday = processedEntries.filter(e => e.dynamicStatus === 'DueToday').reduce((acc, curr) => acc + curr.originalAmount, 0);
@@ -223,6 +259,10 @@ export default function AccountsPayablePage() {
 
   const finalSettlementAmount = (entryToPay?.originalAmount || 0) + interest + fine - discount;
 
+  const calculateSettledValue = (entry: AccountsPayableEntry) => {
+    return entry.originalAmount + (entry.interest || 0) + (entry.fine || 0) - (entry.discount || 0);
+  };
+
   return (
     <div className="space-y-6 animate-in fade-in duration-500 pb-10">
       <div className="flex justify-between items-end">
@@ -234,106 +274,190 @@ export default function AccountsPayablePage() {
           <p className="text-muted-foreground">Gestão inteligente de despesas e prazos.</p>
         </div>
         
-        <Dialog open={isNewEntryOpen} onOpenChange={setIsNewEntryOpen}>
-          <DialogTrigger asChild>
-            <Button className="gap-2">
-              <Plus className="w-4 h-4" /> Novo Lançamento
-            </Button>
-          </DialogTrigger>
-          <DialogContent className="max-w-2xl">
-            <form onSubmit={handleSaveEntry}>
-              <DialogHeader>
-                <DialogTitle>Novo Lançamento de Despesa</DialogTitle>
-              </DialogHeader>
-              <div className="grid gap-4 py-4">
-                <div className="grid gap-2">
-                  <Label htmlFor="description">Descrição / Item *</Label>
-                  <Input id="description" name="description" placeholder="Ex: Compra de Insumos" required />
-                </div>
-                
-                <div className="grid grid-cols-2 gap-4">
+        <div className="flex gap-2">
+          <Button variant="outline" className={cn("gap-2", hasActiveFilters && "border-primary text-primary bg-primary/5")} onClick={() => setShowFilters(!showFilters)}>
+            <Filter className="w-4 h-4" /> 
+            {hasActiveFilters ? "Filtros Ativos" : "Filtros"}
+          </Button>
+          <Dialog open={isNewEntryOpen} onOpenChange={setIsNewEntryOpen}>
+            <DialogTrigger asChild>
+              <Button className="gap-2">
+                <Plus className="w-4 h-4" /> Novo Lançamento
+              </Button>
+            </DialogTrigger>
+            <DialogContent className="max-w-2xl">
+              <form onSubmit={handleSaveEntry}>
+                <DialogHeader>
+                  <DialogTitle>Novo Lançamento de Despesa</DialogTitle>
+                </DialogHeader>
+                <div className="grid gap-4 py-4">
                   <div className="grid gap-2">
-                    <Label htmlFor="amount">Valor (R$) *</Label>
-                    <Input id="amount" name="amount" type="number" step="0.01" placeholder="0,00" required />
+                    <Label htmlFor="description">Descrição / Item *</Label>
+                    <Input id="description" name="description" placeholder="Ex: Compra de Insumos" required />
                   </div>
+                  
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="grid gap-2">
+                      <Label htmlFor="amount">Valor (R$) *</Label>
+                      <Input id="amount" name="amount" type="number" step="0.01" placeholder="0,00" required />
+                    </div>
+                    <div className="grid gap-2">
+                      <Label htmlFor="paymentMethod">Forma de Pagamento</Label>
+                      <Select name="paymentMethod">
+                        <SelectTrigger>
+                          <SelectValue placeholder="Selecione..." />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="Pix">Pix</SelectItem>
+                          <SelectItem value="Boleto">Boleto</SelectItem>
+                          <SelectItem value="Cartão">Cartão</SelectItem>
+                          <SelectItem value="Transferência">Transferência</SelectItem>
+                          <SelectItem value="Dinheiro">Dinheiro</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="grid gap-2">
+                      <Label htmlFor="issueDate">Data de Emissão (Opcional)</Label>
+                      <Input id="issueDate" name="issueDate" type="date" />
+                    </div>
+                    <div className="grid gap-2">
+                      <Label htmlFor="dueDate">Vencimento *</Label>
+                      <Input id="dueDate" name="dueDate" type="date" required />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="grid gap-2">
+                      <Label htmlFor="supplierId">Fornecedor *</Label>
+                      <Select name="supplierId" required>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Selecione..." />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {suppliers?.map((s) => (
+                            <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="grid gap-2">
+                      <Label htmlFor="categoryId">Categoria Financeira *</Label>
+                      <Select name="categoryId" required>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Selecione..." />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {categories?.map((c) => (
+                            <SelectItem key={c.id} value={c.id}>{c.code ? `${c.code} - ` : ""}{c.name}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+
                   <div className="grid gap-2">
-                    <Label htmlFor="paymentMethod">Forma de Pagamento</Label>
-                    <Select name="paymentMethod">
+                    <Label htmlFor="costCenterId">Centro de Custo (Opcional)</Label>
+                    <Select name="costCenterId">
                       <SelectTrigger>
                         <SelectValue placeholder="Selecione..." />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="Pix">Pix</SelectItem>
-                        <SelectItem value="Boleto">Boleto</SelectItem>
-                        <SelectItem value="Cartão">Cartão</SelectItem>
-                        <SelectItem value="Transferência">Transferência</SelectItem>
-                        <SelectItem value="Dinheiro">Dinheiro</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="grid gap-2">
-                    <Label htmlFor="issueDate">Data de Emissão (Opcional)</Label>
-                    <Input id="issueDate" name="issueDate" type="date" />
-                  </div>
-                  <div className="grid gap-2">
-                    <Label htmlFor="dueDate">Vencimento *</Label>
-                    <Input id="dueDate" name="dueDate" type="date" required />
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="grid gap-2">
-                    <Label htmlFor="supplierId">Fornecedor *</Label>
-                    <Select name="supplierId" required>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Selecione..." />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {suppliers?.map((s) => (
-                          <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
+                        {centers?.map((cc) => (
+                          <SelectItem key={cc.id} value={cc.id}>{cc.name}</SelectItem>
                         ))}
                       </SelectContent>
                     </Select>
                   </div>
-                  <div className="grid gap-2">
-                    <Label htmlFor="categoryId">Categoria Financeira *</Label>
-                    <Select name="categoryId" required>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Selecione..." />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {categories?.map((c) => (
-                          <SelectItem key={c.id} value={c.id}>{c.code ? `${c.code} - ` : ""}{c.name}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
                 </div>
+                <DialogFooter>
+                  <Button type="submit">Salvar Lançamento</Button>
+                </DialogFooter>
+              </form>
+            </DialogContent>
+          </Dialog>
+        </div>
+      </div>
 
-                <div className="grid gap-2">
-                  <Label htmlFor="costCenterId">Centro de Custo (Opcional)</Label>
-                  <Select name="costCenterId">
-                    <SelectTrigger>
-                      <SelectValue placeholder="Selecione..." />
+      <Collapsible open={showFilters} onOpenChange={setShowFilters}>
+        <CollapsibleContent className="space-y-4">
+          <Card className="bg-muted/30 border-dashed">
+            <CardContent className="pt-6">
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                <div className="space-y-2">
+                  <Label className="text-xs uppercase font-bold text-muted-foreground">Status</Label>
+                  <Select value={filterStatus} onValueChange={setFilterStatus}>
+                    <SelectTrigger className="bg-background">
+                      <SelectValue placeholder="Todos" />
                     </SelectTrigger>
                     <SelectContent>
-                      {centers?.map((cc) => (
-                        <SelectItem key={cc.id} value={cc.id}>{cc.name}</SelectItem>
+                      <SelectItem value="all">Todos os Status</SelectItem>
+                      <SelectItem value="DueToday">Vence Hoje</SelectItem>
+                      <SelectItem value="Overdue">Atrasado</SelectItem>
+                      <SelectItem value="Open">Aberto</SelectItem>
+                      <SelectItem value="Paid">Pago</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label className="text-xs uppercase font-bold text-muted-foreground">Fornecedor</Label>
+                  <Select value={filterSupplierId} onValueChange={setFilterSupplierId}>
+                    <SelectTrigger className="bg-background">
+                      <SelectValue placeholder="Todos" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">Todos os Fornecedores</SelectItem>
+                      {suppliers?.map(s => (
+                        <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
                 </div>
+                <div className="space-y-2">
+                  <Label className="text-xs uppercase font-bold text-muted-foreground">Categoria</Label>
+                  <Select value={filterCategoryId} onValueChange={setFilterCategoryId}>
+                    <SelectTrigger className="bg-background">
+                      <SelectValue placeholder="Todas" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">Todas as Categorias</SelectItem>
+                      {categories?.map(c => (
+                        <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="flex items-end pb-0.5">
+                  <Button variant="ghost" className="w-full gap-2 text-muted-foreground hover:text-destructive" onClick={clearFilters}>
+                    <FilterX className="w-4 h-4" /> Limpar Filtros
+                  </Button>
+                </div>
               </div>
-              <DialogFooter>
-                <Button type="submit">Salvar Lançamento</Button>
-              </DialogFooter>
-            </form>
-          </DialogContent>
-        </Dialog>
-      </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mt-4 pt-4 border-t border-dashed">
+                <div className="space-y-2">
+                  <Label className="text-xs uppercase font-bold text-muted-foreground">Vencimento entre</Label>
+                  <div className="flex items-center gap-2">
+                    <Input type="date" value={filterDueDateStart} onChange={(e) => setFilterDueDateStart(e.target.value)} className="bg-background" />
+                    <span className="text-muted-foreground">até</span>
+                    <Input type="date" value={filterDueDateEnd} onChange={(e) => setFilterDueDateEnd(e.target.value)} className="bg-background" />
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <Label className="text-xs uppercase font-bold text-muted-foreground">Emissão entre</Label>
+                  <div className="flex items-center gap-2">
+                    <Input type="date" value={filterIssueDateStart} onChange={(e) => setFilterIssueDateStart(e.target.value)} className="bg-background" />
+                    <span className="text-muted-foreground">até</span>
+                    <Input type="date" value={filterIssueDateEnd} onChange={(e) => setFilterIssueDateEnd(e.target.value)} className="bg-background" />
+                  </div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </CollapsibleContent>
+      </Collapsible>
 
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <Card className="bg-destructive/5 border-destructive/20">
@@ -365,23 +489,8 @@ export default function AccountsPayablePage() {
       <Card>
         <CardHeader className="flex flex-row items-center justify-between border-b bg-muted/20">
           <CardTitle className="text-lg">Fluxo de Despesas</CardTitle>
-          <div className="flex items-center gap-2">
-            <Filter className="w-4 h-4 text-muted-foreground" />
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="outline" size="sm" className="gap-2">
-                  Status: {filterStatus === 'all' ? 'Todos' : filterStatus}
-                  <ChevronDown className="w-4 h-4" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                <DropdownMenuItem onClick={() => setFilterStatus("all")}>Todos</DropdownMenuItem>
-                <DropdownMenuItem onClick={() => setFilterStatus("DueToday")}>Vence Hoje</DropdownMenuItem>
-                <DropdownMenuItem onClick={() => setFilterStatus("Overdue")}>Atrasado</DropdownMenuItem>
-                <DropdownMenuItem onClick={() => setFilterStatus("Open")}>Aberto (Futuro)</DropdownMenuItem>
-                <DropdownMenuItem onClick={() => setFilterStatus("Paid")}>Pago</DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
+          <div className="text-xs text-muted-foreground">
+            {filteredEntries.length} lançamento(s) encontrado(s)
           </div>
         </CardHeader>
         <CardContent className="pt-6">
@@ -393,8 +502,11 @@ export default function AccountsPayablePage() {
           ) : filteredEntries.length === 0 ? (
             <div className="text-center py-20 border-2 border-dashed rounded-lg">
               <Calendar className="w-12 h-12 text-muted-foreground/30 mx-auto mb-4" />
-              <h3 className="text-lg font-medium text-muted-foreground">Nenhum lançamento nesta categoria</h3>
-              <p className="text-sm text-muted-foreground mt-2">Altere o filtro ou adicione uma nova conta.</p>
+              <h3 className="text-lg font-medium text-muted-foreground">Nenhum lançamento encontrado</h3>
+              <p className="text-sm text-muted-foreground mt-2">Ajuste os filtros ou adicione uma nova conta.</p>
+              {hasActiveFilters && (
+                <Button variant="link" onClick={clearFilters} className="mt-2 text-primary">Limpar todos os filtros</Button>
+              )}
             </div>
           ) : (
             <Table>
@@ -412,7 +524,12 @@ export default function AccountsPayablePage() {
                 {filteredEntries.sort((a,b) => a.dueDate.localeCompare(b.dueDate)).map((entry) => (
                   <TableRow key={entry.id} className="group">
                     <TableCell className="font-mono text-sm">
-                      {new Date(entry.dueDate + 'T00:00:00').toLocaleDateString('pt-BR')}
+                      <div className="flex flex-col">
+                        <span>{new Date(entry.dueDate + 'T00:00:00').toLocaleDateString('pt-BR')}</span>
+                        {entry.issueDate && (
+                          <span className="text-[9px] text-muted-foreground">Em: {new Date(entry.issueDate + 'T00:00:00').toLocaleDateString('pt-BR')}</span>
+                        )}
+                      </div>
                     </TableCell>
                     <TableCell className="font-medium">
                       {suppliers?.find(s => s.id === entry.supplierId)?.name || 'N/A'}
@@ -433,12 +550,32 @@ export default function AccountsPayablePage() {
                     <TableCell>
                       {getStatusBadge(entry.dynamicStatus)}
                     </TableCell>
-                    <TableCell className={cn(
-                      "text-right font-bold",
-                      entry.dynamicStatus === 'Overdue' ? "text-destructive" : "",
-                      entry.dynamicStatus === 'DueToday' ? "text-amber-600" : ""
-                    )}>
-                      R$ {entry.originalAmount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                    <TableCell className="text-right">
+                      <div className="flex flex-col items-end">
+                        <span className={cn(
+                          "font-bold",
+                          entry.dynamicStatus === 'Overdue' ? "text-destructive" : "",
+                          entry.dynamicStatus === 'DueToday' ? "text-amber-600" : ""
+                        )}>
+                          R$ {entry.originalAmount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                        </span>
+                        {entry.status === 'Paid' && (
+                          <div className="flex flex-col items-end mt-1">
+                            <span className="text-[10px] text-emerald-600 font-bold">
+                              Liquidado: R$ {calculateSettledValue(entry).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                            </span>
+                            {(entry.interest || entry.fine) ? (
+                              <span className="text-[8px] text-muted-foreground">
+                                (+ juros/multa)
+                              </span>
+                            ) : entry.discount ? (
+                              <span className="text-[8px] text-muted-foreground">
+                                (- desconto)
+                              </span>
+                            ) : null}
+                          </div>
+                        )}
+                      </div>
                     </TableCell>
                     <TableCell>
                       <DropdownMenu>
