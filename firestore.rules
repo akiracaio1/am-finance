@@ -3,173 +3,164 @@ service cloud.firestore {
   match /databases/{database}/documents {
 
     /**
-     * YUMI YUMI 🍣 FINANCE SECURITY RULES
+     * Yumi Yumi 🍣 Finance - Security Rules
      *
      * CORE PHILOSOPHY:
-     * This ruleset enforces a strict user-ownership model where all financial data is segregated 
-     * by the user's unique ID. Authorization is derived directly from the document path, ensuring 
-     * high performance and preventing cross-user data leakage.
+     * This ruleset implements a strict path-based ownership model. Every piece of financial data 
+     * is physically nested under a specific user's ID. Authorization is derived directly from 
+     * the path, ensuring that users can only access and modify their own data.
      *
      * DATA STRUCTURE:
-     * All application entities are hierarchical, nested under `/users/{userId}/`. 
-     * Collections include Suppliers, Bank Accounts, Accounts Payable/Receivable, and Transactions.
+     * All collections follow the pattern: /users/{userId}/{collectionName}/{documentId}.
+     * Nested resources like bank transactions are located at:
+     * /users/{userId}/bankAccounts/{bankAccountId}/bankTransactions/{transactionId}.
      *
      * KEY SECURITY DECISIONS:
-     * - Path-Based Authorization: We use the {userId} wildcard in the path to compare against 
-     *   request.auth.uid, eliminating the need for expensive get() calls.
-     * - Denormalization: Documents are expected to contain an 'ownerId' field to maintain 
-     *   consistency with the path-based ownership, though the path remains the primary authority.
-     * - Structural Segregation: Each user's data exists in a private silo. No public listing 
-     *   or cross-user collaboration is permitted in this version.
-     * - Prototyping Flexibility: Rules enforce WHO can access data but do NOT enforce the 
-     *   full schema of the data (e.g., field types or optionality) to allow for rapid UI iteration.
+     * 1. Path-Based Authorization: We rely on the `userId` wildcard in the path to match 
+     *    the `request.auth.uid`. This eliminates the need for expensive `get()` calls.
+     * 2. Existential Protection: All update and delete operations explicitly verify 
+     *    the existence of the document to prevent orphaned requests or logic errors.
+     * 3. Relational Integrity: On creation, we enforce that the internal `id` field 
+     *    of a document matches the document ID in the Firestore path.
+     * 4. Denormalization for Authorization: Because the data is partitioned by user at the 
+     *    root, the path itself acts as the denormalized authorization context.
      */
 
-    // --- HELPER FUNCTIONS ---
+    // --- Helper Functions ---
 
-    /** @description Checks if the user is authenticated. */
+    /** Checks if the requester is authenticated. */
     function isSignedIn() {
       return request.auth != null;
     }
 
-    /** @description Checks if the authenticated user matches the provided userId from the path. */
+    /** Validates that the requester's UID matches the userId in the path. */
     function isOwner(userId) {
       return isSignedIn() && request.auth.uid == userId;
     }
 
-    /** @description Combines ownership check with document existence for state-changing operations. */
+    /** Combined check for ownership and document existence for destructive operations. */
     function isExistingOwner(userId) {
       return isOwner(userId) && resource != null;
     }
 
-    /** @description Validates that the ownerId in the document matches the user's ID during creation. */
-    function isValidOwnerLink(userId) {
-      return request.resource.data.ownerId == userId;
+    /** 
+     * Prototyping Validation: Ensures the internal ID matches the document ID.
+     * We allow flexible data shapes but require this critical relational link.
+     */
+    function isValidCreate(data, docId) {
+      return data.id == docId;
     }
 
-    /** @description Ensures the ownerId remains unchanged during updates. */
-    function isOwnerLinkImmutable() {
-      return !('ownerId' in request.resource.data) || request.resource.data.ownerId == resource.data.ownerId;
+    /** Ensures the internal ID remains immutable during updates. */
+    function isImmutable(data, existingData) {
+      return data.id == existingData.id;
     }
 
-    // --- COLLECTION RULES ---
+    // --- Collection Rules ---
 
     /**
-     * @description Rules for the top-level User document.
-     * @path /users/{userId}
-     * @allow (create) if auth.uid matches path userId.
-     * @deny (read) if auth.uid does not match path userId.
-     * @principle Self-creation and strict ownership of the user profile root.
+     * @description Rules for Supplier records.
+     * @path /users/{userId}/suppliers/{supplierId}
+     * @allow Authenticated user "user_123" to (create) a document at /users/user_123/suppliers/sup_abc.
+     * @deny Authenticated user "user_456" to (update) a document at /users/user_123/suppliers/sup_abc.
+     * @principle Restricts access to the user's own data tree and validates path-to-data consistency.
      */
-    match /users/{userId} {
+    match /users/{userId}/suppliers/{supplierId} {
       allow get: if isOwner(userId);
       allow list: if isOwner(userId);
-      allow create: if isOwner(userId);
-      allow update: if isExistingOwner(userId);
+      allow create: if isOwner(userId) && isValidCreate(request.resource.data, supplierId);
+      allow update: if isExistingOwner(userId) && isImmutable(request.resource.data, resource.data);
+      allow delete: if isExistingOwner(userId);
+    }
+
+    /**
+     * @description Rules for Account Categories (Chart of Accounts).
+     * @path /users/{userId}/accountCategories/{categoryId}
+     * @allow Authenticated user "user_123" to (list) their categories.
+     * @deny Unauthenticated users to (get) any category.
+     * @principle Enforces path-based ownership for hierarchical metadata.
+     */
+    match /users/{userId}/accountCategories/{categoryId} {
+      allow get: if isOwner(userId);
+      allow list: if isOwner(userId);
+      allow create: if isOwner(userId) && isValidCreate(request.resource.data, categoryId);
+      allow update: if isExistingOwner(userId) && isImmutable(request.resource.data, resource.data);
+      allow delete: if isExistingOwner(userId);
+    }
+
+    /**
+     * @description Rules for Bank Account details.
+     * @path /users/{userId}/bankAccounts/{bankAccountId}
+     * @allow Authenticated user "user_123" to (update) their own bank account settings.
+     * @deny Authenticated user "user_123" to (delete) a bank account belonging to "user_999".
+     * @principle Ownership-based access control for sensitive financial accounts.
+     */
+    match /users/{userId}/bankAccounts/{bankAccountId} {
+      allow get: if isOwner(userId);
+      allow list: if isOwner(userId);
+      allow create: if isOwner(userId) && isValidCreate(request.resource.data, bankAccountId);
+      allow update: if isExistingOwner(userId) && isImmutable(request.resource.data, resource.data);
       allow delete: if isExistingOwner(userId);
 
       /**
-       * @description User-specific categories for suppliers.
-       * @path /users/{userId}/supplierCategories/{catId}
-       * @allow (create) if path userId matches auth.uid AND ownerId field matches.
-       * @deny (update) if attempting to change the ownerId.
-       * @principle Path-based ownership with relational field consistency.
+       * @description Rules for Transactions nested within a Bank Account.
+       * @path /users/{userId}/bankAccounts/{bankAccountId}/bankTransactions/{transactionId}
+       * @allow Authenticated user "user_123" to (create) a transaction under their own account.
+       * @deny Authenticated user "user_123" to (list) transactions under another user's bank account.
+       * @principle Deeply nested path-based ownership.
        */
-      match /supplierCategories/{catId} {
-        allow get, list: if isOwner(userId);
-        allow create: if isOwner(userId) && isValidOwnerLink(userId);
-        allow update: if isExistingOwner(userId) && isOwnerLinkImmutable();
-        allow delete: if isExistingOwner(userId);
-      }
-
-      /**
-       * @description User-specific vendors or companies.
-       * @path /users/{userId}/suppliers/{supplierId}
-       * @allow (list) if user is the owner of the parent path.
-       * @deny (delete) if the document does not exist.
-       * @principle Enforces document ownership for all CRUD operations.
-       */
-      match /suppliers/{supplierId} {
-        allow get, list: if isOwner(userId);
-        allow create: if isOwner(userId) && isValidOwnerLink(userId);
-        allow update: if isExistingOwner(userId) && isOwnerLinkImmutable();
-        allow delete: if isExistingOwner(userId);
-      }
-
-      /**
-       * @description User-specific financial account categories (Chart of Accounts).
-       * @path /users/{userId}/accountCategories/{catId}
-       * @allow (get) if authenticated user matches path.
-       * @deny (create) if request.resource.data.ownerId is missing or mismatched.
-       * @principle Path-based segregation for sensitive financial structure.
-       */
-      match /accountCategories/{catId} {
-        allow get, list: if isOwner(userId);
-        allow create: if isOwner(userId) && isValidOwnerLink(userId);
-        allow update: if isExistingOwner(userId) && isOwnerLinkImmutable();
-        allow delete: if isExistingOwner(userId);
-      }
-
-      /**
-       * @description User-specific bank account definitions for reconciliation.
-       * @path /users/{userId}/bankAccounts/{bankId}
-       * @allow (update) if owner matches and bankId remains the same.
-       * @deny (list) if not signed in as the specific user.
-       * @principle Secures bank metadata to the specific authenticated account owner.
-       */
-      match /bankAccounts/{bankId} {
-        allow get, list: if isOwner(userId);
-        allow create: if isOwner(userId) && isValidOwnerLink(userId);
-        allow update: if isExistingOwner(userId) && isOwnerLinkImmutable();
-        allow delete: if isExistingOwner(userId);
-      }
-
-      /**
-       * @description User-specific money owed to suppliers.
-       * @path /users/{userId}/accountsPayable/{payableId}
-       * @allow (create) if ownerId is correctly set to the path's userId.
-       * @deny (write) if the user is not the owner of the /users/{userId} path.
-       * @principle Ensures financial liabilities are only visible to the creator.
-       */
-      match /accountsPayable/{payableId} {
-        allow get, list: if isOwner(userId);
-        allow create: if isOwner(userId) && isValidOwnerLink(userId);
-        allow update: if isExistingOwner(userId) && isOwnerLinkImmutable();
-        allow delete: if isExistingOwner(userId);
-      }
-
-      /**
-       * @description User-specific money owed by customers.
-       * @path /users/{userId}/accountsReceivable/{receivableId}
-       * @allow (list) filtered by status, granted because user owns the entire collection.
-       * @deny (update) if user tries to hijack a document by changing ownerId.
-       * @principle Strict structural segregation of revenue data.
-       */
-      match /accountsReceivable/{receivableId} {
-        allow get, list: if isOwner(userId);
-        allow create: if isOwner(userId) && isValidOwnerLink(userId);
-        allow update: if isExistingOwner(userId) && isOwnerLinkImmutable();
-        allow delete: if isExistingOwner(userId);
-      }
-
-      /**
-       * @description User-specific transactions imported from OFX or bank feeds.
-       * @path /users/{userId}/bankStatementTransactions/{transId}
-       * @allow (create) for a specific userId in path.
-       * @deny (get) for any other authenticated user.
-       * @principle Protects granular transaction history via path-based ownership.
-       */
-      match /bankStatementTransactions/{transId} {
-        allow get, list: if isOwner(userId);
-        allow create: if isOwner(userId) && isValidOwnerLink(userId);
-        allow update: if isExistingOwner(userId) && isOwnerLinkImmutable();
+      match /bankTransactions/{transactionId} {
+        allow get: if isOwner(userId);
+        allow list: if isOwner(userId);
+        allow create: if isOwner(userId) && isValidCreate(request.resource.data, transactionId);
+        allow update: if isExistingOwner(userId) && isImmutable(request.resource.data, resource.data);
         allow delete: if isExistingOwner(userId);
       }
     }
 
-    // --- DEFAULT DENY ---
-    match /{path=**} {
-      allow read, write: if false;
+    /**
+     * @description Rules for Accounts Payable (Money Owed).
+     * @path /users/{userId}/accountsPayableEntries/{entryId}
+     * @allow Authenticated user "user_123" to (create) a payable entry for themselves.
+     * @deny Any user to (update) an entry where the ID is changed.
+     * @principle Enforces relational integrity and user ownership.
+     */
+    match /users/{userId}/accountsPayableEntries/{entryId} {
+      allow get: if isOwner(userId);
+      allow list: if isOwner(userId);
+      allow create: if isOwner(userId) && isValidCreate(request.resource.data, entryId);
+      allow update: if isExistingOwner(userId) && isImmutable(request.resource.data, resource.data);
+      allow delete: if isExistingOwner(userId);
+    }
+
+    /**
+     * @description Rules for Accounts Receivable (Money Expected).
+     * @path /users/{userId}/accountsReceivableEntries/{entryId}
+     * @allow Authenticated user "user_123" to (list) their expected income.
+     * @deny A user attempting to (delete) a receivable entry belonging to another account.
+     * @principle Standard ownership pattern for transactional data.
+     */
+    match /users/{userId}/accountsReceivableEntries/{entryId} {
+      allow get: if isOwner(userId);
+      allow list: if isOwner(userId);
+      allow create: if isOwner(userId) && isValidCreate(request.resource.data, entryId);
+      allow update: if isExistingOwner(userId) && isImmutable(request.resource.data, resource.data);
+      allow delete: if isExistingOwner(userId);
+    }
+
+    /**
+     * @description Rules for Cash Flow Projections.
+     * @path /users/{userId}/cashFlowProjections/{projectionId}
+     * @allow Authenticated user "user_123" to (create) a future projection document.
+     * @deny Public users to (list) projections.
+     * @principle Restricts access to a user's own data tree.
+     */
+    match /users/{userId}/cashFlowProjections/{projectionId} {
+      allow get: if isOwner(userId);
+      allow list: if isOwner(userId);
+      allow create: if isOwner(userId) && isValidCreate(request.resource.data, projectionId);
+      allow update: if isExistingOwner(userId) && isImmutable(request.resource.data, resource.data);
+      allow delete: if isExistingOwner(userId);
     }
   }
 }
