@@ -7,142 +7,48 @@
       "type": "object",
       "description": "Represents a vendor or supplier with whom the business conducts transactions.",
       "properties": {
-        "id": {
-          "type": "string",
-          "description": "Unique identifier for the Supplier entity."
-        },
-        "name": {
-          "type": "string",
-          "description": "The official name of the supplier."
-        },
-        "personType": {
-          "type": "string",
-          "description": "Type of person: 'Pessoa Física' or 'Pessoa Jurídica'.",
-          "enum": ["Pessoa Física", "Pessoa Jurídica"]
-        },
-        "pixKey": {
-          "type": "string",
-          "description": "PIX key for financial transactions."
-        },
-        "cnpj": {
-          "type": "string",
-          "description": "Tax ID (CNPJ or CPF) of the supplier."
-        },
-        "contactName": {
-          "type": "string",
-          "description": "Name of the primary contact person at the supplier."
-        },
-        "email": {
-          "type": "string",
-          "description": "Email address for contacting the supplier.",
-          "format": "email"
-        },
-        "phone": {
-          "type": "string",
-          "description": "Phone number for contacting the supplier."
-        },
-        "category": {
-          "type": "string",
-          "description": "General category or type of products/services provided by the supplier."
-        },
-        "notes": {
-          "type": "string",
-          "description": "Any additional notes or comments about the supplier."
-        },
-        "createdAt": {
-          "type": "string",
-          "description": "Timestamp when the supplier record was created.",
-          "format": "date-time"
-        },
-        "updatedAt": {
-          "type": "string",
-          "description": "Timestamp when the supplier record was last updated.",
-          "format": "date-time"
-        }
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "personType": { "type": "string", "enum": ["Pessoa Física", "Pessoa Jurídica"] },
+        "pixKey": { "type": "string" },
+        "cnpj": { "type": "string" },
+        "contactName": { "type": "string" },
+        "email": { "type": "string", "format": "email" },
+        "phone": { "type": "string" },
+        "category": { "type": "string" },
+        "notes": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
       },
-      "required": [
-        "id",
-        "name",
-        "personType",
-        "createdAt",
-        "updatedAt"
-      ]
+      "required": ["id", "name", "personType", "createdAt", "updatedAt"]
     },
     "AccountCategory": {
       "$schema": "http://json-schema.org/draft-07/schema#",
       "title": "AccountCategory",
       "type": "object",
-      "description": "Defines a category within the chart of accounts, used for classifying financial transactions (e.g., 'Operacional > Insumos > Peixe').",
+      "description": "Defines a category within the chart of accounts.",
       "properties": {
-        "id": {
-          "type": "string",
-          "description": "Unique identifier for the AccountCategory entity."
-        },
-        "name": {
-          "type": "string",
-          "description": "The name of the account category (e.g., 'Peixe', 'Aluguel')."
-        },
-        "description": {
-          "type": "string",
-          "description": "A detailed description of what the category represents."
-        },
-        "type": {
-          "type": "string",
-          "description": "The type of financial account, e.g., 'Revenue', 'Expense', 'Asset', 'Liability', 'Equity'."
-        },
-        "code": {
-          "type": "string",
-          "description": "An optional alphanumeric code for the account category, useful for hierarchical organization."
-        },
-        "parentCategoryId": {
-          "type": "string",
-          "description": "Reference to another AccountCategory entity, establishing a hierarchical relationship."
-        },
-        "createdAt": {
-          "type": "string",
-          "description": "Timestamp when the account category record was created.",
-          "format": "date-time"
-        },
-        "updatedAt": {
-          "type": "string",
-          "description": "Timestamp when the account category record was last updated.",
-          "format": "date-time"
-        }
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "description": { "type": "string" },
+        "type": { "type": "string" },
+        "code": { "type": "string" },
+        "parentCategoryId": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
       },
-      "required": [
-        "id",
-        "name",
-        "type",
-        "createdAt",
-        "updatedAt"
-      ]
+      "required": ["id", "name", "type", "createdAt", "updatedAt"]
     },
     "CostCenter": {
       "$schema": "http://json-schema.org/draft-07/schema#",
       "title": "CostCenter",
       "type": "object",
-      "description": "Represents a business unit or department for detailed expense tracking.",
       "properties": {
-        "id": {
-          "type": "string",
-          "description": "Unique identifier for the CostCenter."
-        },
-        "name": {
-          "type": "string",
-          "description": "The name of the cost center (e.g., 'Cozinha', 'Administrativo')."
-        },
-        "description": {
-          "type": "string",
-          "description": "Description of the cost center."
-        },
-        "createdAt": {
-          "type": "string",
-          "format": "date-time"
-        },
-        "updatedAt": {
-          "type": "string",
-          "format": "date-time"
-        }
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "description": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
       },
       "required": ["id", "name", "createdAt", "updatedAt"]
     },
@@ -150,77 +56,30 @@
       "$schema": "http://json-schema.org/draft-07/schema#",
       "title": "AccountsPayableEntry",
       "type": "object",
-      "description": "Represents a single entry of an amount owed to a supplier.",
       "properties": {
-        "id": {
-          "type": "string",
-          "description": "Unique identifier for the AccountsPayableEntry entity."
-        },
-        "supplierId": {
-          "type": "string",
-          "description": "Reference to the Supplier."
-        },
-        "accountCategoryId": {
-          "type": "string",
-          "description": "Reference to the AccountCategory."
-        },
-        "costCenterId": {
-          "type": "string",
-          "description": "Reference to the CostCenter."
-        },
-        "description": {
-          "type": "string",
-          "description": "A description of the expense."
-        },
-        "originalAmount": {
-          "type": "number",
-          "description": "The amount due."
-        },
-        "issueDate": {
-          "type": "string",
-          "format": "date",
-          "description": "The date the document was issued."
-        },
-        "dueDate": {
-          "type": "string",
-          "format": "date",
-          "description": "The date when the payment is due."
-        },
-        "paymentMethod": {
-          "type": "string",
-          "description": "How the payment will be made (e.g., Pix, Boleto)."
-        },
-        "status": {
-          "type": "string",
-          "enum": ["Open", "Paid", "Overdue"]
-        },
-        "createdAt": {
-          "type": "string",
-          "format": "date-time"
-        },
-        "updatedAt": {
-          "type": "string",
-          "format": "date-time"
-        }
+        "id": { "type": "string" },
+        "supplierId": { "type": "string" },
+        "accountCategoryId": { "type": "string" },
+        "costCenterId": { "type": "string" },
+        "description": { "type": "string" },
+        "originalAmount": { "type": "number" },
+        "issueDate": { "type": "string", "format": "date" },
+        "dueDate": { "type": "string", "format": "date" },
+        "paymentMethod": { "type": "string" },
+        "status": { "type": "string", "enum": ["Open", "Paid", "Overdue"] },
+        "paymentDate": { "type": "string", "format": "date" },
+        "bankAccountId": { "type": "string" },
+        "interest": { "type": "number" },
+        "fine": { "type": "number" },
+        "discount": { "type": "number" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
       },
-      "required": [
-        "id",
-        "supplierId",
-        "accountCategoryId",
-        "description",
-        "originalAmount",
-        "dueDate",
-        "status",
-        "createdAt",
-        "updatedAt"
-      ]
+      "required": ["id", "supplierId", "accountCategoryId", "description", "originalAmount", "dueDate", "status", "createdAt", "updatedAt"]
     }
   },
   "auth": {
-    "providers": [
-      "password",
-      "anonymous"
-    ]
+    "providers": ["password", "anonymous"]
   },
   "firestore": {
     "structure": [

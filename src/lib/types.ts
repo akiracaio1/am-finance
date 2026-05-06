@@ -48,6 +48,12 @@ export interface AccountsPayableEntry {
   status: 'Open' | 'Paid' | 'Overdue' | 'DueToday';
   createdAt: string;
   updatedAt: string;
+  // Campos de Pagamento
+  paymentDate?: string;
+  bankAccountId?: string;
+  interest?: number;
+  fine?: number;
+  discount?: number;
 }
 
 export interface BankAccount {

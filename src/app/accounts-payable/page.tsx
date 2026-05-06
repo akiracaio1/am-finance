@@ -26,7 +26,9 @@ import {
   ChevronDown,
   AlertTriangle,
   CreditCard,
-  Clock
+  Clock,
+  RotateCcw,
+  Wallet
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useUser, useFirestore, useCollection, useMemoFirebase } from "@/firebase";
@@ -62,11 +64,12 @@ export default function AccountsPayablePage() {
   const { user } = useUser();
   const db = useFirestore();
   const [filterStatus, setFilterStatus] = useState("all");
-  const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const [isNewEntryOpen, setIsNewEntryOpen] = useState(false);
+  const [isPaymentOpen, setIsPaymentOpen] = useState(false);
+  const [entryToPay, setEntryToPay] = useState<AccountsPayableEntry | null>(null);
   const [todayStr, setTodayStr] = useState("");
 
   useEffect(() => {
-    // Definir a data de hoje no formato YYYY-MM-DD para comparações consistentes
     setTodayStr(new Date().toISOString().split('T')[0]);
   }, []);
 
@@ -96,11 +99,9 @@ export default function AccountsPayablePage() {
   const { data: categories } = useCollection<AccountCategory>(categoriesQuery);
   const { data: centers } = useCollection<CostCenter>(centersQuery);
 
-  // Função para calcular o status dinamicamente
   const getDynamicStatus = (entry: AccountsPayableEntry) => {
     if (entry.status === 'Paid') return 'Paid';
     if (!todayStr) return entry.status;
-
     if (entry.dueDate < todayStr) return 'Overdue';
     if (entry.dueDate === todayStr) return 'DueToday';
     return 'Open';
@@ -116,7 +117,6 @@ export default function AccountsPayablePage() {
     return e.dynamicStatus.toLowerCase() === filterStatus.toLowerCase();
   });
 
-  // Cálculos baseados nos status dinâmicos
   const totalOverdue = processedEntries.filter(e => e.dynamicStatus === 'Overdue').reduce((acc, curr) => acc + curr.originalAmount, 0);
   const totalDueToday = processedEntries.filter(e => e.dynamicStatus === 'DueToday').reduce((acc, curr) => acc + curr.originalAmount, 0);
   const totalOpen = processedEntries.filter(e => e.dynamicStatus === 'Open').reduce((acc, curr) => acc + curr.originalAmount, 0);
@@ -125,11 +125,9 @@ export default function AccountsPayablePage() {
   const handleSaveEntry = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (!db || !user) return;
-
     const formData = new FormData(e.currentTarget);
     const entryId = `pay_${Date.now()}`;
     const entryRef = doc(db, "users", user.uid, "accountsPayableEntries", entryId);
-
     const newEntry: AccountsPayableEntry = {
       id: entryId,
       supplierId: formData.get("supplierId") as string,
@@ -144,17 +142,46 @@ export default function AccountsPayablePage() {
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
-
     setDocumentNonBlocking(entryRef, newEntry, { merge: true });
     toast({ title: "Lançamento criado", description: "A conta foi agendada com sucesso." });
-    setIsDialogOpen(false);
+    setIsNewEntryOpen(false);
   };
 
-  const markAsPaid = (entry: AccountsPayableEntry) => {
+  const handleConfirmPayment = (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    if (!db || !user || !entryToPay) return;
+    const formData = new FormData(e.currentTarget);
+    const entryRef = doc(db, "users", user.uid, "accountsPayableEntries", entryToPay.id);
+    
+    const paymentData = {
+      status: 'Paid',
+      paymentDate: formData.get("paymentDate") as string,
+      bankAccountId: formData.get("bankAccountId") as string,
+      interest: Number(formData.get("interest")) || 0,
+      fine: Number(formData.get("fine")) || 0,
+      discount: Number(formData.get("discount")) || 0,
+      updatedAt: new Date().toISOString()
+    };
+
+    updateDocumentNonBlocking(entryRef, paymentData);
+    toast({ title: "Pagamento confirmado", description: `A conta "${entryToPay.description}" foi marcada como paga.` });
+    setIsPaymentOpen(false);
+    setEntryToPay(null);
+  };
+
+  const undoPayment = (entry: AccountsPayableEntry) => {
     if (!db || !user) return;
     const entryRef = doc(db, "users", user.uid, "accountsPayableEntries", entry.id);
-    updateDocumentNonBlocking(entryRef, { status: 'Paid', updatedAt: new Date().toISOString() });
-    toast({ title: "Conta Paga", description: `Pagamento de ${entry.description} registrado.` });
+    updateDocumentNonBlocking(entryRef, { 
+      status: 'Open', 
+      paymentDate: null, 
+      bankAccountId: null, 
+      interest: 0, 
+      fine: 0, 
+      discount: 0,
+      updatedAt: new Date().toISOString() 
+    });
+    toast({ title: "Pagamento desfeito", description: "O lançamento voltou para o status de aberto." });
   };
 
   const deleteEntry = (entry: AccountsPayableEntry) => {
@@ -188,7 +215,7 @@ export default function AccountsPayablePage() {
           <p className="text-muted-foreground">Gestão inteligente de despesas e prazos.</p>
         </div>
         
-        <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
+        <Dialog open={isNewEntryOpen} onOpenChange={setIsNewEntryOpen}>
           <DialogTrigger asChild>
             <Button className="gap-2">
               <Plus className="w-4 h-4" /> Novo Lançamento
@@ -402,9 +429,13 @@ export default function AccountsPayablePage() {
                           </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
-                          {entry.status !== 'Paid' && (
-                            <DropdownMenuItem onClick={() => markAsPaid(entry)} className="text-emerald-600">
+                          {entry.status !== 'Paid' ? (
+                            <DropdownMenuItem onClick={() => { setEntryToPay(entry); setIsPaymentOpen(true); }} className="text-emerald-600">
                               <Check className="w-4 h-4 mr-2" /> Marcar como Pago
+                            </DropdownMenuItem>
+                          ) : (
+                            <DropdownMenuItem onClick={() => undoPayment(entry)} className="text-amber-600">
+                              <RotateCcw className="w-4 h-4 mr-2" /> Estornar Pagamento
                             </DropdownMenuItem>
                           )}
                           <DropdownMenuItem onClick={() => deleteEntry(entry)} className="text-destructive">
@@ -420,6 +451,73 @@ export default function AccountsPayablePage() {
           )}
         </CardContent>
       </Card>
+
+      {/* Dialog de Confirmação de Pagamento */}
+      <Dialog open={isPaymentOpen} onOpenChange={setIsPaymentOpen}>
+        <DialogContent className="max-w-md">
+          <form onSubmit={handleConfirmPayment}>
+            <DialogHeader>
+              <DialogTitle>Confirmar Pagamento</DialogTitle>
+              <p className="text-sm text-muted-foreground">
+                Informações para a liquidação de: <strong>{entryToPay?.description}</strong>
+              </p>
+            </DialogHeader>
+            <div className="grid gap-4 py-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div className="grid gap-2">
+                  <Label htmlFor="paymentDate">Data de Pagamento *</Label>
+                  <Input id="paymentDate" name="paymentDate" type="date" defaultValue={todayStr} required />
+                </div>
+                <div className="grid gap-2">
+                  <Label htmlFor="bankAccountId">Conta Bancária *</Label>
+                  <Select name="bankAccountId" required>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Selecione..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="itau">Itaú (Principal)</SelectItem>
+                      <SelectItem value="nubank">Nubank (Reserva)</SelectItem>
+                      <SelectItem value="caixa">Caixa (Operacional)</SelectItem>
+                      <SelectItem value="money">Caixinha (Dinheiro)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-3 gap-2">
+                <div className="grid gap-2">
+                  <Label htmlFor="interest">Juros (R$)</Label>
+                  <Input id="interest" name="interest" type="number" step="0.01" defaultValue="0" />
+                </div>
+                <div className="grid gap-2">
+                  <Label htmlFor="fine">Multa (R$)</Label>
+                  <Input id="fine" name="fine" type="number" step="0.01" defaultValue="0" />
+                </div>
+                <div className="grid gap-2">
+                  <Label htmlFor="discount">Desconto (R$)</Label>
+                  <Input id="discount" name="discount" type="number" step="0.01" defaultValue="0" />
+                </div>
+              </div>
+
+              <div className="bg-muted/50 p-4 rounded-lg space-y-2 border border-dashed">
+                <div className="flex justify-between text-xs">
+                  <span>Valor Original:</span>
+                  <span>R$ {entryToPay?.originalAmount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
+                </div>
+                <div className="flex justify-between text-sm font-bold border-t pt-2">
+                  <span>Valor Estimado da Liquidação:</span>
+                  <span className="text-primary">R$ {entryToPay?.originalAmount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
+                </div>
+              </div>
+            </div>
+            <DialogFooter>
+              <Button type="submit" className="w-full gap-2">
+                <Wallet className="w-4 h-4" /> Confirmar Liquidação
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
