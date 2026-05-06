@@ -1,7 +1,7 @@
 
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
 import { 
   Table, 
   TableBody, 
@@ -20,7 +20,6 @@ import {
   CheckCircle2, 
   AlertTriangle, 
   Calendar,
-  FileText,
   Plus,
   Loader2,
   Trash2,
@@ -68,6 +67,7 @@ function SearchableList<T extends { id: string; name: string; code?: string }>({
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
   const [selectedItem, setSelectedItem] = useState<T | null>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
 
   const filteredItems = useMemo(() => {
     return items.filter(item => 
@@ -75,6 +75,17 @@ function SearchableList<T extends { id: string; name: string; code?: string }>({
       (item.code && item.code.toLowerCase().includes(search.toLowerCase()))
     );
   }, [items, search]);
+
+  // Focus input when popover opens
+  useEffect(() => {
+    if (open) {
+      setTimeout(() => {
+        inputRef.current?.focus();
+      }, 0);
+    } else {
+      setSearch(""); // Clear search when closed
+    }
+  }, [open]);
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -92,6 +103,7 @@ function SearchableList<T extends { id: string; name: string; code?: string }>({
         <div className="flex items-center border-b px-3 py-2">
           <Search className="mr-2 h-4 w-4 shrink-0 opacity-50" />
           <input
+            ref={inputRef}
             className="flex h-8 w-full rounded-md bg-transparent text-sm outline-none placeholder:text-muted-foreground"
             placeholder={placeholder}
             value={search}
@@ -114,7 +126,6 @@ function SearchableList<T extends { id: string; name: string; code?: string }>({
                   setSelectedItem(item);
                   onSelect(item);
                   setOpen(false);
-                  setSearch("");
                 }}
               >
                 <Check className={cn("mr-2 h-4 w-4", selectedItem?.id === item.id ? "opacity-100" : "opacity-0")} />
@@ -247,10 +258,6 @@ export default function AccountsPayablePage() {
           <p className="text-muted-foreground">Acompanhe e gerencie suas próximas despesas e contas.</p>
         </div>
         <div className="flex gap-3">
-          <Button variant="outline" className="gap-2">
-            <FileText className="w-4 h-4" /> Importar Lote
-          </Button>
-          
           <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
             <DialogTrigger asChild>
               <Button className="gap-2">
