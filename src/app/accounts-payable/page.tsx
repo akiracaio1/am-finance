@@ -139,7 +139,6 @@ export default function AccountsPayablePage() {
         end = endOfYear(today);
         break;
       default:
-        // Se for "custom", não alteramos as datas manuais
         return;
     }
 
@@ -183,6 +182,10 @@ export default function AccountsPayablePage() {
     return 'Open';
   };
 
+  const calculateSettledValue = (entry: AccountsPayableEntry) => {
+    return (entry.originalAmount || 0) + (entry.interest || 0) + (entry.fine || 0) - (entry.discount || 0);
+  };
+
   const processedEntries = entries?.map(entry => ({
     ...entry,
     dynamicStatus: getDynamicStatus(entry)
@@ -204,6 +207,12 @@ export default function AccountsPayablePage() {
     return statusMatch && supplierMatch && categoryMatch && dueDateMatch && issueDateMatch;
   });
 
+  // Cálculos baseados nos filtros aplicados
+  const totalOverdue = filteredEntries.filter(e => e.dynamicStatus === 'Overdue').reduce((acc, curr) => acc + curr.originalAmount, 0);
+  const totalDueToday = filteredEntries.filter(e => e.dynamicStatus === 'DueToday').reduce((acc, curr) => acc + curr.originalAmount, 0);
+  const totalOpen = filteredEntries.filter(e => e.dynamicStatus === 'Open').reduce((acc, curr) => acc + curr.originalAmount, 0);
+  const totalPaid = filteredEntries.filter(e => e.dynamicStatus === 'Paid').reduce((acc, curr) => acc + calculateSettledValue(curr), 0);
+
   const clearFilters = () => {
     setFilterStatus("all");
     setFilterSupplierId("all");
@@ -216,11 +225,6 @@ export default function AccountsPayablePage() {
   };
 
   const hasActiveFilters = filterStatus !== "all" || filterSupplierId !== "all" || filterCategoryId !== "all" || filterDueDateStart || filterDueDateEnd || filterIssueDateStart || filterIssueDateEnd;
-
-  const totalOverdue = processedEntries.filter(e => e.dynamicStatus === 'Overdue').reduce((acc, curr) => acc + curr.originalAmount, 0);
-  const totalDueToday = processedEntries.filter(e => e.dynamicStatus === 'DueToday').reduce((acc, curr) => acc + curr.originalAmount, 0);
-  const totalOpen = processedEntries.filter(e => e.dynamicStatus === 'Open').reduce((acc, curr) => acc + curr.originalAmount, 0);
-  const totalPaid = processedEntries.filter(e => e.dynamicStatus === 'Paid').reduce((acc, curr) => acc + curr.originalAmount, 0);
 
   const handleSaveEntry = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -317,10 +321,6 @@ export default function AccountsPayablePage() {
   };
 
   const finalSettlementAmount = (entryToPay?.originalAmount || 0) + interest + fine - discount;
-
-  const calculateSettledValue = (entry: AccountsPayableEntry) => {
-    return entry.originalAmount + (entry.interest || 0) + (entry.fine || 0) - (entry.discount || 0);
-  };
 
   return (
     <div className="space-y-6 animate-in fade-in duration-500 pb-10">
