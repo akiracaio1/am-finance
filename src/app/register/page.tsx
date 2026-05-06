@@ -28,7 +28,15 @@ export default function RegisterPage() {
 
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!auth || !db) return;
+    if (!auth || !db) {
+      toast({
+        variant: "destructive",
+        title: "Erro de Configuração",
+        description: "Serviços do Firebase não inicializados. Verifique as chaves de API.",
+      });
+      return;
+    }
+
     if (!lgpdAccepted) {
       toast({
         variant: "destructive",
@@ -88,19 +96,28 @@ export default function RegisterPage() {
       
       setTimeout(() => router.push("/dashboard"), 1500);
     } catch (error: any) {
-      let message = "Não foi possível realizar o cadastro.";
+      console.error("Erro completo do Firebase:", error);
+      
+      let message = "Erro inesperado. Tente novamente.";
+      
       if (error.code === 'auth/operation-not-allowed') {
-        message = "O cadastro por E-mail/Senha está desativado no Console do Firebase.";
+        message = "O provedor 'E-mail/Senha' está desativado no Console do Firebase (Authentication > Sign-in method).";
       } else if (error.code === 'auth/email-already-in-use') {
-        message = "Este e-mail já está sendo utilizado.";
+        message = "Este e-mail já está sendo utilizado por outra conta.";
       } else if (error.code === 'auth/weak-password') {
-        message = "A senha deve ter pelo menos 6 caracteres.";
+        message = "A senha é muito fraca. Use pelo menos 6 caracteres.";
+      } else if (error.code === 'auth/invalid-email') {
+        message = "O formato do e-mail é inválido.";
+      } else if (error.code === 'auth/configuration-not-found' || error.code === 'auth/invalid-api-key') {
+        message = "Configuração do Firebase inválida. Verifique o arquivo firebase/config.ts.";
+      } else {
+        message = error.message || message;
       }
       
       toast({
         variant: "destructive",
         title: "Erro no cadastro",
-        description: message,
+        description: `${message} [${error.code || 'unknown'}]`,
       });
     } finally {
       setLoading(false);
