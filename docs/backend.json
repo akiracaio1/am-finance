@@ -76,6 +76,25 @@
         "updatedAt": { "type": "string", "format": "date-time" }
       },
       "required": ["id", "supplierId", "accountCategoryId", "description", "originalAmount", "dueDate", "status", "createdAt", "updatedAt"]
+    },
+    "AccountsReceivableEntry": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "AccountsReceivableEntry",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "customerName": { "type": "string" },
+        "accountCategoryId": { "type": "string" },
+        "description": { "type": "string" },
+        "amount": { "type": "number" },
+        "dueDate": { "type": "string", "format": "date" },
+        "status": { "type": "string", "enum": ["Open", "Paid"] },
+        "paymentDate": { "type": "string", "format": "date" },
+        "bankAccountId": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "customerName", "accountCategoryId", "description", "amount", "dueDate", "status", "createdAt", "updatedAt"]
     }
   },
   "auth": {
@@ -113,6 +132,14 @@
           "entityName": "AccountsPayableEntry",
           "schema": { "$ref": "#/backend/entities/AccountsPayableEntry" },
           "description": "Stores accounts payable entries."
+        }
+      },
+      {
+        "path": "/users/{userId}/accountsReceivableEntries/{entryId}",
+        "definition": {
+          "entityName": "AccountsReceivableEntry",
+          "schema": { "$ref": "#/backend/entities/AccountsReceivableEntry" },
+          "description": "Stores accounts receivable entries."
         }
       }
     ]

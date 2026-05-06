@@ -48,12 +48,25 @@ export interface AccountsPayableEntry {
   status: 'Open' | 'Paid' | 'Overdue' | 'DueToday';
   createdAt: string;
   updatedAt: string;
-  // Campos de Pagamento
   paymentDate?: string;
   bankAccountId?: string;
   interest?: number;
   fine?: number;
   discount?: number;
+}
+
+export interface AccountsReceivableEntry {
+  id: string;
+  customerName: string;
+  accountCategoryId: string;
+  description: string;
+  amount: number;
+  dueDate: string;
+  status: 'Open' | 'Paid';
+  paymentDate?: string;
+  bankAccountId?: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface BankAccount {
