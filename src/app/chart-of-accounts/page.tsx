@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useState } from "react";
@@ -10,7 +11,8 @@ import {
   ChevronRight, 
   ChevronDown,
   Loader2,
-  FolderPlus
+  FolderPlus,
+  Sparkles
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
@@ -41,14 +43,67 @@ interface AccountCategory {
   updatedAt: string;
 }
 
+const DEFAULT_STRUCTURE = [
+  // 1.0 Operacional
+  { id: "1", code: "1.0", name: "Operacional (Custos Variáveis e Insumos)", type: "Expense", description: "Gastos que variam com o volume de produção." },
+  { id: "1.1", code: "1.1", name: "Insumos e Materiais Diretos", parentCategoryId: "1", type: "Expense" },
+  { id: "1.1.1", code: "1.1.1", name: "Materiais para Revenda", parentCategoryId: "1.1", type: "Expense" },
+  { id: "1.1.2", code: "1.1.2", name: "Materiais Aplicados na Prestação de Serviços", parentCategoryId: "1.1", type: "Expense" },
+  { id: "1.1.3", code: "1.1.3", name: "Embalagens", parentCategoryId: "1.1", type: "Expense" },
+  { id: "1.1.4", code: "1.1.4", name: "Gás GLP (Combustível de Produção)", parentCategoryId: "1.1", type: "Expense" },
+  { id: "1.2", code: "1.2", name: "Impostos sobre Vendas", parentCategoryId: "1", type: "Expense" },
+  { id: "1.2.1", code: "1.2.1", name: "Simples Nacional - DAS", parentCategoryId: "1.2", type: "Expense" },
+  { id: "1.2.2", code: "1.2.2", name: "ICMS ST sobre Vendas", parentCategoryId: "1.2", type: "Expense" },
+  { id: "1.3", code: "1.3", name: "Logística e Vendas", parentCategoryId: "1", type: "Expense" },
+  { id: "1.3.1", code: "1.3.1", name: "Fretes pagos", parentCategoryId: "1.3", type: "Expense" },
+  { id: "1.3.2", code: "1.3.2", name: "Transporte de Mercadorias Vendidas", parentCategoryId: "1.3", type: "Expense" },
+  { id: "1.3.3", code: "1.3.3", name: "Descontos incondicionais concedidos", parentCategoryId: "1.3", type: "Expense" },
+  
+  // 2.0 Custos Fixos
+  { id: "2", code: "2.0", name: "Custos Fixos (Despesas Administrativas e Estruturais)", type: "Expense", description: "Gastos recorrentes para manter a empresa aberta." },
+  { id: "2.1", code: "2.1", name: "Ocupação e Utilidades", parentCategoryId: "2", type: "Expense" },
+  { id: "2.1.1", code: "2.1.1", name: "Aluguel", parentCategoryId: "2.1", type: "Expense" },
+  { id: "2.1.2", code: "2.1.2", name: "Energia Elétrica", parentCategoryId: "2.1", type: "Expense" },
+  { id: "2.1.3", code: "2.1.3", name: "Água e Saneamento", parentCategoryId: "2.1", type: "Expense" },
+  { id: "2.1.4", code: "2.1.4", name: "Telefonia e Internet", parentCategoryId: "2.1", type: "Expense" },
+  { id: "2.2", code: "2.2", name: "Pessoal e Honorários", parentCategoryId: "2", type: "Expense" },
+  { id: "2.2.1", code: "2.2.1", name: "Salários", parentCategoryId: "2.2", type: "Expense" },
+  { id: "2.2.2", code: "2.2.2", name: "Remuneração de Autônomos", parentCategoryId: "2.2", type: "Expense" },
+  { id: "2.2.3", code: "2.2.3", name: "Honorários Contábeis", parentCategoryId: "2.2", type: "Expense" },
+  { id: "2.3", code: "2.3", name: "Manutenção e Administrativo", parentCategoryId: "2", type: "Expense" },
+  { id: "2.3.1", code: "2.3.1", name: "Copa e Cozinha", parentCategoryId: "2.3", type: "Expense" },
+  { id: "2.3.2", code: "2.3.2", name: "Utensílios e Equipamentos de Cozinha", parentCategoryId: "2.3", type: "Expense" },
+  { id: "2.3.3", code: "2.3.3", name: "Materiais de Escritório", parentCategoryId: "2.3", type: "Expense" },
+  { id: "2.3.4", code: "2.3.4", name: "Software / Licença de Uso", parentCategoryId: "2.3", type: "Expense" },
+  { id: "2.3.5", code: "2.3.5", name: "Combustíveis (uso administrativo/veículos)", parentCategoryId: "2.3", type: "Expense" },
+
+  // 3.0 Marketing
+  { id: "3", code: "3.0", name: "Marketing e Desenvolvimento", type: "Expense", description: "Crescimento da marca e aquisição de clientes." },
+  { id: "3.1", code: "3.1", name: "Promoção e Publicidade", parentCategoryId: "3", type: "Expense" },
+  { id: "3.1.1", code: "3.1.1", name: "Marketing e Publicidade", parentCategoryId: "3.1", type: "Expense" },
+  { id: "3.1.2", code: "3.1.2", name: "Tráfego Pago", parentCategoryId: "3.1", type: "Expense" },
+  { id: "3.2", code: "3.2", name: "Treinamento", parentCategoryId: "3", type: "Expense" },
+  { id: "3.2.1", code: "3.2.1", name: "Cursos e Treinamentos", parentCategoryId: "3.2", type: "Expense" },
+  { id: "3.3", code: "3.3", name: "Eventos", parentCategoryId: "3", type: "Expense" },
+  { id: "3.3.1", code: "3.3.1", name: "Taxas de Participação em Eventos", parentCategoryId: "3.3", type: "Expense" },
+
+  // 4.0 Investimentos
+  { id: "4", code: "4.0", name: "Investimentos e Movimentações de Sócios", type: "Asset", description: "Patrimônio e transações com proprietários." },
+  { id: "4.1", code: "4.1", name: "Ativos Imobilizados", parentCategoryId: "4", type: "Asset" },
+  { id: "4.1.1", code: "4.1.1", name: "Máquinas, Equipamentos e Instalações Industriais", parentCategoryId: "4.1", type: "Asset" },
+  { id: "4.2", code: "4.2", name: "Fluxo de Sócios", parentCategoryId: "4", type: "Equity" },
+  { id: "4.2.1", code: "4.2.1", name: "Antecipação de Lucros", parentCategoryId: "4.2", type: "Equity" },
+  { id: "4.2.2", code: "4.2.2", name: "Empréstimos de Sócios", parentCategoryId: "4.2", type: "Equity" },
+];
+
 export default function ChartOfAccountsPage() {
   const { user } = useUser();
   const db = useFirestore();
   const [expanded, setExpanded] = useState<string[]>([]);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const [isProvisioning, setIsProvisioning] = useState(false);
   const [parentForNew, setParentForNew] = useState<AccountCategory | null>(null);
 
-  // Firestore connection
   const categoriesQuery = useMemoFirebase(() => {
     if (!db || !user) return null;
     return collection(db, "users", user.uid, "accountCategories");
@@ -65,6 +120,38 @@ export default function ChartOfAccountsPage() {
     setIsDialogOpen(true);
   };
 
+  const handleProvisionDefaults = async () => {
+    if (!db || !user) return;
+    setIsProvisioning(true);
+    
+    try {
+      for (const item of DEFAULT_STRUCTURE) {
+        const categoryRef = doc(db, "users", user.uid, "accountCategories", item.id);
+        const data: AccountCategory = {
+          ...item,
+          description: item.description || "",
+          parentCategoryId: item.parentCategoryId || "",
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        };
+        setDocumentNonBlocking(categoryRef, data, { merge: true });
+      }
+      
+      toast({
+        title: "Plano provisionado",
+        description: "A estrutura profissional foi carregada com sucesso.",
+      });
+    } catch (e) {
+      toast({
+        variant: "destructive",
+        title: "Erro ao provisionar",
+        description: "Não foi possível carregar a estrutura padrão.",
+      });
+    } finally {
+      setIsProvisioning(false);
+    }
+  };
+
   const handleSaveCategory = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (!db || !user) return;
@@ -78,7 +165,7 @@ export default function ChartOfAccountsPage() {
       name: formData.get("name") as string,
       code: formData.get("code") as string,
       description: (formData.get("description") as string) || "",
-      type: parentForNew?.type || "Expense", // Default or inherit from parent
+      type: parentForNew?.type || "Expense",
       parentCategoryId: parentForNew?.id || "",
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
@@ -92,7 +179,6 @@ export default function ChartOfAccountsPage() {
     });
 
     setIsDialogOpen(false);
-    // Expand the parent automatically to show the new item
     if (parentForNew) {
       setExpanded(prev => prev.includes(parentForNew.id) ? prev : [...prev, parentForNew.id]);
     }
@@ -158,9 +244,17 @@ export default function ChartOfAccountsPage() {
           </h1>
           <p className="text-muted-foreground">A hierarquia estrutural das categorias do seu negócio.</p>
         </div>
-        <Button className="gap-2 shadow-md" onClick={() => handleOpenNew()}>
-          <Plus className="w-4 h-4" /> Nova Categoria
-        </Button>
+        <div className="flex gap-3">
+          {roots.length === 0 && !isLoading && (
+            <Button variant="outline" className="gap-2 border-primary text-primary hover:bg-primary/5" onClick={handleProvisionDefaults} disabled={isProvisioning}>
+              {isProvisioning ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
+              Importar Estrutura Padrão
+            </Button>
+          )}
+          <Button className="gap-2 shadow-md" onClick={() => handleOpenNew()}>
+            <Plus className="w-4 h-4" /> Nova Categoria
+          </Button>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -182,9 +276,14 @@ export default function ChartOfAccountsPage() {
                 <FolderPlus className="w-12 h-12 text-muted-foreground/30 mx-auto mb-4" />
                 <h3 className="text-lg font-medium text-muted-foreground">Seu plano de contas está vazio</h3>
                 <p className="text-sm text-muted-foreground mb-6 max-w-xs mx-auto">
-                  Crie grupos principais como "Operacional" ou "Custos Fixos" para começar a organizar suas finanças.
+                  Comece criando um grupo principal ou use nossa estrutura profissional pré-definida.
                 </p>
-                <Button onClick={() => handleOpenNew()}>Criar Primeira Categoria</Button>
+                <div className="flex justify-center gap-3">
+                  <Button variant="outline" onClick={handleProvisionDefaults} disabled={isProvisioning}>
+                    {isProvisioning ? "Importando..." : "Importar Plano Padrão"}
+                  </Button>
+                  <Button onClick={() => handleOpenNew()}>Criar Manualmente</Button>
+                </div>
               </div>
             ) : (
               <div className="space-y-1">
@@ -197,15 +296,14 @@ export default function ChartOfAccountsPage() {
         <div className="space-y-6">
           <Card className="bg-primary/5 border-primary/10">
             <CardHeader>
-              <CardTitle className="text-sm">Por que isso importa?</CardTitle>
+              <CardTitle className="text-sm">Dica de Gestão</CardTitle>
             </CardHeader>
             <CardContent className="text-xs text-muted-foreground leading-relaxed space-y-2">
               <p>
-                Um plano de contas bem estruturado permite uma análise granular dos custos do seu negócio. 
-                Ao separar <strong>Insumos</strong> de <strong>Custos Fixos</strong>, a AM Finance consegue calcular sua Margem de Contribuição real.
+                A estrutura <strong>Grupo &gt; Subgrupo &gt; Item</strong> permite que você veja o macro (quanto gasto com Operacional) e o micro (quanto gasto com Gás GLP).
               </p>
               <p>
-                A estrutura <strong>Grupo &gt; Subgrupo &gt; Item</strong> permite que você veja o macro (quanto gasto com Operacional) e o micro (quanto gasto com Gás GLP).
+                Isso é fundamental para calcular sua Margem de Contribuição e identificar onde estão os gargalos do seu caixa.
               </p>
             </CardContent>
           </Card>
