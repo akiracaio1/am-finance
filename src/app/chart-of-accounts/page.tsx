@@ -15,7 +15,7 @@ import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 
 export default function ChartOfAccountsPage() {
-  const [expanded, setExpanded] = useState<string[]>(['1', '4']);
+  const [expanded, setExpanded] = useState<string[]>(['1', '2', '3', '4']);
 
   const toggle = (id: string) => {
     setExpanded(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
@@ -32,20 +32,26 @@ export default function ChartOfAccountsPage() {
       <div key={id} className="select-none">
         <div 
           className={cn(
-            "flex items-center gap-2 py-2 px-3 rounded-md transition-data cursor-pointer group",
-            level === 0 ? "font-bold bg-muted/50 mt-4 first:mt-0" : "hover:bg-muted/30 ml-6",
-            level > 1 ? "ml-12" : ""
+            "flex items-center gap-2 py-2 px-3 rounded-md transition-all cursor-pointer group border border-transparent",
+            level === 0 ? "font-bold bg-primary/5 border-primary/10 mt-6 first:mt-0 text-primary" : "hover:bg-muted/50",
+            level === 1 ? "ml-6 font-semibold" : "",
+            level === 2 ? "ml-12 text-muted-foreground text-sm" : ""
           )}
           onClick={() => toggle(id)}
         >
           {children.length > 0 ? (
-            isExpanded ? <ChevronDown className="w-4 h-4 text-primary" /> : <ChevronRight className="w-4 h-4 text-muted-foreground" />
-          ) : <div className="w-4" />}
+            isExpanded ? <ChevronDown className="w-4 h-4 text-primary shrink-0" /> : <ChevronRight className="w-4 h-4 text-muted-foreground shrink-0" />
+          ) : <div className="w-4 shrink-0" />}
           
-          <span className="text-xs font-mono text-muted-foreground w-12">{item.code}</span>
-          <span className="flex-1">{item.name}</span>
+          <span className={cn(
+            "text-[10px] font-mono shrink-0",
+            level === 0 ? "text-primary/70" : "text-muted-foreground/50"
+          )}>
+            {item.code}
+          </span>
+          <span className="flex-1 truncate">{item.name}</span>
           
-          <Button variant="ghost" size="icon" className="h-6 w-6 opacity-0 group-hover:opacity-100">
+          <Button variant="ghost" size="icon" className="h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity">
             <Plus className="w-3 h-3" />
           </Button>
         </div>
@@ -58,7 +64,7 @@ export default function ChartOfAccountsPage() {
   const roots = MOCK_CHART_OF_ACCOUNTS.filter(x => !x.parent);
 
   return (
-    <div className="space-y-6 animate-in fade-in duration-500">
+    <div className="space-y-6 animate-in fade-in duration-500 pb-10">
       <div className="flex justify-between items-end">
         <div>
           <h1 className="text-3xl font-bold flex items-center gap-3">
@@ -67,20 +73,20 @@ export default function ChartOfAccountsPage() {
           </h1>
           <p className="text-muted-foreground">A hierarquia estrutural das categorias do seu negócio.</p>
         </div>
-        <Button className="gap-2">
+        <Button className="gap-2 shadow-md">
           <Plus className="w-4 h-4" /> Nova Categoria
         </Button>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <Card className="lg:col-span-2">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
+        <Card className="lg:col-span-2 shadow-sm">
+          <CardHeader className="border-b bg-muted/20">
+            <CardTitle className="flex items-center gap-2 text-lg">
               <FolderTree className="w-5 h-5 text-primary" />
-              Hierarquia de Contas
+              Estrutura Hierárquica
             </CardTitle>
           </CardHeader>
-          <CardContent>
+          <CardContent className="pt-6">
             <div className="space-y-1">
               {roots.map(root => renderItem(root.id))}
             </div>
@@ -88,32 +94,38 @@ export default function ChartOfAccountsPage() {
         </Card>
 
         <div className="space-y-6">
-          <Card className="bg-primary/5">
+          <Card className="bg-primary/5 border-primary/10">
             <CardHeader>
               <CardTitle className="text-sm">Por que isso importa?</CardTitle>
             </CardHeader>
-            <CardContent className="text-xs text-muted-foreground leading-relaxed">
-              Um plano de contas bem estruturado permite uma análise granular dos custos do seu negócio. 
-              Ao separar "Peixe" de "Suprimentos" gerais, a Yumi Yumi pode identificar exatamente onde as margens brutas estão sendo impactadas.
+            <CardContent className="text-xs text-muted-foreground leading-relaxed space-y-2">
+              <p>
+                Um plano de contas bem estruturado permite uma análise granular dos custos do seu negócio. 
+                Ao separar <strong>Insumos</strong> de <strong>Custos Fixos</strong>, a AM Finance consegue calcular sua Margem de Contribuição real.
+              </p>
+              <p>
+                A estrutura <strong>Grupo > Subgrupo > Item</strong> permite que você veja o macro (quanto gasto com Operacional) e o micro (quanto gasto com Gás GLP).
+              </p>
             </CardContent>
           </Card>
           
           <Card>
-            <CardHeader>
-              <CardTitle className="text-sm">Estatísticas Rápidas</CardTitle>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm">Estatísticas do Plano</CardTitle>
             </CardHeader>
-            <CardContent className="space-y-4">
+            <CardContent className="space-y-4 pt-4">
               <div className="flex justify-between items-center">
                 <span className="text-xs font-medium">Grupos Principais</span>
-                <Badge>2</Badge>
+                <Badge variant="outline">{roots.length}</Badge>
               </div>
               <div className="flex justify-between items-center">
-                <span className="text-xs font-medium">Subcategorias</span>
-                <Badge>3</Badge>
+                <span className="text-xs font-medium">Categorias Totais</span>
+                <Badge variant="outline" className="border-primary text-primary">
+                  {MOCK_CHART_OF_ACCOUNTS.length}
+                </Badge>
               </div>
-              <div className="flex justify-between items-center">
-                <span className="text-xs font-medium">Categorias Ativas</span>
-                <Badge variant="outline" className="border-primary text-primary">5</Badge>
+              <div className="pt-4 border-t text-[10px] text-muted-foreground italic">
+                Última atualização: {new Date().toLocaleDateString('pt-BR')}
               </div>
             </CardContent>
           </Card>
