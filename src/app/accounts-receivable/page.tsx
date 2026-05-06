@@ -1,7 +1,7 @@
 
 "use client";
 
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { 
   Table, 
   TableBody, 
@@ -23,7 +23,9 @@ import {
   CheckCircle2,
   Calendar,
   Wallet,
-  MoreHorizontal
+  MoreHorizontal,
+  FileText,
+  AlertCircle
 } from "lucide-react";
 import { useUser, useFirestore, useCollection, useMemoFirebase } from "@/firebase";
 import { collection, doc } from "firebase/firestore";
@@ -53,12 +55,14 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "@/hooks/use-toast";
 import { AccountsReceivableEntry, AccountCategory } from "@/lib/types";
-import { format } from "date-fns";
+import { format, parse } from "date-fns";
 
 export default function AccountsReceivablePage() {
   const { user } = useUser();
   const db = useFirestore();
   const [isNewEntryOpen, setIsNewEntryOpen] = useState(false);
+  const [isImporting, setIsImporting] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Firestore Queries
   const entriesQuery = useMemoFirebase(() => {
@@ -116,6 +120,91 @@ export default function AccountsReceivablePage() {
     toast({ title: "Lançamento removido", description: "A receita foi excluída." });
   };
 
+  const handleImportCSV = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !db || !user) return;
+
+    setIsImporting(true);
+    const reader = new FileReader();
+    
+    reader.onload = async (event) => {
+      try {
+        const text = event.target?.result as string;
+        const lines = text.split("\n");
+        const headers = lines[0].split(",").map(h => h.trim().toLowerCase());
+        
+        // Mapeamento básico: Vencimento, Origem, Descrição, Valor, Categoria
+        let count = 0;
+        
+        for (let i = 1; i < lines.length; i++) {
+          if (!lines[i].trim()) continue;
+          
+          const columns = lines[i].split(",").map(c => c.trim());
+          const entryData: any = {};
+          
+          columns.forEach((val, idx) => {
+            const header = headers[idx];
+            if (header.includes("vencimento")) entryData.dueDate = val;
+            if (header.includes("origem")) entryData.customerName = val;
+            if (header.includes("descri")) entryData.description = val;
+            if (header.includes("valor")) entryData.amount = parseFloat(val.replace("R$", "").replace(".", "").replace(",", "."));
+            if (header.includes("categoria")) entryData.categoryName = val;
+          });
+
+          // Tentar encontrar o ID da categoria pelo nome
+          const matchedCategory = categories?.find(c => c.name.toLowerCase() === entryData.categoryName?.toLowerCase());
+          const categoryId = matchedCategory?.id || "outros";
+
+          const entryId = `imp_${Date.now()}_${i}`;
+          const entryRef = doc(db, "users", user.uid, "accountsReceivableEntries", entryId);
+          
+          // Formatar data de DD/MM/YYYY para YYYY-MM-DD se necessário
+          let formattedDate = entryData.dueDate;
+          if (formattedDate.includes("/")) {
+            try {
+              const parsedDate = parse(formattedDate, "dd/MM/yyyy", new Date());
+              formattedDate = format(parsedDate, "yyyy-MM-dd");
+            } catch (e) {
+              console.error("Erro ao formatar data:", formattedDate);
+            }
+          }
+
+          const newEntry: AccountsReceivableEntry = {
+            id: entryId,
+            customerName: entryData.customerName || "Importado",
+            accountCategoryId: categoryId,
+            description: entryData.description || "Venda Importada",
+            amount: entryData.amount || 0,
+            dueDate: formattedDate,
+            status: 'Open',
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+          };
+
+          setDocumentNonBlocking(entryRef, newEntry, { merge: true });
+          count++;
+        }
+
+        toast({ 
+          title: "Importação Concluída", 
+          description: `${count} lançamentos foram importados com sucesso.` 
+        });
+      } catch (err) {
+        console.error(err);
+        toast({ 
+          variant: "destructive", 
+          title: "Erro na importação", 
+          description: "Verifique se o formato do arquivo CSV está correto." 
+        });
+      } finally {
+        setIsImporting(false);
+        if (fileInputRef.current) fileInputRef.current.value = "";
+      }
+    };
+
+    reader.readAsText(file);
+  };
+
   const totalOpen = entries?.filter(e => e.status === 'Open').reduce((acc, curr) => acc + curr.amount, 0) || 0;
   const totalPaid = entries?.filter(e => e.status === 'Paid').reduce((acc, curr) => acc + curr.amount, 0) || 0;
 
@@ -130,9 +219,23 @@ export default function AccountsReceivablePage() {
           <p className="text-muted-foreground">Monitore o faturamento e gerencie entradas manuais ou automáticas.</p>
         </div>
         <div className="flex gap-2">
-          <Button variant="outline" className="gap-2">
-            <Upload className="w-4 h-4" /> Importar CSV
+          <input 
+            type="file" 
+            accept=".csv" 
+            className="hidden" 
+            ref={fileInputRef} 
+            onChange={handleImportCSV} 
+          />
+          <Button 
+            variant="outline" 
+            className="gap-2" 
+            onClick={() => fileInputRef.current?.click()}
+            disabled={isImporting}
+          >
+            {isImporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
+            Importar CSV
           </Button>
+          
           <Dialog open={isNewEntryOpen} onOpenChange={setIsNewEntryOpen}>
             <DialogTrigger asChild>
               <Button className="gap-2 bg-accent hover:bg-accent/90">
@@ -217,7 +320,7 @@ export default function AccountsReceivablePage() {
             <div className="text-center py-20 border-2 border-dashed rounded-lg">
               <ArrowUpCircle className="w-12 h-12 text-muted-foreground/30 mx-auto mb-4" />
               <h3 className="text-lg font-medium text-muted-foreground">Nenhuma receita lançada</h3>
-              <p className="text-sm text-muted-foreground mt-2">Clique em "Novo Recebimento" para começar.</p>
+              <p className="text-sm text-muted-foreground mt-2">Clique em "Novo Recebimento" ou importe um CSV.</p>
             </div>
           ) : (
             <Table>
@@ -279,6 +382,14 @@ export default function AccountsReceivablePage() {
           )}
         </CardContent>
       </Card>
+
+      <div className="bg-muted/30 p-4 rounded-lg border border-dashed text-xs text-muted-foreground">
+        <div className="flex items-center gap-2 mb-2 font-bold text-foreground">
+          <AlertCircle className="w-4 h-4" /> Dica de Importação
+        </div>
+        <p>O arquivo CSV deve conter os cabeçalhos: <strong>Vencimento, Origem, Descrição, Valor, Categoria</strong>.</p>
+        <p className="mt-1">Exemplo: 25/03/2024, iFood, Vendas do dia, 150.00, Vendas</p>
+      </div>
     </div>
   );
 }
