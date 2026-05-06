@@ -150,6 +150,7 @@ export default function AccountsPayablePage() {
   const handleConfirmPayment = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (!db || !user || !entryToPay) return;
+    
     const formData = new FormData(e.currentTarget);
     const entryRef = doc(db, "users", user.uid, "accountsPayableEntries", entryToPay.id);
     
@@ -164,9 +165,19 @@ export default function AccountsPayablePage() {
     };
 
     updateDocumentNonBlocking(entryRef, paymentData);
-    toast({ title: "Pagamento confirmado", description: `A conta "${entryToPay.description}" foi marcada como paga.` });
+    
+    toast({ 
+      title: "Pagamento confirmado", 
+      description: `A conta "${entryToPay.description}" foi marcada como paga.` 
+    });
+    
+    // Primeiro fechamos o modal
     setIsPaymentOpen(false);
-    setEntryToPay(null);
+    
+    // Aguardamos a transição de saída antes de limpar o estado do registro
+    setTimeout(() => {
+      setEntryToPay(null);
+    }, 300);
   };
 
   const undoPayment = (entry: AccountsPayableEntry) => {
@@ -453,69 +464,78 @@ export default function AccountsPayablePage() {
       </Card>
 
       {/* Dialog de Confirmação de Pagamento */}
-      <Dialog open={isPaymentOpen} onOpenChange={setIsPaymentOpen}>
+      <Dialog open={isPaymentOpen} onOpenChange={(open) => {
+        if (!open) {
+          setIsPaymentOpen(false);
+          setTimeout(() => setEntryToPay(null), 300);
+        } else {
+          setIsPaymentOpen(true);
+        }
+      }}>
         <DialogContent className="max-w-md">
-          <form onSubmit={handleConfirmPayment}>
-            <DialogHeader>
-              <DialogTitle>Confirmar Pagamento</DialogTitle>
-              <p className="text-sm text-muted-foreground">
-                Informações para a liquidação de: <strong>{entryToPay?.description}</strong>
-              </p>
-            </DialogHeader>
-            <div className="grid gap-4 py-4">
-              <div className="grid grid-cols-2 gap-4">
-                <div className="grid gap-2">
-                  <Label htmlFor="paymentDate">Data de Pagamento *</Label>
-                  <Input id="paymentDate" name="paymentDate" type="date" defaultValue={todayStr} required />
+          {entryToPay && (
+            <form onSubmit={handleConfirmPayment}>
+              <DialogHeader>
+                <DialogTitle>Confirmar Pagamento</DialogTitle>
+                <div className="text-sm text-muted-foreground mt-2">
+                  Liquidação de: <strong className="text-foreground">{entryToPay.description}</strong>
                 </div>
-                <div className="grid gap-2">
-                  <Label htmlFor="bankAccountId">Conta Bancária *</Label>
-                  <Select name="bankAccountId" required>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Selecione..." />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="itau">Itaú (Principal)</SelectItem>
-                      <SelectItem value="nubank">Nubank (Reserva)</SelectItem>
-                      <SelectItem value="caixa">Caixa (Operacional)</SelectItem>
-                      <SelectItem value="money">Caixinha (Dinheiro)</SelectItem>
-                    </SelectContent>
-                  </Select>
+              </DialogHeader>
+              <div className="grid gap-4 py-4">
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="grid gap-2">
+                    <Label htmlFor="paymentDate">Data de Pagamento *</Label>
+                    <Input id="paymentDate" name="paymentDate" type="date" defaultValue={todayStr} required />
+                  </div>
+                  <div className="grid gap-2">
+                    <Label htmlFor="bankAccountId">Conta Bancária *</Label>
+                    <Select name="bankAccountId" required>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Selecione..." />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="itau">Itaú (Principal)</SelectItem>
+                        <SelectItem value="nubank">Nubank (Reserva)</SelectItem>
+                        <SelectItem value="caixa">Caixa (Operacional)</SelectItem>
+                        <SelectItem value="money">Caixinha (Dinheiro)</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
                 </div>
-              </div>
 
-              <div className="grid grid-cols-3 gap-2">
-                <div className="grid gap-2">
-                  <Label htmlFor="interest">Juros (R$)</Label>
-                  <Input id="interest" name="interest" type="number" step="0.01" defaultValue="0" />
+                <div className="grid grid-cols-3 gap-2">
+                  <div className="grid gap-2">
+                    <Label htmlFor="interest">Juros (R$)</Label>
+                    <Input id="interest" name="interest" type="number" step="0.01" defaultValue="0" />
+                  </div>
+                  <div className="grid gap-2">
+                    <Label htmlFor="fine">Multa (R$)</Label>
+                    <Input id="fine" name="fine" type="number" step="0.01" defaultValue="0" />
+                  </div>
+                  <div className="grid gap-2">
+                    <Label htmlFor="discount">Desconto (R$)</Label>
+                    <Input id="discount" name="discount" type="number" step="0.01" defaultValue="0" />
+                  </div>
                 </div>
-                <div className="grid gap-2">
-                  <Label htmlFor="fine">Multa (R$)</Label>
-                  <Input id="fine" name="fine" type="number" step="0.01" defaultValue="0" />
-                </div>
-                <div className="grid gap-2">
-                  <Label htmlFor="discount">Desconto (R$)</Label>
-                  <Input id="discount" name="discount" type="number" step="0.01" defaultValue="0" />
-                </div>
-              </div>
 
-              <div className="bg-muted/50 p-4 rounded-lg space-y-2 border border-dashed">
-                <div className="flex justify-between text-xs">
-                  <span>Valor Original:</span>
-                  <span>R$ {entryToPay?.originalAmount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
-                </div>
-                <div className="flex justify-between text-sm font-bold border-t pt-2">
-                  <span>Valor Estimado da Liquidação:</span>
-                  <span className="text-primary">R$ {entryToPay?.originalAmount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
+                <div className="bg-muted/50 p-4 rounded-lg space-y-2 border border-dashed mt-2">
+                  <div className="flex justify-between text-xs text-muted-foreground">
+                    <span>Valor Original:</span>
+                    <span>R$ {entryToPay.originalAmount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
+                  </div>
+                  <div className="flex justify-between text-sm font-bold border-t pt-2">
+                    <span>Valor da Liquidação:</span>
+                    <span className="text-primary">R$ {entryToPay.originalAmount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
+                  </div>
                 </div>
               </div>
-            </div>
-            <DialogFooter>
-              <Button type="submit" className="w-full gap-2">
-                <Wallet className="w-4 h-4" /> Confirmar Liquidação
-              </Button>
-            </DialogFooter>
-          </form>
+              <DialogFooter>
+                <Button type="submit" className="w-full gap-2 py-6">
+                  <Wallet className="w-4 h-4" /> Confirmar Liquidação
+                </Button>
+              </DialogFooter>
+            </form>
+          )}
         </DialogContent>
       </Dialog>
     </div>
