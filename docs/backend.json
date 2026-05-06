@@ -1,74 +1,449 @@
-
 {
   "entities": {
-    "UserProfile": {
-      "title": "Perfil do Usuário",
-      "description": "Dados do usuário e vínculo com a empresa.",
+    "SupplierCategory": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "SupplierCategory",
       "type": "object",
+      "description": "Represents a category to which suppliers can be assigned for organizational purposes.",
       "properties": {
-        "displayName": { "type": "string" },
-        "email": { "type": "string", "format": "email" },
-        "companyId": { "type": "string", "description": "ID da empresa à qual o usuário pertence." }
+        "id": {
+          "type": "string",
+          "description": "Unique identifier for the SupplierCategory entity."
+        },
+        "name": {
+          "type": "string",
+          "description": "The name of the supplier category (e.g., 'Raw Materials', 'Services', 'Utilities')."
+        },
+        "description": {
+          "type": "string",
+          "description": "A detailed description of what this supplier category encompasses."
+        }
       },
-      "required": ["email", "companyId"]
-    },
-    "Company": {
-      "title": "Empresa",
-      "description": "Dados da empresa proprietária dos dados financeiros.",
-      "type": "object",
-      "properties": {
-        "name": { "type": "string" },
-        "cnpj": { "type": "string" },
-        "createdAt": { "type": "string", "format": "date-time" },
-        "lgpdConsent": { "type": "boolean", "description": "Se a empresa aceitou os termos da LGPD." }
-      },
-      "required": ["name", "lgpdConsent"]
+      "required": [
+        "id",
+        "name"
+      ]
     },
     "Supplier": {
-      "title": "Fornecedor",
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "Supplier",
       "type": "object",
+      "description": "Represents a vendor or company from whom goods or services are purchased.",
       "properties": {
-        "name": { "type": "string" },
-        "cnpj": { "type": "string" },
-        "contact": { "type": "string" },
-        "category": { "type": "string" }
+        "id": {
+          "type": "string",
+          "description": "Unique identifier for the Supplier entity."
+        },
+        "name": {
+          "type": "string",
+          "description": "The full legal name of the supplier or company."
+        },
+        "cnpj": {
+          "type": "string",
+          "description": "The Brazilian Cadastro Nacional da Pessoa Jurídica (CNPJ) identifier for the supplier."
+        },
+        "contactPerson": {
+          "type": "string",
+          "description": "The name of the primary contact person at the supplier."
+        },
+        "email": {
+          "type": "string",
+          "description": "The email address for the supplier's primary contact.",
+          "format": "email"
+        },
+        "phone": {
+          "type": "string",
+          "description": "The phone number for the supplier's primary contact."
+        },
+        "address": {
+          "type": "string",
+          "description": "The physical address of the supplier."
+        },
+        "supplierCategoryId": {
+          "type": "string",
+          "description": "Reference to the category this supplier belongs to. (Relationship: SupplierCategory 1:N Supplier)"
+        }
       },
-      "required": ["name", "cnpj"]
+      "required": [
+        "id",
+        "name",
+        "cnpj"
+      ]
     },
-    "FinancialEntry": {
-      "title": "Lançamento Financeiro",
+    "AccountCategory": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "AccountCategory",
       "type": "object",
+      "description": "Represents a financial account category within the chart of accounts, used for classifying income and expenses.",
       "properties": {
-        "description": { "type": "string" },
-        "amount": { "type": "number" },
-        "dueDate": { "type": "string", "format": "date" },
-        "status": { "type": "string", "enum": ["open", "paid", "overdue", "canceled"] },
-        "type": { "type": "string", "enum": ["payable", "receivable"] },
-        "category": { "type": "string" },
-        "supplierId": { "type": "string" }
+        "id": {
+          "type": "string",
+          "description": "Unique identifier for the AccountCategory entity."
+        },
+        "name": {
+          "type": "string",
+          "description": "The name of the account category (e.g., 'Revenue - Product Sales', 'Expense - Rent')."
+        },
+        "description": {
+          "type": "string",
+          "description": "A detailed description of this financial account category."
+        },
+        "type": {
+          "type": "string",
+          "description": "The general financial type of the account (e.g., 'Revenue', 'Expense', 'Asset', 'Liability', 'Equity')."
+        },
+        "parentAccountId": {
+          "type": "string",
+          "description": "Reference to a parent AccountCategory for hierarchical structuring of the chart of accounts. (Relationship: AccountCategory 1:N AccountCategory)"
+        }
       },
-      "required": ["description", "amount", "dueDate", "type"]
+      "required": [
+        "id",
+        "name",
+        "type"
+      ]
+    },
+    "BankAccount": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "BankAccount",
+      "type": "object",
+      "description": "Represents a bank account registered in the system for reconciliation purposes.",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier for the BankAccount entity."
+        },
+        "bankName": {
+          "type": "string",
+          "description": "The name of the financial institution."
+        },
+        "accountNumber": {
+          "type": "string",
+          "description": "The bank account number."
+        },
+        "agencyNumber": {
+          "type": "string",
+          "description": "The bank agency or branch number."
+        },
+        "accountHolderName": {
+          "type": "string",
+          "description": "The name of the account holder as registered with the bank."
+        },
+        "initialBalance": {
+          "type": "number",
+          "description": "The initial balance of the account when it was first recorded in the system."
+        },
+        "currency": {
+          "type": "string",
+          "description": "The currency code for this bank account (e.g., 'BRL', 'USD')."
+        },
+        "description": {
+          "type": "string",
+          "description": "An optional description or nickname for the bank account."
+        }
+      },
+      "required": [
+        "id",
+        "bankName",
+        "accountNumber",
+        "agencyNumber",
+        "accountHolderName",
+        "currency"
+      ]
+    },
+    "AccountsPayable": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "AccountsPayable",
+      "type": "object",
+      "description": "Represents an amount owed by the company to a supplier for goods or services received.",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier for the AccountsPayable entity."
+        },
+        "supplierId": {
+          "type": "string",
+          "description": "Reference to the supplier to whom the payment is due. (Relationship: Supplier 1:N AccountsPayable)"
+        },
+        "description": {
+          "type": "string",
+          "description": "A description of the expense or payable item (e.g., 'Office Rent', 'Raw Fish Supply')."
+        },
+        "amount": {
+          "type": "number",
+          "description": "The original total amount due for this payable."
+        },
+        "dueDate": {
+          "type": "string",
+          "description": "The date by which the payment is expected to be made.",
+          "format": "date-time"
+        },
+        "issueDate": {
+          "type": "string",
+          "description": "The date when this payable was issued or recorded in the system.",
+          "format": "date-time"
+        },
+        "accountCategoryId": {
+          "type": "string",
+          "description": "Reference to the financial category for this expense. (Relationship: AccountCategory 1:N AccountsPayable)"
+        },
+        "status": {
+          "type": "string",
+          "description": "The current status of the payable (e.g., 'Open', 'Paid', 'Overdue', 'Cancelled')."
+        },
+        "paymentDate": {
+          "type": "string",
+          "description": "The actual date when the payment was processed.",
+          "format": "date-time"
+        },
+        "paidAmount": {
+          "type": "number",
+          "description": "The actual amount that was paid towards this payable."
+        },
+        "interestAmount": {
+          "type": "number",
+          "description": "Any interest charged on the payable due to late payment or specific terms."
+        },
+        "fineAmount": {
+          "type": "number",
+          "description": "Any fines incurred on the payable, typically for late payment."
+        },
+        "notes": {
+          "type": "string",
+          "description": "Additional notes or remarks regarding the payable."
+        }
+      },
+      "required": [
+        "id",
+        "supplierId",
+        "description",
+        "amount",
+        "dueDate",
+        "issueDate",
+        "accountCategoryId",
+        "status"
+      ]
+    },
+    "AccountsReceivable": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "AccountsReceivable",
+      "type": "object",
+      "description": "Represents an amount owed to the company by a customer or other entity for goods or services provided.",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier for the AccountsReceivable entity."
+        },
+        "description": {
+          "type": "string",
+          "description": "A description of the revenue item or receivable (e.g., 'Sushi Sales', 'Catering Event')."
+        },
+        "amount": {
+          "type": "number",
+          "description": "The original total amount expected to be received for this receivable."
+        },
+        "dueDate": {
+          "type": "string",
+          "description": "The date by which the payment is expected to be received.",
+          "format": "date-time"
+        },
+        "issueDate": {
+          "type": "string",
+          "description": "The date when this receivable was generated or invoiced.",
+          "format": "date-time"
+        },
+        "accountCategoryId": {
+          "type": "string",
+          "description": "Reference to the financial category for this revenue. (Relationship: AccountCategory 1:N AccountsReceivable)"
+        },
+        "status": {
+          "type": "string",
+          "description": "The current status of the receivable (e.g., 'Open', 'Received', 'Overdue', 'Cancelled')."
+        },
+        "receivedDate": {
+          "type": "string",
+          "description": "The actual date when the payment was received.",
+          "format": "date-time"
+        },
+        "receivedAmount": {
+          "type": "number",
+          "description": "The actual amount that was received for this receivable."
+        },
+        "salesChannel": {
+          "type": "string",
+          "description": "The channel through which this revenue was generated (e.g., 'Website', 'Direct Sale', 'Delivery App')."
+        },
+        "notes": {
+          "type": "string",
+          "description": "Additional notes or remarks regarding the receivable."
+        }
+      },
+      "required": [
+        "id",
+        "description",
+        "amount",
+        "dueDate",
+        "issueDate",
+        "accountCategoryId",
+        "status"
+      ]
+    },
+    "BankStatementTransaction": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "BankStatementTransaction",
+      "type": "object",
+      "description": "Represents a single transaction entry imported from a bank statement (e.g., OFX file) for reconciliation.",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier for the BankStatementTransaction entity."
+        },
+        "bankAccountId": {
+          "type": "string",
+          "description": "Reference to the bank account from which this transaction originated. (Relationship: BankAccount 1:N BankStatementTransaction)"
+        },
+        "transactionDate": {
+          "type": "string",
+          "description": "The date of the transaction as recorded in the bank statement.",
+          "format": "date-time"
+        },
+        "postingDate": {
+          "type": "string",
+          "description": "The date when the transaction was posted by the bank (may differ from transaction date).",
+          "format": "date-time"
+        },
+        "description": {
+          "type": "string",
+          "description": "The description of the transaction as provided by the bank statement."
+        },
+        "amount": {
+          "type": "number",
+          "description": "The amount of the transaction. Positive values typically indicate credits (inflows), negative values indicate debits (outflows)."
+        },
+        "type": {
+          "type": "string",
+          "description": "The type of transaction as indicated by the bank or derived (e.g., 'DEBIT', 'CREDIT', 'TRANSFER', 'PAYMENT')."
+        },
+        "originalTransactionId": {
+          "type": "string",
+          "description": "A unique identifier for the transaction provided by the bank in the OFX file or bank feed."
+        },
+        "reconciled": {
+          "type": "boolean",
+          "description": "A flag indicating whether this bank statement transaction has been successfully reconciled with an AccountsPayable or AccountsReceivable entry."
+        },
+        "reconciliationDate": {
+          "type": "string",
+          "description": "The date when this transaction was reconciled with a system entry.",
+          "format": "date-time"
+        },
+        "matchedPayableId": {
+          "type": "string",
+          "description": "Reference to an AccountsPayable entity if this transaction reconciled an outstanding payable. (Relationship: AccountsPayable 1:1 BankStatementTransaction)"
+        },
+        "matchedReceivableId": {
+          "type": "string",
+          "description": "Reference to an AccountsReceivable entity if this transaction reconciled an outstanding receivable. (Relationship: AccountsReceivable 1:1 BankStatementTransaction)"
+        },
+        "unmatchedReason": {
+          "type": "string",
+          "description": "If not reconciled, a description of why the transaction could not be automatically matched."
+        },
+        "categorizedAccountCategoryId": {
+          "type": "string",
+          "description": "Reference to an AccountCategory if this unmatched bank transaction was manually categorized by the user. (Relationship: AccountCategory 1:N BankStatementTransaction)"
+        }
+      },
+      "required": [
+        "id",
+        "bankAccountId",
+        "transactionDate",
+        "description",
+        "amount",
+        "type",
+        "reconciled"
+      ]
     }
   },
   "auth": {
-    "providers": ["password"]
+    "providers": [
+      "password",
+      "anonymous"
+    ]
   },
   "firestore": {
-    "/users/{userId}": {
-      "schema": "#/backend/entities/UserProfile",
-      "description": "Perfis de usuário vinculados a empresas."
-    },
-    "/companies/{companyId}": {
-      "schema": "#/backend/entities/Company",
-      "description": "Dados mestres da empresa."
-    },
-    "/companies/{companyId}/suppliers/{supplierId}": {
-      "schema": "#/backend/entities/Supplier",
-      "description": "Catálogo de fornecedores isolado por empresa."
-    },
-    "/companies/{companyId}/entries/{entryId}": {
-      "schema": "#/backend/entities/FinancialEntry",
-      "description": "Movimentações financeiras isoladas por empresa."
-    }
+    "structure": [
+      {
+        "path": "/users/{userId}/supplierCategories/{supplierCategoryId}",
+        "definition": {
+          "entityName": "SupplierCategory",
+          "schema": {
+            "$ref": "#/backend/entities/SupplierCategory"
+          },
+          "description": "User-specific categories for suppliers. Includes denormalized 'ownerId' for authorization independence, derived from the path (`userId`)."
+        }
+      },
+      {
+        "path": "/users/{userId}/suppliers/{supplierId}",
+        "definition": {
+          "entityName": "Supplier",
+          "schema": {
+            "$ref": "#/backend/entities/Supplier"
+          },
+          "description": "User-specific supplier details. Includes denormalized 'ownerId' for authorization independence, derived from the path (`userId`)."
+        }
+      },
+      {
+        "path": "/users/{userId}/accountCategories/{accountCategoryId}",
+        "definition": {
+          "entityName": "AccountCategory",
+          "schema": {
+            "$ref": "#/backend/entities/AccountCategory"
+          },
+          "description": "User-specific financial account categories, forming the chart of accounts. Includes denormalized 'ownerId' for authorization independence, derived from the path (`userId`)."
+        }
+      },
+      {
+        "path": "/users/{userId}/bankAccounts/{bankAccountId}",
+        "definition": {
+          "entityName": "BankAccount",
+          "schema": {
+            "$ref": "#/backend/entities/BankAccount"
+          },
+          "description": "User-specific bank accounts for financial tracking and reconciliation. Includes denormalized 'ownerId' for authorization independence, derived from the path (`userId`)."
+        }
+      },
+      {
+        "path": "/users/{userId}/accountsPayable/{accountsPayableId}",
+        "definition": {
+          "entityName": "AccountsPayable",
+          "schema": {
+            "$ref": "#/backend/entities/AccountsPayable"
+          },
+          "description": "User-specific accounts payable entries. Includes denormalized 'ownerId' for authorization independence, derived from the path (`userId`). The 'status' field enables efficient QAPs for filtering."
+        }
+      },
+      {
+        "path": "/users/{userId}/accountsReceivable/{accountsReceivableId}",
+        "definition": {
+          "entityName": "AccountsReceivable",
+          "schema": {
+            "$ref": "#/backend/entities/AccountsReceivable"
+          },
+          "description": "User-specific accounts receivable entries. Includes denormalized 'ownerId' for authorization independence, derived from the path (`userId`). The 'status' field enables efficient QAPs for filtering."
+        }
+      },
+      {
+        "path": "/users/{userId}/bankStatementTransactions/{bankStatementTransactionId}",
+        "definition": {
+          "entityName": "BankStatementTransaction",
+          "schema": {
+            "$ref": "#/backend/entities/BankStatementTransaction"
+          },
+          "description": "User-specific bank statement transactions imported for reconciliation. Includes denormalized 'ownerId' for authorization independence, derived from the path (`userId`). Contains 'bankAccountId' for linking to the specific bank account."
+        }
+      }
+    ],
+    "reasoning": "The Firestore structure is designed to be highly secure, scalable, and debuggable for the 'Yumi Yumi 🍣 Finance' system, strictly adhering to the core design principles. The primary strategy revolves around **Authorization Independence via Denormalization** and **Structural Segregation**.\n\n**Authorization Independence:** All core application data (Supplier Categories, Suppliers, Account Categories, Bank Accounts, Accounts Payable, Accounts Receivable, and Bank Statement Transactions) are organized under a top-level `users/{userId}` collection. This path-based ownership means that every document implicitly includes the `ownerId` (which is `userId`) as part of its full path. This structure entirely eliminates the need for `get()` calls in Firestore Security Rules to determine ownership, as `request.auth.uid` can be directly compared against the `{userId}` wildcard in the path. This simplifies rule writing significantly, makes atomic operations safer, and drastically improves debuggability by ensuring authorization is self-contained within the request context.\n\nFor example, a security rule would look like: `match /users/{userId}/{collectionName}/{documentId} { allow read, write: if request.auth.uid == userId; }`. This simple rule covers authorization for all user-owned data without any cross-document reads.\n\n**Querying and Authorization Posture (QAPs):**\n1.  **Structural Segregation:** The entire data model for a given user is segregated under their `userId`. This ensures that all documents within a collection (e.g., `/users/{userId}/suppliers`) share the exact same security requirements: only the owner (`userId`) can access them. There is no mixing of data with different security postures (e.g., public vs. private) within the same collection. This inherently supports QAPs by making security rules simple and unambiguous. Clients can perform any query (e.g., filter by `status`, `dueDate`, `supplierCategoryId`) on these collections, and the security rules will only enforce ownership, not attempt to filter query results.\n2.  **Explicit State Modeling:** Entities like `AccountsPayable` and `AccountsReceivable` include a `status` field (`Open`, `Paid`, `Overdue`, etc.). This explicit state allows client applications to build efficient queries (e.g., `where('status', '==', 'Open')`) without burdening security rules with filtering logic. The rules only need to confirm the user's ownership of the data being accessed.\n3.  **No Collaborative Data (Initial Scope):** Given the 'personal use' context, the system is designed for single-user ownership. Should collaborative features be introduced later, the 'Membership Map' strategy (denormalizing a `members: {uid: role}` map into documents) would be applied to maintain authorization independence.\n\nThis design leverages hierarchical paths for user-owned data, standardizing access control through the `users/{userId}` prefix and ensuring that security rules remain concise, robust, and easily auditable."
   }
 }
