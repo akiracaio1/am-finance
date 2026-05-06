@@ -31,7 +31,8 @@ import {
   Wallet,
   X,
   Search,
-  FilterX
+  FilterX,
+  CalendarDays
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useUser, useFirestore, useCollection, useMemoFirebase } from "@/firebase";
@@ -63,6 +64,17 @@ import { Label } from "@/components/ui/label";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { toast } from "@/hooks/use-toast";
 import { Supplier, AccountCategory, CostCenter, AccountsPayableEntry } from "@/lib/types";
+import { 
+  format, 
+  startOfWeek, 
+  endOfWeek, 
+  addWeeks, 
+  startOfMonth, 
+  endOfMonth, 
+  subMonths, 
+  startOfYear, 
+  endOfYear 
+} from "date-fns";
 
 export default function AccountsPayablePage() {
   const { user } = useUser();
@@ -81,6 +93,7 @@ export default function AccountsPayablePage() {
   const [filterDueDateEnd, setFilterDueDateEnd] = useState("");
   const [filterIssueDateStart, setFilterIssueDateStart] = useState("");
   const [filterIssueDateEnd, setFilterIssueDateEnd] = useState("");
+  const [datePreset, setDatePreset] = useState("custom");
 
   // Estados para cálculo dinâmico no modal de pagamento
   const [interest, setInterest] = useState(0);
@@ -88,8 +101,53 @@ export default function AccountsPayablePage() {
   const [discount, setDiscount] = useState(0);
 
   useEffect(() => {
-    setTodayStr(new Date().toISOString().split('T')[0]);
+    setTodayStr(format(new Date(), "yyyy-MM-dd"));
   }, []);
+
+  // Aplicação de atalhos de data
+  const handleDatePresetChange = (preset: string) => {
+    setDatePreset(preset);
+    const today = new Date();
+    let start: Date | null = null;
+    let end: Date | null = null;
+
+    switch (preset) {
+      case "today":
+        start = today;
+        end = today;
+        break;
+      case "thisWeek":
+        start = startOfWeek(today, { weekStartsOn: 1 });
+        end = endOfWeek(today, { weekStartsOn: 1 });
+        break;
+      case "nextWeek":
+        const nextWeek = addWeeks(today, 1);
+        start = startOfWeek(nextWeek, { weekStartsOn: 1 });
+        end = endOfWeek(nextWeek, { weekStartsOn: 1 });
+        break;
+      case "thisMonth":
+        start = startOfMonth(today);
+        end = endOfMonth(today);
+        break;
+      case "lastMonth":
+        const lastMonth = subMonths(today, 1);
+        start = startOfMonth(lastMonth);
+        end = endOfMonth(lastMonth);
+        break;
+      case "thisYear":
+        start = startOfYear(today);
+        end = endOfYear(today);
+        break;
+      default:
+        // Se for "custom", não alteramos as datas manuais
+        return;
+    }
+
+    if (start && end) {
+      setFilterDueDateStart(format(start, "yyyy-MM-dd"));
+      setFilterDueDateEnd(format(end, "yyyy-MM-dd"));
+    }
+  };
 
   // Firestore Queries
   const entriesQuery = useMemoFirebase(() => {
@@ -154,6 +212,7 @@ export default function AccountsPayablePage() {
     setFilterDueDateEnd("");
     setFilterIssueDateStart("");
     setFilterIssueDateEnd("");
+    setDatePreset("custom");
   };
 
   const hasActiveFilters = filterStatus !== "all" || filterSupplierId !== "all" || filterCategoryId !== "all" || filterDueDateStart || filterDueDateEnd || filterIssueDateStart || filterIssueDateEnd;
@@ -436,21 +495,40 @@ export default function AccountsPayablePage() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mt-4 pt-4 border-t border-dashed">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mt-4 pt-4 border-t border-dashed">
+                <div className="space-y-2">
+                  <Label className="text-xs uppercase font-bold text-muted-foreground flex items-center gap-1">
+                    <CalendarDays className="w-3 h-3" /> Atalhos de Vencimento
+                  </Label>
+                  <Select value={datePreset} onValueChange={handleDatePresetChange}>
+                    <SelectTrigger className="bg-background">
+                      <SelectValue placeholder="Escolha um período..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="custom">Personalizado</SelectItem>
+                      <SelectItem value="today">Hoje</SelectItem>
+                      <SelectItem value="thisWeek">Essa Semana</SelectItem>
+                      <SelectItem value="nextWeek">Semana que Vem</SelectItem>
+                      <SelectItem value="thisMonth">Este Mês</SelectItem>
+                      <SelectItem value="lastMonth">Mês Passado</SelectItem>
+                      <SelectItem value="thisYear">Este Ano</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
                 <div className="space-y-2">
                   <Label className="text-xs uppercase font-bold text-muted-foreground">Vencimento entre</Label>
                   <div className="flex items-center gap-2">
-                    <Input type="date" value={filterDueDateStart} onChange={(e) => setFilterDueDateStart(e.target.value)} className="bg-background" />
-                    <span className="text-muted-foreground">até</span>
-                    <Input type="date" value={filterDueDateEnd} onChange={(e) => setFilterDueDateEnd(e.target.value)} className="bg-background" />
+                    <Input type="date" value={filterDueDateStart} onChange={(e) => { setFilterDueDateStart(e.target.value); setDatePreset("custom"); }} className="bg-background text-xs" />
+                    <span className="text-muted-foreground text-xs">até</span>
+                    <Input type="date" value={filterDueDateEnd} onChange={(e) => { setFilterDueDateEnd(e.target.value); setDatePreset("custom"); }} className="bg-background text-xs" />
                   </div>
                 </div>
                 <div className="space-y-2">
                   <Label className="text-xs uppercase font-bold text-muted-foreground">Emissão entre</Label>
                   <div className="flex items-center gap-2">
-                    <Input type="date" value={filterIssueDateStart} onChange={(e) => setFilterIssueDateStart(e.target.value)} className="bg-background" />
-                    <span className="text-muted-foreground">até</span>
-                    <Input type="date" value={filterIssueDateEnd} onChange={(e) => setFilterIssueDateEnd(e.target.value)} className="bg-background" />
+                    <Input type="date" value={filterIssueDateStart} onChange={(e) => setFilterIssueDateStart(e.target.value)} className="bg-background text-xs" />
+                    <span className="text-muted-foreground text-xs">até</span>
+                    <Input type="date" value={filterIssueDateEnd} onChange={(e) => setFilterIssueDateEnd(e.target.value)} className="bg-background text-xs" />
                   </div>
                 </div>
               </div>
