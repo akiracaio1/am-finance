@@ -1,3 +1,4 @@
+
 "use client";
 
 import Link from "next/link";
@@ -12,7 +13,8 @@ import {
   CalendarClock,
   BookOpen,
   HelpCircle,
-  FileSearch
+  FileSearch,
+  Wallet
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -35,10 +37,10 @@ export function AppSidebar() {
     <div className="w-64 bg-card border-r h-screen flex flex-col sticky top-0 shadow-sm transition-all">
       <div className="p-6 border-b">
         <h1 className="text-2xl font-bold text-primary flex items-center gap-2">
-          <span>Yumi Yumi</span>
-          <span className="text-xl">🍣</span>
+          <Wallet className="w-6 h-6" />
+          <span>AM Finance</span>
         </h1>
-        <p className="text-xs text-muted-foreground mt-1">Gestão Financeira</p>
+        <p className="text-[10px] text-muted-foreground mt-1 uppercase tracking-wider font-bold">Controle Inteligente</p>
       </div>
       <nav className="flex-1 overflow-y-auto p-4 space-y-1">
         {menuItems.map((item) => (
@@ -73,11 +75,11 @@ export function AppSidebar() {
         </Link>
         <div className="flex items-center gap-3 bg-muted/50 p-3 rounded-lg">
           <div className="w-8 h-8 rounded-full bg-accent flex items-center justify-center text-accent-foreground font-bold">
-            YY
+            AM
           </div>
-          <div>
-            <p className="text-xs font-bold">Chef Yumi</p>
-            <p className="text-[10px] text-muted-foreground">Proprietária</p>
+          <div className="truncate">
+            <p className="text-xs font-bold truncate">Administrador</p>
+            <p className="text-[10px] text-muted-foreground">Conta Principal</p>
           </div>
         </div>
       </div>

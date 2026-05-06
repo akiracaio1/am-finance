@@ -47,7 +47,7 @@ const modules = [
     title: "Contas a Pagar",
     icon: ArrowDownCircle,
     color: "text-destructive",
-    description: "Gestão detalhada de saídas. Controle tudo o que sai do seu caixa, desde o peixe diário até os custos fixos.",
+    description: "Gestão detalhada de saídas. Controle tudo o que sai do seu caixa de forma organizada.",
     instructions: [
       "Filtre por status para focar no que está 'Atrasado'.",
       "Diferencie 'Aberto' de 'Pago' para manter o fluxo de caixa atualizado.",
@@ -58,7 +58,7 @@ const modules = [
     title: "Contas a Receber",
     icon: ArrowUpCircle,
     color: "text-accent",
-    description: "Controle de entradas. Importante para conferir se os repasses de plataformas (iFood, Rappi) e vendas de balcão estão entrando conforme o esperado.",
+    description: "Controle de entradas. Importante para conferir se os repasses de vendas estão entrando conforme o esperado.",
     instructions: [
       "Analise os canais de venda para ver qual é mais lucrativo.",
       "Importe CSVs de faturamento para automação.",
@@ -95,7 +95,7 @@ const modules = [
     instructions: [
       "Gere o DRE mensal para ver sua margem líquida.",
       "Use o botão 'Analisar com IA' para descobrir riscos ocultos.",
-      "Aplique as recomendações da IA para otimizar custos de insumos (como salmão e arroz)."
+      "Aplique as recomendações da IA para otimizar seus custos."
     ]
   },
   {
@@ -104,7 +104,7 @@ const modules = [
     color: "text-primary",
     description: "A árvore de organização. Define as categorias de onde o dinheiro vem e para onde vai.",
     instructions: [
-      "Mantenha a hierarquia limpa (ex: Operacional -> Insumos -> Peixe).",
+      "Mantenha a hierarquia limpa.",
       "Categorias bem definidas permitem saber exatamente onde você gasta mais.",
       "Não mude com frequência para não perder histórico comparativo."
     ]
@@ -119,7 +119,7 @@ export default function HelpPage() {
           <HelpCircle className="text-primary w-8 h-8" />
           Central de Instruções
         </h1>
-        <p className="text-muted-foreground">Guia detalhado para dominar a gestão financeira da Yumi Yumi 🍣.</p>
+        <p className="text-muted-foreground">Guia detalhado para dominar a gestão financeira com o AM Finance.</p>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -133,9 +133,9 @@ export default function HelpPage() {
 
         <Alert className="bg-accent/5 border-accent/20">
           <Zap className="h-4 w-4 text-accent" />
-          <AlertTitle>Performance em Produção</AlertTitle>
+          <AlertTitle>Inteligência AM</AlertTitle>
           <AlertDescription>
-            O ambiente atual é de desenvolvimento. Quando o sistema for publicado na Web, ele será até 10x mais rápido graças às otimizações do Next.js.
+            Use o módulo de Diagnóstico para comparar suas planilhas antigas e garantir que o AM Finance cubra todas as suas necessidades específicas.
           </AlertDescription>
         </Alert>
       </div>
@@ -174,20 +174,20 @@ export default function HelpPage() {
             <Globe className="w-6 h-6 text-accent" />
           </div>
           <div>
-            <CardTitle>Próximo Passo: Lançamento Web</CardTitle>
-            <p className="text-slate-400 text-sm">Como o sistema funcionará fora do IDX.</p>
+            <CardTitle>AM Finance na Web</CardTitle>
+            <p className="text-slate-400 text-sm">Acesse seus dados de qualquer dispositivo.</p>
           </div>
         </CardHeader>
         <CardContent className="space-y-4 text-sm text-slate-300">
           <p>
-            Quando terminarmos os ajustes, faremos o <strong>Deploy</strong>. O sistema será hospedado no 
-            Firebase App Hosting, gerando um link seguro (HTTPS) que você poderá acessar de qualquer lugar.
+            O AM Finance é uma plataforma cloud-native. Após o deploy, você poderá gerenciar múltiplas empresas
+            com segurança e performance otimizada.
           </p>
           <ul className="list-disc list-inside space-y-2">
             <li>Acesso via celular, tablet ou computador.</li>
             <li>Segurança garantida pelo Google Cloud.</li>
-            <li>Navegação instantânea e otimizada.</li>
-            <li>Banco de dados em tempo real.</li>
+            <li>Suporte a multi-tenancy (múltiplas empresas por conta).</li>
+            <li>Sincronização em tempo real.</li>
           </ul>
         </CardContent>
       </Card>

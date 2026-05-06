@@ -25,7 +25,7 @@ export default function RootLayout({
     setFirebaseData(data);
 
     const unsubscribe = onAuthStateChanged(data.auth, (user) => {
-      if (!user && pathname !== "/login" && pathname !== "/register") {
+      if (!user && pathname !== "/login" && pathname !== "/register" && pathname !== "/forgot-password") {
         router.push("/login");
       }
       setLoading(false);
@@ -34,13 +34,13 @@ export default function RootLayout({
     return () => unsubscribe();
   }, [pathname, router]);
 
-  const isAuthPage = pathname === "/login" || pathname === "/register";
+  const isAuthPage = pathname === "/login" || pathname === "/register" || pathname === "/forgot-password";
 
   if (loading) {
     return (
       <html lang="pt-BR">
         <body className="flex items-center justify-center min-h-screen bg-background">
-          <div className="animate-pulse text-2xl font-bold text-primary">Carregando Yumi Yumi... 🍣</div>
+          <div className="animate-pulse text-2xl font-bold text-primary">Carregando AM Finance...</div>
         </body>
       </html>
     );
@@ -52,7 +52,7 @@ export default function RootLayout({
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
         <link href="https://fonts.googleapis.com/css2?family=PT+Sans:ital,wght@0,400;0,700;1,400;1,700&display=swap" rel="stylesheet" />
-        <title>Yumi Yumi 🍣 Finanças</title>
+        <title>AM Finance - Controle financeiro inteligente</title>
       </head>
       <body className="font-body antialiased bg-background">
         {firebaseData && (

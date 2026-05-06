@@ -60,7 +60,7 @@ export default function RegisterPage() {
 
       toast({
         title: "Sucesso!",
-        description: "Empresa cadastrada com sucesso.",
+        description: "Empresa cadastrada com sucesso no AM Finance.",
       });
       router.push("/dashboard");
     } catch (error: any) {
@@ -78,8 +78,8 @@ export default function RegisterPage() {
     <div className="min-h-screen flex items-center justify-center bg-muted/30 p-4">
       <Card className="w-full max-w-md shadow-xl border-none">
         <CardHeader className="text-center">
-          <CardTitle className="text-2xl font-bold">Nova Empresa</CardTitle>
-          <CardDescription>Crie sua conta para gerenciar múltiplas unidades.</CardDescription>
+          <CardTitle className="text-2xl font-bold">Novo Cadastro AM Finance</CardTitle>
+          <CardDescription>Crie sua conta para gerenciar múltiplas unidades com inteligência.</CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleRegister} className="space-y-4">
@@ -87,7 +87,7 @@ export default function RegisterPage() {
               <Label htmlFor="companyName">Nome da Empresa / Unidade</Label>
               <Input 
                 id="companyName" 
-                placeholder="Yumi Yumi Sushi - Matriz" 
+                placeholder="Minha Empresa Ltda" 
                 value={companyName} 
                 onChange={(e) => setCompanyName(e.target.value)} 
                 required 
@@ -120,7 +120,7 @@ export default function RegisterPage() {
                 onCheckedChange={(checked) => setLgpdAccepted(checked as boolean)} 
               />
               <Label htmlFor="lgpd" className="text-xs text-muted-foreground leading-tight">
-                Aceito que meus dados sejam processados conforme a LGPD para fins de gestão financeira e segurança do acesso.
+                Aceito que meus dados sejam processados conforme a LGPD para fins de gestão financeira e segurança do acesso no AM Finance.
               </Label>
             </div>
             <Button type="submit" className="w-full" disabled={loading}>

@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useState } from "react";
@@ -10,6 +11,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Label } from "@/components/ui/label";
 import Link from "next/link";
 import { toast } from "@/hooks/use-toast";
+import { Wallet } from "lucide-react";
 
 export default function LoginPage() {
   const [email, setEmail] = useState("");
@@ -42,10 +44,12 @@ export default function LoginPage() {
       <Card className="w-full max-w-md shadow-xl border-none">
         <CardHeader className="text-center space-y-1">
           <div className="flex justify-center mb-4">
-            <span className="text-4xl">🍣</span>
+            <div className="p-3 bg-primary/10 rounded-full">
+              <Wallet className="w-8 h-8 text-primary" />
+            </div>
           </div>
-          <CardTitle className="text-2xl font-bold">Yumi Yumi Finanças</CardTitle>
-          <CardDescription>Entre com suas credenciais para acessar o painel.</CardDescription>
+          <CardTitle className="text-3xl font-bold">AM Finance</CardTitle>
+          <CardDescription>Controle financeiro inteligente</CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleLogin} className="space-y-4">

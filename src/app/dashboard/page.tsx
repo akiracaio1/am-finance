@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useState, useEffect } from "react";
@@ -48,7 +49,7 @@ export default function DashboardPage() {
       <div className="flex justify-between items-center">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Painel Executivo</h1>
-          <p className="text-muted-foreground mt-1">Bem-vindo de volta, Yumi. Aqui está o seu negócio em um relance.</p>
+          <p className="text-muted-foreground mt-1">Bem-vindo ao AM Finance. Aqui está o resumo do seu negócio.</p>
         </div>
         <div className="flex gap-3">
           <Button asChild variant="outline">
