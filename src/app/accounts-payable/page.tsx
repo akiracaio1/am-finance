@@ -57,16 +57,17 @@ function SearchableList<T extends { id: string; name: string; code?: string }>({
   items, 
   onSelect, 
   placeholder,
-  label 
+  label,
+  value
 }: { 
   items: T[]; 
-  onSelect: (item: T) => void; 
+  onSelect: (item: T | null) => void; 
   placeholder: string;
   label: string;
+  value: T | null;
 }) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
-  const [selectedItem, setSelectedItem] = useState<T | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const filteredItems = useMemo(() => {
@@ -76,14 +77,10 @@ function SearchableList<T extends { id: string; name: string; code?: string }>({
     );
   }, [items, search]);
 
-  // Focus input when popover opens
+  // Clear search when closed
   useEffect(() => {
-    if (open) {
-      setTimeout(() => {
-        inputRef.current?.focus();
-      }, 0);
-    } else {
-      setSearch(""); // Clear search when closed
+    if (!open) {
+      setSearch("");
     }
   }, [open]);
 
@@ -91,15 +88,22 @@ function SearchableList<T extends { id: string; name: string; code?: string }>({
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
         <Button variant="outline" className="w-full justify-between font-normal">
-          {selectedItem ? (
-            <span className="truncate">{selectedItem.code ? `${selectedItem.code} - ` : ""}{selectedItem.name}</span>
+          {value ? (
+            <span className="truncate">{value.code ? `${value.code} - ` : ""}{value.name}</span>
           ) : (
             <span className="text-muted-foreground">{label}</span>
           )}
           <ChevronDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
         </Button>
       </PopoverTrigger>
-      <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0" align="start">
+      <PopoverContent 
+        className="w-[var(--radix-popover-trigger-width)] p-0" 
+        align="start"
+        onOpenAutoFocus={(e) => {
+          e.preventDefault();
+          inputRef.current?.focus();
+        }}
+      >
         <div className="flex items-center border-b px-3 py-2">
           <Search className="mr-2 h-4 w-4 shrink-0 opacity-50" />
           <input
@@ -120,15 +124,14 @@ function SearchableList<T extends { id: string; name: string; code?: string }>({
                 key={item.id}
                 className={cn(
                   "relative flex cursor-default select-none items-center rounded-sm px-2 py-1.5 text-sm outline-none hover:bg-accent hover:text-accent-foreground",
-                  selectedItem?.id === item.id && "bg-accent text-accent-foreground"
+                  value?.id === item.id && "bg-accent text-accent-foreground"
                 )}
                 onClick={() => {
-                  setSelectedItem(item);
                   onSelect(item);
                   setOpen(false);
                 }}
               >
-                <Check className={cn("mr-2 h-4 w-4", selectedItem?.id === item.id ? "opacity-100" : "opacity-0")} />
+                <Check className={cn("mr-2 h-4 w-4", value?.id === item.id ? "opacity-100" : "opacity-0")} />
                 {item.code ? `${item.code} - ` : ""}{item.name}
               </div>
             ))}
@@ -258,7 +261,14 @@ export default function AccountsPayablePage() {
           <p className="text-muted-foreground">Acompanhe e gerencie suas próximas despesas e contas.</p>
         </div>
         <div className="flex gap-3">
-          <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
+          <Dialog open={isDialogOpen} onOpenChange={(open) => {
+            setIsDialogOpen(open);
+            if (!open) {
+              setSelectedSupplier(null);
+              setSelectedCategory(null);
+              setSelectedCostCenter(null);
+            }
+          }}>
             <DialogTrigger asChild>
               <Button className="gap-2">
                 <Plus className="w-4 h-4" /> Novo Lançamento
@@ -305,6 +315,7 @@ export default function AccountsPayablePage() {
                         onSelect={setSelectedSupplier} 
                         placeholder="Pesquisar fornecedor..." 
                         label="Selecione o fornecedor"
+                        value={selectedSupplier}
                       />
                     </div>
                     <div className="grid gap-2">
@@ -314,6 +325,7 @@ export default function AccountsPayablePage() {
                         onSelect={setSelectedCategory} 
                         placeholder="Pesquisar categoria..." 
                         label="Selecione a categoria"
+                        value={selectedCategory}
                       />
                     </div>
                   </div>
@@ -325,6 +337,7 @@ export default function AccountsPayablePage() {
                       onSelect={setSelectedCostCenter} 
                       placeholder="Pesquisar centro de custo..." 
                       label="Selecione o centro de custo"
+                      value={selectedCostCenter}
                     />
                   </div>
                 </div>
