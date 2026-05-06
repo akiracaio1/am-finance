@@ -1,4 +1,3 @@
-
 "use client";
 
 import { useState } from "react";
@@ -11,7 +10,6 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Label } from "@/components/ui/label";
 import Link from "next/link";
 import { toast } from "@/hooks/use-toast";
-import { Sparkles } from "lucide-react";
 
 export default function LoginPage() {
   const [email, setEmail] = useState("");
@@ -63,7 +61,15 @@ export default function LoginPage() {
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="password">Senha</Label>
+              <div className="flex justify-between items-center">
+                <Label htmlFor="password">Senha</Label>
+                <Link 
+                  href="/forgot-password" 
+                  className="text-xs text-primary hover:underline font-medium"
+                >
+                  Esqueceu a senha?
+                </Link>
+              </div>
               <Input 
                 id="password" 
                 type="password" 
