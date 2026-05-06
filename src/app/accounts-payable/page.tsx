@@ -1,7 +1,7 @@
 
 "use client";
 
-import { useState, useMemo, useEffect, useRef } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { 
   Table, 
   TableBody, 
@@ -18,14 +18,14 @@ import {
   Filter, 
   MoreHorizontal, 
   CheckCircle2, 
-  AlertTriangle, 
   Calendar,
   Plus,
   Loader2,
   Trash2,
   Check,
   Search,
-  ChevronDown
+  ChevronDown,
+  AlertTriangle
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useUser, useFirestore, useCollection, useMemoFirebase } from "@/firebase";
@@ -52,7 +52,7 @@ import { Supplier, AccountCategory, CostCenter, AccountsPayableEntry } from "@/l
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { ScrollArea } from "@/components/ui/scroll-area";
 
-// Searchable component for selection with fixed focus and selection logic
+// Componente de busca aprimorado com correção de foco e clique
 function SearchableList<T extends { id: string; name: string; code?: string }>({ 
   items, 
   onSelect, 
@@ -82,7 +82,11 @@ function SearchableList<T extends { id: string; name: string; code?: string }>({
       if (!o) setSearch("");
     }}>
       <PopoverTrigger asChild>
-        <Button variant="outline" className="w-full justify-between font-normal text-left">
+        <Button 
+          type="button" 
+          variant="outline" 
+          className="w-full justify-between font-normal text-left h-10 px-3"
+        >
           <span className="truncate">
             {value ? (value.code ? `${value.code} - ` : "") + value.name : label}
           </span>
@@ -90,17 +94,23 @@ function SearchableList<T extends { id: string; name: string; code?: string }>({
         </Button>
       </PopoverTrigger>
       <PopoverContent 
-        className="w-[var(--radix-popover-trigger-width)] p-0" 
+        className="w-[var(--radix-popover-trigger-width)] p-0 z-[100]" 
         align="start"
+        onOpenAutoFocus={(e) => {
+          // Garante que o foco vá para o input no momento da abertura
+          const input = document.getElementById(`search-${label}`);
+          input?.focus();
+        }}
       >
         <div className="flex items-center border-b px-3 py-2">
           <Search className="mr-2 h-4 w-4 shrink-0 opacity-50" />
           <input
+            id={`search-${label}`}
             className="flex h-8 w-full rounded-md bg-transparent text-sm outline-none placeholder:text-muted-foreground"
             placeholder={placeholder}
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            autoFocus // Fixed: autoFocus inside PopoverContent is reliable
+            autoComplete="off"
           />
         </div>
         <ScrollArea className="h-60">
@@ -115,9 +125,10 @@ function SearchableList<T extends { id: string; name: string; code?: string }>({
                   "relative flex cursor-pointer select-none items-center rounded-sm px-2 py-2 text-sm outline-none hover:bg-accent hover:text-accent-foreground",
                   value?.id === item.id && "bg-accent text-accent-foreground"
                 )}
-                // Fixed: Use onMouseDown + preventDefault to ensure selection triggers before the popover loses focus/closes
-                onMouseDown={(e) => {
+                // Usamos onPointerDown para capturar a ação antes do fechamento do popover
+                onPointerDown={(e) => {
                   e.preventDefault();
+                  e.stopPropagation();
                   onSelect(item);
                   setOpen(false);
                 }}
@@ -343,22 +354,22 @@ export default function AccountsPayablePage() {
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <Card className="bg-destructive/5 border-destructive/20">
-          <CardContent className="pt-6">
+          <CardHeader className="pt-6">
             <p className="text-sm font-medium text-destructive/80">Total em Atraso</p>
             <div className="text-2xl font-bold text-destructive">R$ {totalOverdue.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</div>
-          </CardContent>
+          </CardHeader>
         </Card>
         <Card className="bg-primary/5 border-primary/20">
-          <CardContent className="pt-6">
+          <CardHeader className="pt-6">
             <p className="text-sm font-medium text-primary/80">Total em Aberto</p>
             <div className="text-2xl font-bold text-primary">R$ {totalOpen.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</div>
-          </CardContent>
+          </CardHeader>
         </Card>
         <Card className="bg-emerald-50 border-emerald-100">
-          <CardContent className="pt-6">
+          <CardHeader className="pt-6">
             <p className="text-sm font-medium text-emerald-700">Total Pago</p>
             <div className="text-2xl font-bold text-emerald-800">R$ {totalPaid.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</div>
-          </CardContent>
+          </CardHeader>
         </Card>
       </div>
 
