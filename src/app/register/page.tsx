@@ -1,4 +1,3 @@
-
 "use client";
 
 import { useState } from "react";
@@ -28,14 +27,7 @@ export default function RegisterPage() {
 
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!auth || !db) {
-      toast({
-        variant: "destructive",
-        title: "Erro de Configuração",
-        description: "Serviços do Firebase não inicializados. Verifique as chaves de API.",
-      });
-      return;
-    }
+    if (!auth || !db) return;
 
     if (!lgpdAccepted) {
       toast({
@@ -53,40 +45,41 @@ export default function RegisterPage() {
 
       const companyId = `comp_${Date.now()}`;
 
-      // Tenta criar a empresa
+      // Create company record
       const companyRef = doc(db, "companies", companyId);
       const companyData = {
+        id: companyId,
         name: companyName,
         createdAt: serverTimestamp(),
         lgpdConsent: true,
       };
 
       setDoc(companyRef, companyData)
-        .catch(async (error) => {
-          const permissionError = new FirestorePermissionError({
+        .catch(async () => {
+          errorEmitter.emit('permission-error', new FirestorePermissionError({
             path: companyRef.path,
             operation: 'create',
             requestResourceData: companyData,
-          });
-          errorEmitter.emit('permission-error', permissionError);
+          }));
         });
 
-      // Tenta criar o perfil do usuário
+      // Create user profile
       const userRef = doc(db, "users", user.uid);
       const userData = {
+        id: user.uid,
         email,
         companyId,
         displayName: companyName,
+        createdAt: serverTimestamp(),
       };
 
       setDoc(userRef, userData)
-        .catch(async (error) => {
-          const permissionError = new FirestorePermissionError({
+        .catch(async () => {
+          errorEmitter.emit('permission-error', new FirestorePermissionError({
             path: userRef.path,
             operation: 'create',
             requestResourceData: userData,
-          });
-          errorEmitter.emit('permission-error', permissionError);
+          }));
         });
 
       toast({
@@ -94,30 +87,16 @@ export default function RegisterPage() {
         description: "Cadastro realizado. Redirecionando...",
       });
       
-      setTimeout(() => router.push("/dashboard"), 1500);
+      router.push("/dashboard");
     } catch (error: any) {
-      console.error("Erro completo do Firebase:", error);
-      
       let message = "Erro inesperado. Tente novamente.";
-      
-      if (error.code === 'auth/operation-not-allowed') {
-        message = "O provedor 'E-mail/Senha' está desativado no Console do Firebase (Authentication > Sign-in method).";
-      } else if (error.code === 'auth/email-already-in-use') {
-        message = "Este e-mail já está sendo utilizado por outra conta.";
-      } else if (error.code === 'auth/weak-password') {
-        message = "A senha é muito fraca. Use pelo menos 6 caracteres.";
-      } else if (error.code === 'auth/invalid-email') {
-        message = "O formato do e-mail é inválido.";
-      } else if (error.code === 'auth/configuration-not-found' || error.code === 'auth/invalid-api-key') {
-        message = "Configuração do Firebase inválida. Verifique o arquivo firebase/config.ts.";
-      } else {
-        message = error.message || message;
-      }
+      if (error.code === 'auth/email-already-in-use') message = "E-mail já cadastrado.";
+      if (error.code === 'auth/weak-password') message = "Senha muito fraca.";
       
       toast({
         variant: "destructive",
         title: "Erro no cadastro",
-        description: `${message} [${error.code || 'unknown'}]`,
+        description: `${message} [${error.code}]`,
       });
     } finally {
       setLoading(false);
@@ -169,7 +148,7 @@ export default function RegisterPage() {
                 checked={lgpdAccepted} 
                 onCheckedChange={(checked) => setLgpdAccepted(checked as boolean)} 
               />
-              <Label htmlFor="lgpd" className="text-xs text-muted-foreground leading-tight">
+              <Label htmlFor="lgpd" className="text-xs text-muted-foreground leading-tight cursor-pointer">
                 Aceito que meus dados sejam processados conforme a LGPD para fins de gestão financeira e segurança do acesso no AM Finance.
               </Label>
             </div>
