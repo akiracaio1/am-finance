@@ -64,7 +64,10 @@ import {
   addWeeks, 
   startOfMonth, 
   endOfMonth, 
-  addMonths
+  addMonths,
+  startOfYear,
+  endOfYear,
+  subMonths
 } from "date-fns";
 
 export default function AccountsPayablePage() {
@@ -75,7 +78,7 @@ export default function AccountsPayablePage() {
   const [isPaymentOpen, setIsPaymentOpen] = useState(false);
   const [entryToPay, setEntryToPay] = useState<AccountsPayableEntry | null>(null);
   const [todayStr, setTodayStr] = useState("");
-  const [showFilters, setShowFilters] = useState(false);
+  const [showFilters, setShowFilters] = useState(true);
 
   // Estados dos Filtros
   const [filterStatus, setFilterStatus] = useState("all");
@@ -143,7 +146,9 @@ export default function AccountsPayablePage() {
     let end: Date | null = null;
 
     switch (preset) {
-      case "today": start = today; end = today; break;
+      case "today": 
+        start = today; end = today; 
+        break;
       case "thisWeek":
         start = startOfWeek(today, { weekStartsOn: 1 });
         end = endOfWeek(today, { weekStartsOn: 1 });
@@ -156,6 +161,15 @@ export default function AccountsPayablePage() {
         const nextWeek = addWeeks(today, 1);
         start = startOfWeek(nextWeek, { weekStartsOn: 1 });
         end = endOfWeek(nextWeek, { weekStartsOn: 1 });
+        break;
+      case "lastMonth":
+        const lastMonth = subMonths(today, 1);
+        start = startOfMonth(lastMonth);
+        end = endOfMonth(lastMonth);
+        break;
+      case "thisYear":
+        start = startOfYear(today);
+        end = endOfYear(today);
         break;
       default: return;
     }
@@ -216,8 +230,12 @@ export default function AccountsPayablePage() {
   const totalPaid = filteredEntries.filter(e => e.dynamicStatus === 'Paid').reduce((acc, curr) => acc + calculateSettledValue(curr), 0);
 
   const clearFilters = () => {
-    setFilterStatus("all"); setFilterSupplierId("all"); setFilterCategoryId("all");
-    setFilterDueDateStart(""); setFilterDueDateEnd(""); setDatePreset("custom");
+    setFilterStatus("all"); 
+    setFilterSupplierId("all"); 
+    setFilterCategoryId("all");
+    setFilterDueDateStart(""); 
+    setFilterDueDateEnd(""); 
+    setDatePreset("custom");
   };
 
   const hasActiveFilters = filterStatus !== "all" || filterSupplierId !== "all" || filterCategoryId !== "all" || filterDueDateStart || filterDueDateEnd;
@@ -344,11 +362,6 @@ export default function AccountsPayablePage() {
     const entryRef = doc(db, "users", user.uid, "accountsPayableEntries", entry.id);
     deleteDocumentNonBlocking(entryRef);
     toast({ title: "Lançamento excluído" });
-  };
-
-  const handleOpenEdit = (entry: AccountsPayableEntry) => {
-    setEditingEntry(entry);
-    setIsNewEntryOpen(true);
   };
 
   return (
@@ -570,7 +583,7 @@ export default function AccountsPayablePage() {
         <CollapsibleContent className="space-y-4">
           <Card className="bg-muted/30 border-dashed">
             <CardContent className="pt-6">
-              <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
                 <div className="space-y-2">
                   <Label className="text-xs uppercase font-bold text-muted-foreground">Status</Label>
                   <Select value={filterStatus} onValueChange={setFilterStatus}>
@@ -585,6 +598,16 @@ export default function AccountsPayablePage() {
                   </Select>
                 </div>
                 <div className="space-y-2">
+                  <Label className="text-xs uppercase font-bold text-muted-foreground">Fornecedor</Label>
+                  <Select value={filterSupplierId} onValueChange={setFilterSupplierId}>
+                    <SelectTrigger className="bg-background"><SelectValue placeholder="Todos" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">Todos</SelectItem>
+                      {suppliers?.map(s => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
                   <Label className="text-xs uppercase font-bold text-muted-foreground">Vencimento</Label>
                   <Select value={datePreset} onValueChange={handleDatePresetChange}>
                     <SelectTrigger className="bg-background"><SelectValue /></SelectTrigger>
@@ -593,19 +616,21 @@ export default function AccountsPayablePage() {
                       <SelectItem value="today">Hoje</SelectItem>
                       <SelectItem value="thisWeek">Essa Semana</SelectItem>
                       <SelectItem value="thisMonth">Este Mês</SelectItem>
+                      <SelectItem value="lastMonth">Mês Passado</SelectItem>
+                      <SelectItem value="thisYear">Este Ano</SelectItem>
                       <SelectItem value="nextWeek">Próxima Semana</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
-                <div className="space-y-2">
+                <div className="space-y-2 md:col-span-2">
                   <Label className="text-xs uppercase font-bold text-muted-foreground">Datas</Label>
                   <div className="flex items-center gap-2">
                     <Input type="date" value={filterDueDateStart} onChange={e => setFilterDueDateStart(e.target.value)} className="bg-background text-xs h-9" />
                     <Input type="date" value={filterDueDateEnd} onChange={e => setFilterDueDateEnd(e.target.value)} className="bg-background text-xs h-9" />
+                    <Button variant="ghost" className="gap-2 text-muted-foreground h-9 px-2" onClick={clearFilters}>
+                      <FilterX className="w-4 h-4" /> Limpar
+                    </Button>
                   </div>
-                </div>
-                <div className="flex items-end pb-1">
-                  <Button variant="ghost" className="w-full gap-2 text-muted-foreground" onClick={clearFilters}><FilterX className="w-4 h-4" /> Limpar</Button>
                 </div>
               </div>
             </CardContent>
@@ -614,16 +639,16 @@ export default function AccountsPayablePage() {
       </Collapsible>
 
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <Card className="bg-destructive/5 border-destructive/20">
+        <Card className="bg-destructive/5 border-destructive/20 shadow-none">
           <CardHeader className="p-4 pb-2"><p className="text-xs font-bold uppercase text-destructive/70">Atrasado</p><div className="text-xl font-bold">R$ {totalOverdue.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</div></CardHeader>
         </Card>
-        <Card className="bg-amber-50 border-amber-100">
+        <Card className="bg-amber-50 border-amber-100 shadow-none">
           <CardHeader className="p-4 pb-2"><p className="text-xs font-bold uppercase text-amber-700">Vence Hoje</p><div className="text-xl font-bold">R$ {totalDueToday.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</div></CardHeader>
         </Card>
-        <Card className="bg-primary/5 border-primary/20">
+        <Card className="bg-primary/5 border-primary/20 shadow-none">
           <CardHeader className="p-4 pb-2"><p className="text-xs font-bold uppercase text-primary/70">Próximos Dias</p><div className="text-xl font-bold">R$ {totalOpen.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</div></CardHeader>
         </Card>
-        <Card className="bg-emerald-50 border-emerald-100">
+        <Card className="bg-emerald-50 border-emerald-100 shadow-none">
           <CardHeader className="p-4 pb-2"><p className="text-xs font-bold uppercase text-emerald-700">Total Liquidado</p><div className="text-xl font-bold">R$ {totalPaid.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</div></CardHeader>
         </Card>
       </div>
@@ -693,7 +718,7 @@ export default function AccountsPayablePage() {
                             <Wallet className="w-4 h-4 mr-2" /> Pagar
                           </DropdownMenuItem>
                         )}
-                        <DropdownMenuItem onClick={() => handleOpenEdit(entry)}>
+                        <DropdownMenuItem onClick={() => setEditingEntry(entry)}>
                           <Edit2 className="w-4 h-4 mr-2" /> Editar
                         </DropdownMenuItem>
                         <DropdownMenuItem onClick={() => toggleConfirmed(entry)}>
