@@ -1,7 +1,7 @@
 
 "use client";
 
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { 
   Table, 
   TableBody, 
@@ -14,13 +14,6 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { 
-  Select, 
-  SelectContent, 
-  SelectItem, 
-  SelectTrigger, 
-  SelectValue 
-} from "@/components/ui/select";
-import { 
   ArrowDownCircle, 
   Filter, 
   MoreHorizontal, 
@@ -31,7 +24,9 @@ import {
   Plus,
   Loader2,
   Trash2,
-  Check
+  Check,
+  Search,
+  ChevronDown
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useUser, useFirestore, useCollection, useMemoFirebase } from "@/firebase";
@@ -54,24 +49,83 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "@/hooks/use-toast";
-import { Supplier } from "@/lib/types";
+import { Supplier, AccountCategory, CostCenter, AccountsPayableEntry } from "@/lib/types";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { ScrollArea } from "@/components/ui/scroll-area";
 
-interface AccountCategory {
-  id: string;
-  name: string;
-  code: string;
-}
+// Searchable component for selection
+function SearchableList<T extends { id: string; name: string; code?: string }>({ 
+  items, 
+  onSelect, 
+  placeholder,
+  label 
+}: { 
+  items: T[]; 
+  onSelect: (item: T) => void; 
+  placeholder: string;
+  label: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState("");
+  const [selectedItem, setSelectedItem] = useState<T | null>(null);
 
-interface AccountsPayableEntry {
-  id: string;
-  supplierId: string;
-  accountCategoryId: string;
-  description: string;
-  originalAmount: number;
-  dueDate: string;
-  status: 'Open' | 'Paid' | 'Overdue';
-  createdAt: string;
-  updatedAt: string;
+  const filteredItems = useMemo(() => {
+    return items.filter(item => 
+      item.name.toLowerCase().includes(search.toLowerCase()) || 
+      (item.code && item.code.toLowerCase().includes(search.toLowerCase()))
+    );
+  }, [items, search]);
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button variant="outline" className="w-full justify-between font-normal">
+          {selectedItem ? (
+            <span className="truncate">{selectedItem.code ? `${selectedItem.code} - ` : ""}{selectedItem.name}</span>
+          ) : (
+            <span className="text-muted-foreground">{label}</span>
+          )}
+          <ChevronDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0" align="start">
+        <div className="flex items-center border-b px-3 py-2">
+          <Search className="mr-2 h-4 w-4 shrink-0 opacity-50" />
+          <input
+            className="flex h-8 w-full rounded-md bg-transparent text-sm outline-none placeholder:text-muted-foreground"
+            placeholder={placeholder}
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+        </div>
+        <ScrollArea className="h-60">
+          <div className="p-1">
+            {filteredItems.length === 0 && (
+              <div className="py-6 text-center text-sm text-muted-foreground">Nenhum resultado encontrado.</div>
+            )}
+            {filteredItems.map((item) => (
+              <div
+                key={item.id}
+                className={cn(
+                  "relative flex cursor-default select-none items-center rounded-sm px-2 py-1.5 text-sm outline-none hover:bg-accent hover:text-accent-foreground",
+                  selectedItem?.id === item.id && "bg-accent text-accent-foreground"
+                )}
+                onClick={() => {
+                  setSelectedItem(item);
+                  onSelect(item);
+                  setOpen(false);
+                  setSearch("");
+                }}
+              >
+                <Check className={cn("mr-2 h-4 w-4", selectedItem?.id === item.id ? "opacity-100" : "opacity-0")} />
+                {item.code ? `${item.code} - ` : ""}{item.name}
+              </div>
+            ))}
+          </div>
+        </ScrollArea>
+      </PopoverContent>
+    </Popover>
+  );
 }
 
 export default function AccountsPayablePage() {
@@ -79,6 +133,11 @@ export default function AccountsPayablePage() {
   const db = useFirestore();
   const [filterStatus, setFilterStatus] = useState("all");
   const [isDialogOpen, setIsDialogOpen] = useState(false);
+
+  // Form selections state
+  const [selectedSupplier, setSelectedSupplier] = useState<Supplier | null>(null);
+  const [selectedCategory, setSelectedCategory] = useState<AccountCategory | null>(null);
+  const [selectedCostCenter, setSelectedCostCenter] = useState<CostCenter | null>(null);
 
   // Firestore Queries
   const entriesQuery = useMemoFirebase(() => {
@@ -96,9 +155,15 @@ export default function AccountsPayablePage() {
     return collection(db, "users", user.uid, "accountCategories");
   }, [db, user]);
 
+  const centersQuery = useMemoFirebase(() => {
+    if (!db || !user) return null;
+    return collection(db, "users", user.uid, "costCenters");
+  }, [db, user]);
+
   const { data: entries, isLoading: entriesLoading } = useCollection<AccountsPayableEntry>(entriesQuery);
   const { data: suppliers } = useCollection<Supplier>(suppliersQuery);
   const { data: categories } = useCollection<AccountCategory>(categoriesQuery);
+  const { data: centers } = useCollection<CostCenter>(centersQuery);
 
   const filteredEntries = entries?.filter(e => {
     if (filterStatus === 'all') return true;
@@ -112,7 +177,10 @@ export default function AccountsPayablePage() {
 
   const handleSaveEntry = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    if (!db || !user) return;
+    if (!db || !user || !selectedSupplier || !selectedCategory) {
+      toast({ variant: "destructive", title: "Erro", description: "Preencha os campos obrigatórios." });
+      return;
+    }
 
     const formData = new FormData(e.currentTarget);
     const entryId = `pay_${Date.now()}`;
@@ -120,11 +188,14 @@ export default function AccountsPayablePage() {
 
     const newEntry: AccountsPayableEntry = {
       id: entryId,
-      supplierId: formData.get("supplierId") as string,
-      accountCategoryId: formData.get("categoryId") as string,
+      supplierId: selectedSupplier.id,
+      accountCategoryId: selectedCategory.id,
+      costCenterId: selectedCostCenter?.id || "",
       description: formData.get("description") as string,
       originalAmount: Number(formData.get("amount")),
+      issueDate: formData.get("issueDate") as string,
       dueDate: formData.get("dueDate") as string,
+      paymentMethod: formData.get("paymentMethod") as string,
       status: 'Open',
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
@@ -133,6 +204,11 @@ export default function AccountsPayablePage() {
     setDocumentNonBlocking(entryRef, newEntry, { merge: true });
     toast({ title: "Lançamento criado", description: "A conta foi agendada com sucesso." });
     setIsDialogOpen(false);
+    
+    // Reset selections
+    setSelectedSupplier(null);
+    setSelectedCategory(null);
+    setSelectedCostCenter(null);
   };
 
   const markAsPaid = (entry: AccountsPayableEntry) => {
@@ -181,7 +257,7 @@ export default function AccountsPayablePage() {
                 <Plus className="w-4 h-4" /> Novo Lançamento
               </Button>
             </DialogTrigger>
-            <DialogContent>
+            <DialogContent className="max-w-2xl">
               <form onSubmit={handleSaveEntry}>
                 <DialogHeader>
                   <DialogTitle>Novo Lançamento de Despesa</DialogTitle>
@@ -191,41 +267,58 @@ export default function AccountsPayablePage() {
                     <Label htmlFor="description">Descrição / Item *</Label>
                     <Input id="description" name="description" placeholder="Ex: Compra de Insumos" required />
                   </div>
+                  
                   <div className="grid grid-cols-2 gap-4">
                     <div className="grid gap-2">
                       <Label htmlFor="amount">Valor (R$) *</Label>
                       <Input id="amount" name="amount" type="number" step="0.01" placeholder="0,00" required />
                     </div>
                     <div className="grid gap-2">
+                      <Label htmlFor="paymentMethod">Forma de Pagamento (Opcional)</Label>
+                      <Input id="paymentMethod" name="paymentMethod" placeholder="Ex: Pix, Boleto, Cartão" />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="grid gap-2">
+                      <Label htmlFor="issueDate">Data de Emissão</Label>
+                      <Input id="issueDate" name="issueDate" type="date" />
+                    </div>
+                    <div className="grid gap-2">
                       <Label htmlFor="dueDate">Vencimento *</Label>
                       <Input id="dueDate" name="dueDate" type="date" required />
                     </div>
                   </div>
-                  <div className="grid gap-2">
-                    <Label htmlFor="supplierId">Fornecedor *</Label>
-                    <Select name="supplierId" required>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Selecione o fornecedor" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {suppliers?.map(s => (
-                          <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="grid gap-2">
+                      <Label>Fornecedor *</Label>
+                      <SearchableList 
+                        items={suppliers || []} 
+                        onSelect={setSelectedSupplier} 
+                        placeholder="Pesquisar fornecedor..." 
+                        label="Selecione o fornecedor"
+                      />
+                    </div>
+                    <div className="grid gap-2">
+                      <Label>Categoria Financeira *</Label>
+                      <SearchableList 
+                        items={categories || []} 
+                        onSelect={setSelectedCategory} 
+                        placeholder="Pesquisar categoria..." 
+                        label="Selecione a categoria"
+                      />
+                    </div>
                   </div>
+
                   <div className="grid gap-2">
-                    <Label htmlFor="categoryId">Categoria Financeira *</Label>
-                    <Select name="categoryId" required>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Selecione a categoria" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {categories?.map(c => (
-                          <SelectItem key={c.id} value={c.id}>{c.code} - {c.name}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                    <Label>Centro de Custo (Opcional)</Label>
+                    <SearchableList 
+                      items={centers || []} 
+                      onSelect={setSelectedCostCenter} 
+                      placeholder="Pesquisar centro de custo..." 
+                      label="Selecione o centro de custo"
+                    />
                   </div>
                 </div>
                 <DialogFooter>
@@ -263,17 +356,20 @@ export default function AccountsPayablePage() {
           <CardTitle className="text-lg">Lista de Despesas</CardTitle>
           <div className="flex items-center gap-2">
             <Filter className="w-4 h-4 text-muted-foreground" />
-            <Select value={filterStatus} onValueChange={setFilterStatus}>
-              <SelectTrigger className="w-[180px]">
-                <SelectValue placeholder="Todos Status" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Todos Status</SelectItem>
-                <SelectItem value="Open">Aberto</SelectItem>
-                <SelectItem value="Paid">Pago</SelectItem>
-                <SelectItem value="Overdue">Atrasado</SelectItem>
-              </SelectContent>
-            </Select>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" size="sm" className="gap-2">
+                  Status: {filterStatus === 'all' ? 'Todos' : filterStatus}
+                  <ChevronDown className="w-4 h-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem onClick={() => setFilterStatus("all")}>Todos</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setFilterStatus("Open")}>Aberto</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setFilterStatus("Paid")}>Pago</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setFilterStatus("Overdue")}>Atrasado</DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         </CardHeader>
         <CardContent className="pt-6">
@@ -312,10 +408,17 @@ export default function AccountsPayablePage() {
                       {suppliers?.find(s => s.id === entry.supplierId)?.name || 'N/A'}
                     </TableCell>
                     <TableCell className="max-w-[200px] truncate">
-                      <span className="text-muted-foreground text-[10px] block uppercase tracking-wider">
-                        {categories?.find(c => c.id === entry.accountCategoryId)?.name || 'Sem Categoria'}
-                      </span>
-                      {entry.description}
+                      <div className="flex flex-col">
+                        <span className="text-muted-foreground text-[10px] uppercase tracking-wider">
+                          {categories?.find(c => c.id === entry.accountCategoryId)?.name || 'Sem Categoria'}
+                        </span>
+                        <span>{entry.description}</span>
+                        {entry.costCenterId && (
+                          <span className="text-[10px] text-primary/70">
+                            CC: {centers?.find(c => c.id === entry.costCenterId)?.name}
+                          </span>
+                        )}
+                      </div>
                     </TableCell>
                     <TableCell>
                       {getStatusBadge(entry.status)}

@@ -14,7 +14,8 @@ import {
   BookOpen,
   HelpCircle,
   FileSearch,
-  Wallet
+  Wallet,
+  LayoutGrid
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -28,6 +29,7 @@ const menuItems = [
   { name: "Relatórios & IA", icon: PieChart, href: "/reports" },
   { name: "Diagnóstico", icon: FileSearch, href: "/import-diagnosis" },
   { name: "Plano de Contas", icon: BookOpen, href: "/chart-of-accounts" },
+  { name: "Centros de Custo", icon: LayoutGrid, href: "/cost-centers" },
 ];
 
 export function AppSidebar() {

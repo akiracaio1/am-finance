@@ -96,7 +96,7 @@
         },
         "parentCategoryId": {
           "type": "string",
-          "description": "Reference to another AccountCategory entity, establishing a hierarchical relationship. (Relationship: AccountCategory 1:N AccountCategory - self-referencing)"
+          "description": "Reference to another AccountCategory entity, establishing a hierarchical relationship."
         },
         "createdAt": {
           "type": "string",
@@ -112,77 +112,39 @@
       "required": [
         "id",
         "name",
-        "description",
         "type",
         "createdAt",
         "updatedAt"
       ]
     },
-    "BankAccount": {
+    "CostCenter": {
       "$schema": "http://json-schema.org/draft-07/schema#",
-      "title": "BankAccount",
+      "title": "CostCenter",
       "type": "object",
-      "description": "Stores details about bank accounts used for financial reconciliation.",
+      "description": "Represents a business unit or department for detailed expense tracking.",
       "properties": {
         "id": {
           "type": "string",
-          "description": "Unique identifier for the BankAccount entity."
+          "description": "Unique identifier for the CostCenter."
         },
-        "bankName": {
+        "name": {
           "type": "string",
-          "description": "The name of the bank."
-        },
-        "accountName": {
-          "type": "string",
-          "description": "A user-friendly name for the bank account (e.g., 'Main Checking', 'Savings Account')."
-        },
-        "accountNumber": {
-          "type": "string",
-          "description": "The bank account number."
-        },
-        "agencyNumber": {
-          "type": "string",
-          "description": "The bank agency (branch) number."
-        },
-        "accountHolderName": {
-          "type": "string",
-          "description": "The name of the account holder as registered with the bank."
-        },
-        "initialBalance": {
-          "type": "number",
-          "description": "The initial balance recorded for this account."
-        },
-        "currency": {
-          "type": "string",
-          "description": "The currency of the bank account (e.g., 'BRL', 'USD')."
+          "description": "The name of the cost center (e.g., 'Cozinha', 'Administrativo')."
         },
         "description": {
           "type": "string",
-          "description": "Any additional description for the bank account."
+          "description": "Description of the cost center."
         },
         "createdAt": {
           "type": "string",
-          "description": "Timestamp when the bank account record was created.",
           "format": "date-time"
         },
         "updatedAt": {
           "type": "string",
-          "description": "Timestamp when the bank account record was last updated.",
           "format": "date-time"
         }
       },
-      "required": [
-        "id",
-        "bankName",
-        "accountName",
-        "accountNumber",
-        "agencyNumber",
-        "accountHolderName",
-        "initialBalance",
-        "currency",
-        "createdAt",
-        "updatedAt"
-      ]
+      "required": ["id", "name", "createdAt", "updatedAt"]
     },
     "AccountsPayableEntry": {
       "$schema": "http://json-schema.org/draft-07/schema#",
@@ -196,58 +158,48 @@
         },
         "supplierId": {
           "type": "string",
-          "description": "Reference to the Supplier to whom the payment is due. (Relationship: Supplier 1:N AccountsPayableEntry)"
+          "description": "Reference to the Supplier."
         },
         "accountCategoryId": {
           "type": "string",
-          "description": "Reference to the AccountCategory for classifying this expense. (Relationship: AccountCategory 1:N AccountsPayableEntry)"
+          "description": "Reference to the AccountCategory."
+        },
+        "costCenterId": {
+          "type": "string",
+          "description": "Reference to the CostCenter."
         },
         "description": {
           "type": "string",
-          "description": "A description of the expense or payment reason."
+          "description": "A description of the expense."
         },
         "originalAmount": {
           "type": "number",
-          "description": "The original amount of the expense before any adjustments."
+          "description": "The amount due."
+        },
+        "issueDate": {
+          "type": "string",
+          "format": "date",
+          "description": "The date the document was issued."
         },
         "dueDate": {
           "type": "string",
-          "description": "The date when the payment is due.",
-          "format": "date"
+          "format": "date",
+          "description": "The date when the payment is due."
         },
-        "interestAmount": {
-          "type": "number",
-          "description": "Any interest applied to the payment."
-        },
-        "fineAmount": {
-          "type": "number",
-          "description": "Any fines applied to the payment."
+        "paymentMethod": {
+          "type": "string",
+          "description": "How the payment will be made (e.g., Pix, Boleto)."
         },
         "status": {
           "type": "string",
-          "description": "The current status of the accounts payable entry (e.g., 'Open', 'Paid', 'Overdue')."
-        },
-        "paymentDate": {
-          "type": "string",
-          "description": "The actual date the payment was made.",
-          "format": "date"
-        },
-        "paidAmount": {
-          "type": "number",
-          "description": "The total amount actually paid, including interest/fines."
-        },
-        "bankAccountId": {
-          "type": "string",
-          "description": "Reference to the BankAccount from which the payment was made. (Relationship: BankAccount 1:N AccountsPayableEntry)"
+          "enum": ["Open", "Paid", "Overdue"]
         },
         "createdAt": {
           "type": "string",
-          "description": "Timestamp when the accounts payable entry was created.",
           "format": "date-time"
         },
         "updatedAt": {
           "type": "string",
-          "description": "Timestamp when the accounts payable entry was last updated.",
           "format": "date-time"
         }
       },
@@ -259,219 +211,6 @@
         "originalAmount",
         "dueDate",
         "status",
-        "createdAt",
-        "updatedAt"
-      ]
-    },
-    "AccountsReceivableEntry": {
-      "$schema": "http://json-schema.org/draft-07/schema#",
-      "title": "AccountsReceivableEntry",
-      "type": "object",
-      "description": "Represents a single entry of an amount expected to be received by the business.",
-      "properties": {
-        "id": {
-          "type": "string",
-          "description": "Unique identifier for the AccountsReceivableEntry entity."
-        },
-        "accountCategoryId": {
-          "type": "string",
-          "description": "Reference to the AccountCategory for classifying this revenue. (Relationship: AccountCategory 1:N AccountsReceivableEntry)"
-        },
-        "description": {
-          "type": "string",
-          "description": "A description of the revenue or receipt reason."
-        },
-        "originalAmount": {
-          "type": "number",
-          "description": "The original amount of revenue expected."
-        },
-        "expectedReceiptDate": {
-          "type": "string",
-          "description": "The date when the revenue is expected to be received.",
-          "format": "date"
-        },
-        "status": {
-          "type": "string",
-          "description": "The current status of the accounts receivable entry (e.g., 'Open', 'Received', 'Overdue')."
-        },
-        "receiptDate": {
-          "type": "string",
-          "description": "The actual date the revenue was received.",
-          "format": "date"
-        },
-        "receivedAmount": {
-          "type": "number",
-          "description": "The total amount actually received."
-        },
-        "salesChannel": {
-          "type": "string",
-          "description": "The channel through which the revenue was generated (e.g., 'Online', 'In-store', 'Partnership')."
-        },
-        "bankAccountId": {
-          "type": "string",
-          "description": "Reference to the BankAccount into which the revenue was deposited. (Relationship: BankAccount 1:N AccountsReceivableEntry)"
-        },
-        "sourceDocumentReference": {
-          "type": "string",
-          "description": "A reference to the original document or report from which this entry was imported."
-        },
-        "createdAt": {
-          "type": "string",
-          "description": "Timestamp when the accounts receivable entry was created.",
-          "format": "date-time"
-        },
-        "updatedAt": {
-          "type": "string",
-          "description": "Timestamp when the accounts receivable entry was last updated.",
-          "format": "date-time"
-        }
-      },
-      "required": [
-        "id",
-        "accountCategoryId",
-        "description",
-        "originalAmount",
-        "expectedReceiptDate",
-        "status",
-        "createdAt",
-        "updatedAt"
-      ]
-    },
-    "BankTransaction": {
-      "$schema": "http://json-schema.org/draft-07/schema#",
-      "title": "BankTransaction",
-      "type": "object",
-      "description": "Represents a single transaction imported from a bank statement (e.g., OFX file) for reconciliation purposes.",
-      "properties": {
-        "id": {
-          "type": "string",
-          "description": "Unique identifier for the BankTransaction entity."
-        },
-        "bankAccountId": {
-          "type": "string",
-          "description": "Reference to the BankAccount to which this transaction belongs. (Relationship: BankAccount 1:N BankTransaction)"
-        },
-        "transactionDate": {
-          "type": "string",
-          "description": "The date the transaction occurred according to the bank statement.",
-          "format": "date"
-        },
-        "amount": {
-          "type": "number",
-          "description": "The monetary amount of the transaction. Positive for credits, negative for debits."
-        },
-        "description": {
-          "type": "string",
-          "description": "The description of the transaction provided by the bank."
-        },
-        "type": {
-          "type": "string",
-          "description": "The type of transaction from the bank's perspective (e.g., 'Debit', 'Credit', 'Deposit', 'Withdrawal')."
-        },
-        "ofxTransactionId": {
-          "type": "string",
-          "description": "A unique identifier for the transaction provided by the OFX file, useful for preventing duplicates."
-        },
-        "isMatched": {
-          "type": "boolean",
-          "description": "Indicates whether this bank transaction has been successfully matched with an Accounts Payable or Accounts Receivable entry."
-        },
-        "matchedApEntryId": {
-          "type": "string",
-          "description": "Reference to the AccountsPayableEntry if this transaction matches an expense. (Relationship: AccountsPayableEntry 1:N BankTransaction)"
-        },
-        "matchedArEntryId": {
-          "type": "string",
-          "description": "Reference to the AccountsReceivableEntry if this transaction matches a revenue. (Relationship: AccountsReceivableEntry 1:N BankTransaction)"
-        },
-        "reconciliationDate": {
-          "type": "string",
-          "description": "The date when this bank transaction was reconciled (matched and confirmed).",
-          "format": "date-time"
-        },
-        "createdAt": {
-          "type": "string",
-          "description": "Timestamp when the bank transaction record was created (imported).",
-          "format": "date-time"
-        }
-      },
-      "required": [
-        "id",
-        "bankAccountId",
-        "transactionDate",
-        "amount",
-        "description",
-        "type",
-        "ofxTransactionId",
-        "isMatched",
-        "createdAt"
-      ]
-    },
-    "CashFlowProjection": {
-      "$schema": "http://json-schema.org/draft-07/schema#",
-      "title": "CashFlowProjection",
-      "type": "object",
-      "description": "Represents a planned or projected cash inflow or outflow for a specific date.",
-      "properties": {
-        "id": {
-          "type": "string",
-          "description": "Unique identifier for the CashFlowProjection entity."
-        },
-        "projectionDate": {
-          "type": "string",
-          "description": "The specific date for which this cash flow projection is made.",
-          "format": "date"
-        },
-        "description": {
-          "type": "string",
-          "description": "A brief description of the projected cash flow item."
-        },
-        "type": {
-          "type": "string",
-          "description": "Indicates whether the projection is an 'Inflow' (money coming in) or 'Outflow' (money going out)."
-        },
-        "amount": {
-          "type": "number",
-          "description": "The projected monetary amount of the cash flow."
-        },
-        "isRecurrent": {
-          "type": "boolean",
-          "description": "Indicates if this projection is for a recurring event."
-        },
-        "recurrencePattern": {
-          "type": "string",
-          "description": "Describes the recurrence frequency if 'isRecurrent' is true (e.g., 'Daily', 'Weekly', 'Monthly', 'Yearly')."
-        },
-        "notes": {
-          "type": "string",
-          "description": "Any additional notes or details about the cash flow projection."
-        },
-        "accountCategoryId": {
-          "type": "string",
-          "description": "Reference to the AccountCategory for classifying this projected cash flow. (Relationship: AccountCategory 1:N CashFlowProjection)"
-        },
-        "bankAccountId": {
-          "type": "string",
-          "description": "Reference to the BankAccount involved in this projection, if specific. (Relationship: BankAccount 1:N CashFlowProjection)"
-        },
-        "createdAt": {
-          "type": "string",
-          "description": "Timestamp when the cash flow projection record was created.",
-          "format": "date-time"
-        },
-        "updatedAt": {
-          "type": "string",
-          "description": "Timestamp when the cash flow projection record was last updated.",
-          "format": "date-time"
-        }
-      },
-      "required": [
-        "id",
-        "projectionDate",
-        "description",
-        "type",
-        "amount",
-        "isRecurrent",
         "createdAt",
         "updatedAt"
       ]
@@ -489,147 +228,34 @@
         "path": "/users/{userId}/suppliers/{supplierId}",
         "definition": {
           "entityName": "Supplier",
-          "schema": {
-            "$ref": "#/backend/entities/Supplier"
-          },
-          "description": "Stores supplier records, each belonging to a specific user. Authorization is based on the `userId` path segment.",
-          "params": [
-            {
-              "name": "userId",
-              "description": "The unique identifier of the user who owns this supplier record."
-            },
-            {
-              "name": "supplierId",
-              "description": "The unique identifier of the supplier."
-            }
-          ]
+          "schema": { "$ref": "#/backend/entities/Supplier" },
+          "description": "Stores supplier records."
         }
       },
       {
         "path": "/users/{userId}/accountCategories/{categoryId}",
         "definition": {
           "entityName": "AccountCategory",
-          "schema": {
-            "$ref": "#/backend/entities/AccountCategory"
-          },
-          "description": "Stores chart of accounts categories, each belonging to a specific user. Authorization is based on the `userId` path segment. The hierarchical relationship (`parentCategoryId`) is managed within the document data, not for authorization.",
-          "params": [
-            {
-              "name": "userId",
-              "description": "The unique identifier of the user who owns this account category."
-            },
-            {
-              "name": "categoryId",
-              "description": "The unique identifier of the account category."
-            }
-          ]
+          "schema": { "$ref": "#/backend/entities/AccountCategory" },
+          "description": "Stores account categories."
         }
       },
       {
-        "path": "/users/{userId}/bankAccounts/{bankAccountId}",
+        "path": "/users/{userId}/costCenters/{centerId}",
         "definition": {
-          "entityName": "BankAccount",
-          "schema": {
-            "$ref": "#/backend/entities/BankAccount"
-          },
-          "description": "Stores bank account details, each belonging to a specific user. Authorization is based on the `userId` path segment.",
-          "params": [
-            {
-              "name": "userId",
-              "description": "The unique identifier of the user who owns this bank account."
-            },
-            {
-              "name": "bankAccountId",
-              "description": "The unique identifier of the bank account."
-            }
-          ]
+          "entityName": "CostCenter",
+          "schema": { "$ref": "#/backend/entities/CostCenter" },
+          "description": "Stores cost centers."
         }
       },
       {
         "path": "/users/{userId}/accountsPayableEntries/{entryId}",
         "definition": {
           "entityName": "AccountsPayableEntry",
-          "schema": {
-            "$ref": "#/backend/entities/AccountsPayableEntry"
-          },
-          "description": "Stores accounts payable entries, each belonging to a specific user. Authorization is based on the `userId` path segment.",
-          "params": [
-            {
-              "name": "userId",
-              "description": "The unique identifier of the user who owns this accounts payable entry."
-            },
-            {
-              "name": "entryId",
-              "description": "The unique identifier of the accounts payable entry."
-            }
-          ]
-        }
-      },
-      {
-        "path": "/users/{userId}/accountsReceivableEntries/{entryId}",
-        "definition": {
-          "entityName": "AccountsReceivableEntry",
-          "schema": {
-            "$ref": "#/backend/entities/AccountsReceivableEntry"
-          },
-          "description": "Stores accounts receivable entries, each belonging to a specific user. Authorization is based on the `userId` path segment.",
-          "params": [
-            {
-              "name": "userId",
-              "description": "The unique identifier of the user who owns this accounts receivable entry."
-            },
-            {
-              "name": "entryId",
-              "description": "The unique identifier of the accounts receivable entry."
-            }
-          ]
-        }
-      },
-      {
-        "path": "/users/{userId}/bankAccounts/{bankAccountId}/bankTransactions/{transactionId}",
-        "definition": {
-          "entityName": "BankTransaction",
-          "schema": {
-            "$ref": "#/backend/entities/BankTransaction"
-          },
-          "description": "Stores bank transactions, nested under a specific bank account, which in turn belongs to a user. Authorization is based on the `userId` path segment and the `bankAccountId` being under that user's control.",
-          "params": [
-            {
-              "name": "userId",
-              "description": "The unique identifier of the user who owns this bank account and its transactions."
-            },
-            {
-              "name": "bankAccountId",
-              "description": "The unique identifier of the bank account to which this transaction belongs."
-            },
-            {
-              "name": "transactionId",
-              "description": "The unique identifier of the bank transaction."
-            }
-          ]
-        }
-      },
-      {
-        "path": "/users/{userId}/cashFlowProjections/{projectionId}",
-        "definition": {
-          "entityName": "CashFlowProjection",
-          "schema": {
-            "$ref": "#/backend/entities/CashFlowProjection"
-          },
-          "description": "Stores cash flow projections, each belonging to a specific user. Authorization is based on the `userId` path segment.",
-          "params": [
-            {
-              "name": "userId",
-              "description": "The unique identifier of the user who owns this cash flow projection."
-            },
-            {
-              "name": "projectionId",
-              "description": "The unique identifier of the cash flow projection."
-            }
-          ]
+          "schema": { "$ref": "#/backend/entities/AccountsPayableEntry" },
+          "description": "Stores accounts payable entries."
         }
       }
-    ],
-    "reasoning": "The recommended Firestore structure is based on strong user-centric data segregation..."
+    ]
   }
 }

@@ -1,5 +1,5 @@
 
-export type TransactionStatus = 'open' | 'paid' | 'overdue' | 'canceled';
+export type TransactionStatus = 'Open' | 'Paid' | 'Overdue' | 'canceled';
 export type AccountType = 'payable' | 'receivable';
 export type PersonType = 'Pessoa Física' | 'Pessoa Jurídica';
 
@@ -7,8 +7,7 @@ export interface Supplier {
   id: string;
   name: string;
   personType: PersonType;
-  cnpj?: string; // Serves as CPF or CNPJ
-  contact?: string; // Legacy field
+  cnpj?: string;
   email?: string;
   phone?: string;
   category?: string;
@@ -17,11 +16,38 @@ export interface Supplier {
   updatedAt: string;
 }
 
-export interface ChartOfAccount {
+export interface AccountCategory {
   id: string;
   name: string;
-  parent?: string;
+  description: string;
+  type: string;
   code: string;
+  parentCategoryId?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CostCenter {
+  id: string;
+  name: string;
+  description?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AccountsPayableEntry {
+  id: string;
+  supplierId: string;
+  accountCategoryId: string;
+  costCenterId?: string;
+  description: string;
+  originalAmount: number;
+  issueDate?: string;
+  dueDate: string;
+  paymentMethod?: string;
+  status: 'Open' | 'Paid' | 'Overdue';
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface BankAccount {
@@ -37,7 +63,7 @@ export interface FinancialEntry {
   amount: number;
   dueDate: string;
   paymentDate?: string;
-  status: TransactionStatus;
+  status: string;
   supplierId?: string;
   type: AccountType;
   category: string;
@@ -51,11 +77,4 @@ export interface BankStatementItem {
   amount: number;
   description: string;
   matchedEntryId?: string;
-}
-
-export interface CashFlowDay {
-  date: string;
-  inflow: number;
-  outflow: number;
-  balance: number;
 }
