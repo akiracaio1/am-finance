@@ -1,7 +1,7 @@
 
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { 
   Table, 
   TableBody, 
@@ -56,7 +56,7 @@ import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Collapsible, CollapsibleContent } from "@/components/ui/collapsible";
 import { toast } from "@/hooks/use-toast";
-import { Supplier, AccountCategory, AccountsPayableEntry, EntryType } from "@/lib/types";
+import { Supplier, AccountCategory, AccountsPayableEntry, EntryType, CostCenter } from "@/lib/types";
 import { 
   format, 
   startOfWeek, 
@@ -125,7 +125,7 @@ export default function AccountsPayablePage() {
       setFormSupplierId(editingEntry.supplierId);
       setFormCategoryId(editingEntry.accountCategoryId);
       setFormPaymentMethod(editingEntry.paymentMethod || "Pix");
-      setFormCostCenterId(editingEntry.costCenterId || "");
+      setFormCostCenterId(editingEntry.costCenterId || "none");
     } else {
       setFormType("Confirmed");
       setFormDescription("");
@@ -135,7 +135,7 @@ export default function AccountsPayablePage() {
       setFormSupplierId("");
       setFormCategoryId("");
       setFormPaymentMethod("Pix");
-      setFormCostCenterId("");
+      setFormCostCenterId("none");
     }
   }, [editingEntry, isNewEntryOpen]);
 
@@ -195,9 +195,23 @@ export default function AccountsPayablePage() {
     return collection(db, "users", user.uid, "accountCategories");
   }, [db, user]);
 
+  const centersQuery = useMemoFirebase(() => {
+    if (!db || !user) return null;
+    return collection(db, "users", user.uid, "costCenters");
+  }, [db, user]);
+
   const { data: entries } = useCollection<AccountsPayableEntry>(entriesQuery);
   const { data: suppliers } = useCollection<Supplier>(suppliersQuery);
   const { data: categories } = useCollection<AccountCategory>(categoriesQuery);
+  const { data: centers } = useCollection<CostCenter>(centersQuery);
+
+  // Filtra apenas as categorias que não são pais (Itens folha)
+  const leafCategories = useMemo(() => {
+    if (!categories) return [];
+    return categories.filter(cat => 
+      !categories.some(child => child.parentCategoryId === cat.id)
+    ).sort((a, b) => a.code.localeCompare(b.code));
+  }, [categories]);
 
   const getDynamicStatus = (entry: AccountsPayableEntry) => {
     if (entry.status === 'Paid') return 'Paid';
@@ -269,7 +283,7 @@ export default function AccountsPayablePage() {
     const baseData = {
       supplierId: formSupplierId,
       accountCategoryId: formCategoryId,
-      costCenterId: formCostCenterId,
+      costCenterId: formCostCenterId === "none" ? null : formCostCenterId,
       description: formDescription,
       issueDate: formIssueDate,
       paymentMethod: formPaymentMethod,
@@ -474,7 +488,7 @@ export default function AccountsPayablePage() {
                         <Select value={formCategoryId} onValueChange={setFormCategoryId} required>
                           <SelectTrigger><SelectValue placeholder="Selecione..." /></SelectTrigger>
                           <SelectContent>
-                            {categories?.map(c => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}
+                            {leafCategories.map(c => <SelectItem key={c.id} value={c.id}>{c.code} - {c.name}</SelectItem>)}
                           </SelectContent>
                         </Select>
                       </div>
@@ -501,10 +515,10 @@ export default function AccountsPayablePage() {
                         <Select value={formCostCenterId} onValueChange={setFormCostCenterId}>
                           <SelectTrigger><SelectValue placeholder="Selecione..." /></SelectTrigger>
                           <SelectContent>
-                            <SelectItem value="null">Nenhum</SelectItem>
-                            <SelectItem value="cozinha">Cozinha</SelectItem>
-                            <SelectItem value="salao">Salão</SelectItem>
-                            <SelectItem value="admin">Administrativo</SelectItem>
+                            <SelectItem value="none">Nenhum</SelectItem>
+                            {centers?.map(c => (
+                              <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+                            ))}
                           </SelectContent>
                         </Select>
                       </div>
