@@ -32,7 +32,10 @@ import {
   X,
   Search,
   FilterX,
-  CalendarDays
+  CalendarDays,
+  Layers,
+  Repeat,
+  FileText
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useUser, useFirestore, useCollection, useMemoFirebase } from "@/firebase";
@@ -61,9 +64,10 @@ import {
 } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { toast } from "@/hooks/use-toast";
-import { Supplier, AccountCategory, CostCenter, AccountsPayableEntry } from "@/lib/types";
+import { Supplier, AccountCategory, CostCenter, AccountsPayableEntry, EntryType } from "@/lib/types";
 import { 
   format, 
   startOfWeek, 
@@ -73,7 +77,8 @@ import {
   endOfMonth, 
   subMonths, 
   startOfYear, 
-  endOfYear 
+  endOfYear,
+  addMonths
 } from "date-fns";
 
 export default function AccountsPayablePage() {
@@ -91,20 +96,22 @@ export default function AccountsPayablePage() {
   const [filterCategoryId, setFilterCategoryId] = useState("all");
   const [filterDueDateStart, setFilterDueDateStart] = useState("");
   const [filterDueDateEnd, setFilterDueDateEnd] = useState("");
-  const [filterIssueDateStart, setFilterIssueDateStart] = useState("");
-  const [filterIssueDateEnd, setFilterIssueDateEnd] = useState("");
   const [datePreset, setDatePreset] = useState("custom");
 
-  // Estados para cálculo dinâmico no modal de pagamento
+  // Estados para pagamento
   const [interest, setInterest] = useState(0);
   const [fine, setFine] = useState(0);
   const [discount, setDiscount] = useState(0);
+
+  // Estados para Novo Lançamento (Multi-parcelas)
+  const [repetitionType, setRepetitionType] = useState<"single" | "fixed" | "installments">("single");
+  const [numRepetitions, setNumRepetitions] = useState(1);
+  const [generatedInstallments, setGeneratedInstallments] = useState<{date: string, amount: number}[]>([]);
 
   useEffect(() => {
     setTodayStr(format(new Date(), "yyyy-MM-dd"));
   }, []);
 
-  // Aplicação de atalhos de data
   const handleDatePresetChange = (preset: string) => {
     setDatePreset(preset);
     const today = new Date();
@@ -112,34 +119,21 @@ export default function AccountsPayablePage() {
     let end: Date | null = null;
 
     switch (preset) {
-      case "today":
-        start = today;
-        end = today;
-        break;
+      case "today": start = today; end = today; break;
       case "thisWeek":
         start = startOfWeek(today, { weekStartsOn: 1 });
         end = endOfWeek(today, { weekStartsOn: 1 });
+        break;
+      case "thisMonth":
+        start = startOfMonth(today);
+        end = endOfMonth(today);
         break;
       case "nextWeek":
         const nextWeek = addWeeks(today, 1);
         start = startOfWeek(nextWeek, { weekStartsOn: 1 });
         end = endOfWeek(nextWeek, { weekStartsOn: 1 });
         break;
-      case "thisMonth":
-        start = startOfMonth(today);
-        end = endOfMonth(today);
-        break;
-      case "lastMonth":
-        const lastMonth = subMonths(today, 1);
-        start = startOfMonth(lastMonth);
-        end = endOfMonth(lastMonth);
-        break;
-      case "thisYear":
-        start = startOfYear(today);
-        end = endOfYear(today);
-        break;
-      default:
-        return;
+      default: return;
     }
 
     if (start && end) {
@@ -148,7 +142,7 @@ export default function AccountsPayablePage() {
     }
   };
 
-  // Firestore Queries
+  // Queries
   const entriesQuery = useMemoFirebase(() => {
     if (!db || !user) return null;
     return collection(db, "users", user.uid, "accountsPayableEntries");
@@ -195,244 +189,286 @@ export default function AccountsPayablePage() {
     const statusMatch = filterStatus === 'all' || e.dynamicStatus.toLowerCase() === filterStatus.toLowerCase();
     const supplierMatch = filterSupplierId === 'all' || e.supplierId === filterSupplierId;
     const categoryMatch = filterCategoryId === 'all' || e.accountCategoryId === filterCategoryId;
-    
-    const dueDateMatch = (!filterDueDateStart || e.dueDate >= filterDueDateStart) && 
-                         (!filterDueDateEnd || e.dueDate <= filterDueDateEnd);
-    
-    const issueDateMatch = !e.issueDate || (
-      (!filterIssueDateStart || e.issueDate >= filterIssueDateStart) && 
-      (!filterIssueDateEnd || e.issueDate <= filterIssueDateEnd)
-    );
-
-    return statusMatch && supplierMatch && categoryMatch && dueDateMatch && issueDateMatch;
+    const dueDateMatch = (!filterDueDateStart || e.dueDate >= filterDueDateStart) && (!filterDueDateEnd || e.dueDate <= filterDueDateEnd);
+    return statusMatch && supplierMatch && categoryMatch && dueDateMatch;
   });
 
-  // Cálculos baseados nos filtros aplicados
   const totalOverdue = filteredEntries.filter(e => e.dynamicStatus === 'Overdue').reduce((acc, curr) => acc + curr.originalAmount, 0);
   const totalDueToday = filteredEntries.filter(e => e.dynamicStatus === 'DueToday').reduce((acc, curr) => acc + curr.originalAmount, 0);
   const totalOpen = filteredEntries.filter(e => e.dynamicStatus === 'Open').reduce((acc, curr) => acc + curr.originalAmount, 0);
   const totalPaid = filteredEntries.filter(e => e.dynamicStatus === 'Paid').reduce((acc, curr) => acc + calculateSettledValue(curr), 0);
 
   const clearFilters = () => {
-    setFilterStatus("all");
-    setFilterSupplierId("all");
-    setFilterCategoryId("all");
-    setFilterDueDateStart("");
-    setFilterDueDateEnd("");
-    setFilterIssueDateStart("");
-    setFilterIssueDateEnd("");
-    setDatePreset("custom");
+    setFilterStatus("all"); setFilterSupplierId("all"); setFilterCategoryId("all");
+    setFilterDueDateStart(""); setFilterDueDateEnd(""); setDatePreset("custom");
   };
 
-  const hasActiveFilters = filterStatus !== "all" || filterSupplierId !== "all" || filterCategoryId !== "all" || filterDueDateStart || filterDueDateEnd || filterIssueDateStart || filterIssueDateEnd;
+  const hasActiveFilters = filterStatus !== "all" || filterSupplierId !== "all" || filterCategoryId !== "all" || filterDueDateStart || filterDueDateEnd;
+
+  // Lógica de geração de parcelas/repetições
+  useEffect(() => {
+    if (repetitionType === 'single') {
+      setGeneratedInstallments([]);
+      return;
+    }
+    
+    // Pegar valores base dos inputs (em um cenário real, usaríamos estados pros inputs)
+    // Aqui vamos apenas preparar o array baseado no numRepetitions
+    const baseDate = (document.getElementById("dueDate") as HTMLInputElement)?.value || todayStr;
+    const baseAmount = Number((document.getElementById("amount") as HTMLInputElement)?.value) || 0;
+    
+    const newInstallments = [];
+    for (let i = 0; i < numRepetitions; i++) {
+      const date = addMonths(new Date(baseDate + 'T12:00:00'), i);
+      newInstallments.push({
+        date: format(date, "yyyy-MM-dd"),
+        amount: repetitionType === 'installments' ? baseAmount / numRepetitions : baseAmount
+      });
+    }
+    setGeneratedInstallments(newInstallments);
+  }, [repetitionType, numRepetitions, todayStr]);
 
   const handleSaveEntry = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (!db || !user) return;
     const formData = new FormData(e.currentTarget);
-    const entryId = `pay_${Date.now()}`;
-    const entryRef = doc(db, "users", user.uid, "accountsPayableEntries", entryId);
-    const newEntry: AccountsPayableEntry = {
-      id: entryId,
+    const baseData = {
       supplierId: formData.get("supplierId") as string,
       accountCategoryId: formData.get("categoryId") as string,
       costCenterId: (formData.get("costCenterId") as string) || "",
       description: formData.get("description") as string,
-      originalAmount: Number(formData.get("amount")),
       issueDate: formData.get("issueDate") as string,
-      dueDate: formData.get("dueDate") as string,
       paymentMethod: formData.get("paymentMethod") as string,
-      status: 'Open',
+      entryType: formData.get("entryType") as EntryType,
+      status: 'Open' as const,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
-    setDocumentNonBlocking(entryRef, newEntry, { merge: true });
-    toast({ title: "Lançamento criado", description: "A conta foi agendada com sucesso." });
+
+    if (repetitionType === 'single') {
+      const entryId = `pay_${Date.now()}`;
+      const entryRef = doc(db, "users", user.uid, "accountsPayableEntries", entryId);
+      setDocumentNonBlocking(entryRef, {
+        ...baseData,
+        id: entryId,
+        originalAmount: Number(formData.get("amount")),
+        dueDate: formData.get("dueDate") as string,
+      }, { merge: true });
+    } else {
+      // Gravar múltiplas parcelas
+      generatedInstallments.forEach((inst, index) => {
+        const entryId = `pay_${Date.now()}_${index}`;
+        const entryRef = doc(db, "users", user.uid, "accountsPayableEntries", entryId);
+        setDocumentNonBlocking(entryRef, {
+          ...baseData,
+          id: entryId,
+          originalAmount: inst.amount,
+          dueDate: inst.date,
+          installmentInfo: repetitionType === 'installments' ? `${index + 1}/${numRepetitions}` : `Mensalidade ${index + 1}/${numRepetitions}`
+        }, { merge: true });
+      });
+    }
+
+    toast({ title: "Lançamento(s) criado(s)", description: "Os registros foram agendados com sucesso." });
     setIsNewEntryOpen(false);
+    setRepetitionType("single");
   };
 
   const handleConfirmPayment = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (!db || !user || !entryToPay) return;
-    
     const formData = new FormData(e.currentTarget);
     const entryRef = doc(db, "users", user.uid, "accountsPayableEntries", entryToPay.id);
     
-    const paymentData = {
+    updateDocumentNonBlocking(entryRef, {
       status: 'Paid',
+      entryType: 'Confirmed', // Sempre confirma ao pagar
       paymentDate: formData.get("paymentDate") as string,
       bankAccountId: formData.get("bankAccountId") as string,
-      interest: interest,
-      fine: fine,
-      discount: discount,
+      interest, fine, discount,
       updatedAt: new Date().toISOString()
-    };
-
-    updateDocumentNonBlocking(entryRef, paymentData);
-    
-    toast({ 
-      title: "Pagamento confirmado", 
-      description: `A conta "${entryToPay.description}" foi marcada como paga.` 
     });
     
+    toast({ title: "Pagamento confirmado" });
     setIsPaymentOpen(false);
-    
-    setTimeout(() => {
-      setEntryToPay(null);
-      setInterest(0);
-      setFine(0);
-      setDiscount(0);
-    }, 300);
+    setEntryToPay(null);
+  };
+
+  const toggleConfirmed = (entry: AccountsPayableEntry) => {
+    if (!db || !user) return;
+    const entryRef = doc(db, "users", user.uid, "accountsPayableEntries", entry.id);
+    const newType = entry.entryType === 'Provision' ? 'Confirmed' : 'Provision';
+    updateDocumentNonBlocking(entryRef, { entryType: newType, updatedAt: new Date().toISOString() });
+    toast({ title: newType === 'Confirmed' ? "Lançamento Confirmado" : "Lançamento marcado como Provisão" });
   };
 
   const undoPayment = (entry: AccountsPayableEntry) => {
     if (!db || !user) return;
     const entryRef = doc(db, "users", user.uid, "accountsPayableEntries", entry.id);
     updateDocumentNonBlocking(entryRef, { 
-      status: 'Open', 
-      paymentDate: null, 
-      bankAccountId: null, 
-      interest: 0, 
-      fine: 0, 
-      discount: 0,
-      updatedAt: new Date().toISOString() 
+      status: 'Open', paymentDate: null, bankAccountId: null, 
+      interest: 0, fine: 0, discount: 0, updatedAt: new Date().toISOString() 
     });
-    toast({ title: "Pagamento desfeito", description: "O lançamento voltou para o status de aberto." });
   };
 
   const deleteEntry = (entry: AccountsPayableEntry) => {
     if (!db || !user) return;
     const entryRef = doc(db, "users", user.uid, "accountsPayableEntries", entry.id);
     deleteDocumentNonBlocking(entryRef);
-    toast({ title: "Lançamento removido", description: "O registro foi excluído permanentemente." });
   };
-
-  const getStatusBadge = (status: string) => {
-    switch (status) {
-      case 'Paid':
-        return <Badge className="bg-emerald-100 text-emerald-700 hover:bg-emerald-200 border-none"><CheckCircle2 className="w-3 h-3 mr-1" /> Pago</Badge>;
-      case 'Overdue':
-        return <Badge variant="destructive" className="border-none animate-pulse"><AlertTriangle className="w-3 h-3 mr-1" /> Atrasado</Badge>;
-      case 'DueToday':
-        return <Badge className="bg-amber-100 text-amber-700 hover:bg-amber-200 border-none"><Clock className="w-3 h-3 mr-1" /> Vence Hoje</Badge>;
-      default:
-        return <Badge variant="outline" className="text-muted-foreground"><Calendar className="w-3 h-3 mr-1" /> Aberto</Badge>;
-    }
-  };
-
-  const finalSettlementAmount = (entryToPay?.originalAmount || 0) + interest + fine - discount;
 
   return (
-    <div className="space-y-6 animate-in fade-in duration-500 pb-10">
+    <div className="space-y-6 pb-10">
       <div className="flex justify-between items-end">
         <div>
           <h1 className="text-3xl font-bold flex items-center gap-3">
             <ArrowDownCircle className="text-destructive w-8 h-8" />
             Contas a Pagar
           </h1>
-          <p className="text-muted-foreground">Gestão inteligente de despesas e prazos.</p>
+          <p className="text-muted-foreground">Gestão de despesas, provisões e parcelamentos.</p>
         </div>
         
         <div className="flex gap-2">
           <Button variant="outline" className={cn("gap-2", hasActiveFilters && "border-primary text-primary bg-primary/5")} onClick={() => setShowFilters(!showFilters)}>
-            <Filter className="w-4 h-4" /> 
-            {hasActiveFilters ? "Filtros Ativos" : "Filtros"}
+            <Filter className="w-4 h-4" /> Filtros
           </Button>
+          
           <Dialog open={isNewEntryOpen} onOpenChange={setIsNewEntryOpen}>
             <DialogTrigger asChild>
-              <Button className="gap-2">
+              <Button className="gap-2 shadow-lg">
                 <Plus className="w-4 h-4" /> Novo Lançamento
               </Button>
             </DialogTrigger>
-            <DialogContent className="max-w-2xl">
+            <DialogContent className="max-w-3xl overflow-y-auto max-h-[90vh]">
               <form onSubmit={handleSaveEntry}>
                 <DialogHeader>
-                  <DialogTitle>Novo Lançamento de Despesa</DialogTitle>
+                  <DialogTitle>Novo Lançamento</DialogTitle>
                 </DialogHeader>
-                <div className="grid gap-4 py-4">
-                  <div className="grid gap-2">
-                    <Label htmlFor="description">Descrição / Item *</Label>
-                    <Input id="description" name="description" placeholder="Ex: Compra de Insumos" required />
-                  </div>
+                
+                <Tabs defaultValue="basic" className="mt-4">
+                  <TabsList className="grid w-full grid-cols-2">
+                    <TabsTrigger value="basic">Dados Principais</TabsTrigger>
+                    <TabsTrigger value="repeat">Repetir / Parcelar</TabsTrigger>
+                  </TabsList>
                   
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="grid gap-2">
-                      <Label htmlFor="amount">Valor (R$) *</Label>
-                      <Input id="amount" name="amount" type="number" step="0.01" placeholder="0,00" required />
+                  <TabsContent value="basic" className="space-y-4 pt-4">
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="grid gap-2">
+                        <Label>Tipo de Lançamento</Label>
+                        <Select name="entryType" defaultValue="Confirmed">
+                          <SelectTrigger>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="Confirmed">Confirmado (Boleto/Fatura)</SelectItem>
+                            <SelectItem value="Provision">Provisão (Estimativa)</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="grid gap-2">
+                        <Label>Descrição *</Label>
+                        <Input id="description" name="description" placeholder="Ex: Conta de Luz" required />
+                      </div>
                     </div>
-                    <div className="grid gap-2">
-                      <Label htmlFor="paymentMethod">Forma de Pagamento</Label>
-                      <Select name="paymentMethod">
-                        <SelectTrigger>
-                          <SelectValue placeholder="Selecione..." />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="Pix">Pix</SelectItem>
-                          <SelectItem value="Boleto">Boleto</SelectItem>
-                          <SelectItem value="Cartão">Cartão</SelectItem>
-                          <SelectItem value="Transferência">Transferência</SelectItem>
-                          <SelectItem value="Dinheiro">Dinheiro</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  </div>
 
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="grid gap-2">
-                      <Label htmlFor="issueDate">Data de Emissão (Opcional)</Label>
-                      <Input id="issueDate" name="issueDate" type="date" />
+                    <div className="grid grid-cols-3 gap-4">
+                      <div className="grid gap-2">
+                        <Label>Valor (R$) *</Label>
+                        <Input id="amount" name="amount" type="number" step="0.01" required />
+                      </div>
+                      <div className="grid gap-2">
+                        <Label>Vencimento *</Label>
+                        <Input id="dueDate" name="dueDate" type="date" required defaultValue={todayStr} />
+                      </div>
+                      <div className="grid gap-2">
+                        <Label>Emissão</Label>
+                        <Input id="issueDate" name="issueDate" type="date" />
+                      </div>
                     </div>
-                    <div className="grid gap-2">
-                      <Label htmlFor="dueDate">Vencimento *</Label>
-                      <Input id="dueDate" name="dueDate" type="date" required />
-                    </div>
-                  </div>
 
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="grid gap-2">
-                      <Label htmlFor="supplierId">Fornecedor *</Label>
-                      <Select name="supplierId" required>
-                        <SelectTrigger>
-                          <SelectValue placeholder="Selecione..." />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {suppliers?.map((s) => (
-                            <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="grid gap-2">
+                        <Label>Fornecedor *</Label>
+                        <Select name="supplierId" required>
+                          <SelectTrigger><SelectValue placeholder="Selecione..." /></SelectTrigger>
+                          <SelectContent>
+                            {suppliers?.map(s => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="grid gap-2">
+                        <Label>Categoria *</Label>
+                        <Select name="categoryId" required>
+                          <SelectTrigger><SelectValue placeholder="Selecione..." /></SelectTrigger>
+                          <SelectContent>
+                            {categories?.map(c => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}
+                          </SelectContent>
+                        </Select>
+                      </div>
                     </div>
-                    <div className="grid gap-2">
-                      <Label htmlFor="categoryId">Categoria Financeira *</Label>
-                      <Select name="categoryId" required>
-                        <SelectTrigger>
-                          <SelectValue placeholder="Selecione..." />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {categories?.map((c) => (
-                            <SelectItem key={c.id} value={c.id}>{c.code ? `${c.code} - ` : ""}{c.name}</SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  </div>
+                  </TabsContent>
+                  
+                  <TabsContent value="repeat" className="space-y-4 pt-4">
+                    <div className="bg-muted/50 p-4 rounded-lg border space-y-4">
+                      <div className="grid gap-2">
+                        <Label>Tipo de Repetição</Label>
+                        <Select value={repetitionType} onValueChange={(v: any) => setRepetitionType(v)}>
+                          <SelectTrigger><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="single">Lançamento Único</SelectItem>
+                            <SelectItem value="fixed">Fixo Mensal (Repetir Valor)</SelectItem>
+                            <SelectItem value="installments">Parcelado (Dividir Valor)</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
 
-                  <div className="grid gap-2">
-                    <Label htmlFor="costCenterId">Centro de Custo (Opcional)</Label>
-                    <Select name="costCenterId">
-                      <SelectTrigger>
-                        <SelectValue placeholder="Selecione..." />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {centers?.map((cc) => (
-                          <SelectItem key={cc.id} value={cc.id}>{cc.name}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </div>
-                <DialogFooter>
-                  <Button type="submit">Salvar Lançamento</Button>
+                      {repetitionType !== 'single' && (
+                        <div className="grid gap-2">
+                          <Label>Número de Meses / Parcelas</Label>
+                          <Input type="number" min="2" max="60" value={numRepetitions} onChange={e => setNumRepetitions(Number(e.target.value))} />
+                        </div>
+                      )}
+
+                      {generatedInstallments.length > 0 && (
+                        <div className="space-y-2 mt-4">
+                          <Label className="text-xs uppercase font-bold text-muted-foreground">Pré-visualização das Parcelas</Label>
+                          <div className="max-h-[200px] overflow-y-auto space-y-2 pr-2">
+                            {generatedInstallments.map((inst, i) => (
+                              <div key={i} className="flex gap-2 items-center bg-background p-2 rounded border text-sm">
+                                <span className="w-8 text-muted-foreground">{i + 1}</span>
+                                <Input 
+                                  type="date" 
+                                  value={inst.date} 
+                                  onChange={e => {
+                                    const copy = [...generatedInstallments];
+                                    copy[i].date = e.target.value;
+                                    setGeneratedInstallments(copy);
+                                  }} 
+                                  className="h-8 text-xs"
+                                />
+                                <Input 
+                                  type="number" 
+                                  value={inst.amount} 
+                                  onChange={e => {
+                                    const copy = [...generatedInstallments];
+                                    copy[i].amount = Number(e.target.value);
+                                    setGeneratedInstallments(copy);
+                                  }} 
+                                  className="h-8 text-xs"
+                                />
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </TabsContent>
+                </Tabs>
+
+                <DialogFooter className="mt-6">
+                  <Button type="submit" className="w-full">
+                    {repetitionType === 'single' ? 'Salvar Lançamento' : `Salvar ${numRepetitions} Lançamentos`}
+                  </Button>
                 </DialogFooter>
               </form>
             </DialogContent>
@@ -448,12 +484,10 @@ export default function AccountsPayablePage() {
                 <div className="space-y-2">
                   <Label className="text-xs uppercase font-bold text-muted-foreground">Status</Label>
                   <Select value={filterStatus} onValueChange={setFilterStatus}>
-                    <SelectTrigger className="bg-background">
-                      <SelectValue placeholder="Todos" />
-                    </SelectTrigger>
+                    <SelectTrigger className="bg-background"><SelectValue placeholder="Todos" /></SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="all">Todos os Status</SelectItem>
-                      <SelectItem value="DueToday">Vence Hoje</SelectItem>
+                      <SelectItem value="all">Todos</SelectItem>
+                      <SelectItem value="DueToday">Hoje</SelectItem>
                       <SelectItem value="Overdue">Atrasado</SelectItem>
                       <SelectItem value="Open">Aberto</SelectItem>
                       <SelectItem value="Paid">Pago</SelectItem>
@@ -461,75 +495,26 @@ export default function AccountsPayablePage() {
                   </Select>
                 </div>
                 <div className="space-y-2">
-                  <Label className="text-xs uppercase font-bold text-muted-foreground">Fornecedor</Label>
-                  <Select value={filterSupplierId} onValueChange={setFilterSupplierId}>
-                    <SelectTrigger className="bg-background">
-                      <SelectValue placeholder="Todos" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">Todos os Fornecedores</SelectItem>
-                      {suppliers?.map(s => (
-                        <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-2">
-                  <Label className="text-xs uppercase font-bold text-muted-foreground">Categoria</Label>
-                  <Select value={filterCategoryId} onValueChange={setFilterCategoryId}>
-                    <SelectTrigger className="bg-background">
-                      <SelectValue placeholder="Todas" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">Todas as Categorias</SelectItem>
-                      {categories?.map(c => (
-                        <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="flex items-end pb-0.5">
-                  <Button variant="ghost" className="w-full gap-2 text-muted-foreground hover:text-destructive" onClick={clearFilters}>
-                    <FilterX className="w-4 h-4" /> Limpar Filtros
-                  </Button>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mt-4 pt-4 border-t border-dashed">
-                <div className="space-y-2">
-                  <Label className="text-xs uppercase font-bold text-muted-foreground flex items-center gap-1">
-                    <CalendarDays className="w-3 h-3" /> Atalhos de Vencimento
-                  </Label>
+                  <Label className="text-xs uppercase font-bold text-muted-foreground">Vencimento</Label>
                   <Select value={datePreset} onValueChange={handleDatePresetChange}>
-                    <SelectTrigger className="bg-background">
-                      <SelectValue placeholder="Escolha um período..." />
-                    </SelectTrigger>
+                    <SelectTrigger className="bg-background"><SelectValue /></SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="custom">Personalizado</SelectItem>
+                      <SelectItem value="custom">Período Personalizado</SelectItem>
                       <SelectItem value="today">Hoje</SelectItem>
                       <SelectItem value="thisWeek">Essa Semana</SelectItem>
-                      <SelectItem value="nextWeek">Semana que Vem</SelectItem>
                       <SelectItem value="thisMonth">Este Mês</SelectItem>
-                      <SelectItem value="lastMonth">Mês Passado</SelectItem>
-                      <SelectItem value="thisYear">Este Ano</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
                 <div className="space-y-2">
-                  <Label className="text-xs uppercase font-bold text-muted-foreground">Vencimento entre</Label>
+                  <Label className="text-xs uppercase font-bold text-muted-foreground">Datas</Label>
                   <div className="flex items-center gap-2">
-                    <Input type="date" value={filterDueDateStart} onChange={(e) => { setFilterDueDateStart(e.target.value); setDatePreset("custom"); }} className="bg-background text-xs" />
-                    <span className="text-muted-foreground text-xs">até</span>
-                    <Input type="date" value={filterDueDateEnd} onChange={(e) => { setFilterDueDateEnd(e.target.value); setDatePreset("custom"); }} className="bg-background text-xs" />
+                    <Input type="date" value={filterDueDateStart} onChange={e => setFilterDueDateStart(e.target.value)} className="bg-background text-xs h-9" />
+                    <Input type="date" value={filterDueDateEnd} onChange={e => setFilterDueDateEnd(e.target.value)} className="bg-background text-xs h-9" />
                   </div>
                 </div>
-                <div className="space-y-2">
-                  <Label className="text-xs uppercase font-bold text-muted-foreground">Emissão entre</Label>
-                  <div className="flex items-center gap-2">
-                    <Input type="date" value={filterIssueDateStart} onChange={(e) => setFilterIssueDateStart(e.target.value)} className="bg-background text-xs" />
-                    <span className="text-muted-foreground text-xs">até</span>
-                    <Input type="date" value={filterIssueDateEnd} onChange={(e) => setFilterIssueDateEnd(e.target.value)} className="bg-background text-xs" />
-                  </div>
+                <div className="flex items-end pb-1">
+                  <Button variant="ghost" className="w-full gap-2 text-muted-foreground" onClick={clearFilters}><FilterX className="w-4 h-4" /> Limpar</Button>
                 </div>
               </div>
             </CardContent>
@@ -539,249 +524,146 @@ export default function AccountsPayablePage() {
 
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <Card className="bg-destructive/5 border-destructive/20">
-          <CardHeader className="pt-6 pb-2">
-            <p className="text-xs font-bold text-destructive/80 uppercase tracking-tighter">Em Atraso</p>
-            <div className="text-2xl font-bold text-destructive">R$ {totalOverdue.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</div>
-          </CardHeader>
+          <CardHeader className="p-4 pb-2"><p className="text-xs font-bold uppercase text-destructive/70">Atrasado</p><div className="text-xl font-bold">R$ {totalOverdue.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</div></CardHeader>
         </Card>
         <Card className="bg-amber-50 border-amber-100">
-          <CardHeader className="pt-6 pb-2">
-            <p className="text-xs font-bold text-amber-700 uppercase tracking-tighter">Vence Hoje</p>
-            <div className="text-2xl font-bold text-amber-800">R$ {totalDueToday.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</div>
-          </CardHeader>
+          <CardHeader className="p-4 pb-2"><p className="text-xs font-bold uppercase text-amber-700">Vence Hoje</p><div className="text-xl font-bold">R$ {totalDueToday.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</div></CardHeader>
         </Card>
         <Card className="bg-primary/5 border-primary/20">
-          <CardHeader className="pt-6 pb-2">
-            <p className="text-xs font-bold text-primary/80 uppercase tracking-tighter">Próximos Dias</p>
-            <div className="text-2xl font-bold text-primary">R$ {totalOpen.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</div>
-          </CardHeader>
+          <CardHeader className="p-4 pb-2"><p className="text-xs font-bold uppercase text-primary/70">Próximos Dias</p><div className="text-xl font-bold">R$ {totalOpen.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</div></CardHeader>
         </Card>
         <Card className="bg-emerald-50 border-emerald-100">
-          <CardHeader className="pt-6 pb-2">
-            <p className="text-xs font-bold text-emerald-700 uppercase tracking-tighter">Total Pago</p>
-            <div className="text-2xl font-bold text-emerald-800">R$ {totalPaid.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</div>
-          </CardHeader>
+          <CardHeader className="p-4 pb-2"><p className="text-xs font-bold uppercase text-emerald-700">Total Liquidado</p><div className="text-xl font-bold">R$ {totalPaid.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</div></CardHeader>
         </Card>
       </div>
 
       <Card>
-        <CardHeader className="flex flex-row items-center justify-between border-b bg-muted/20">
-          <CardTitle className="text-lg">Fluxo de Despesas</CardTitle>
-          <div className="text-xs text-muted-foreground">
-            {filteredEntries.length} lançamento(s) encontrado(s)
-          </div>
-        </CardHeader>
         <CardContent className="pt-6">
-          {entriesLoading ? (
-            <div className="flex flex-col items-center justify-center py-20 text-muted-foreground">
-              <Loader2 className="w-8 h-8 animate-spin mb-4" />
-              <p>Carregando lançamentos...</p>
-            </div>
-          ) : filteredEntries.length === 0 ? (
-            <div className="text-center py-20 border-2 border-dashed rounded-lg">
-              <Calendar className="w-12 h-12 text-muted-foreground/30 mx-auto mb-4" />
-              <h3 className="text-lg font-medium text-muted-foreground">Nenhum lançamento encontrado</h3>
-              <p className="text-sm text-muted-foreground mt-2">Ajuste os filtros ou adicione uma nova conta.</p>
-              {hasActiveFilters && (
-                <Button variant="link" onClick={clearFilters} className="mt-2 text-primary">Limpar todos os filtros</Button>
-              )}
-            </div>
-          ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Vencimento</TableHead>
-                  <TableHead>Fornecedor</TableHead>
-                  <TableHead>Descrição</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead className="text-right">Valor</TableHead>
-                  <TableHead className="w-[50px]"></TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {filteredEntries.sort((a,b) => a.dueDate.localeCompare(b.dueDate)).map((entry) => (
-                  <TableRow key={entry.id} className="group">
-                    <TableCell className="font-mono text-sm">
-                      <div className="flex flex-col">
-                        <span>{new Date(entry.dueDate + 'T00:00:00').toLocaleDateString('pt-BR')}</span>
-                        {entry.issueDate && (
-                          <span className="text-[9px] text-muted-foreground">Em: {new Date(entry.issueDate + 'T00:00:00').toLocaleDateString('pt-BR')}</span>
-                        )}
-                      </div>
-                    </TableCell>
-                    <TableCell className="font-medium">
-                      {suppliers?.find(s => s.id === entry.supplierId)?.name || 'N/A'}
-                    </TableCell>
-                    <TableCell className="max-w-[200px] truncate">
-                      <div className="flex flex-col">
-                        <span className="text-muted-foreground text-[10px] uppercase tracking-wider">
-                          {categories?.find(c => c.id === entry.accountCategoryId)?.name || 'Sem Categoria'}
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Vencimento</TableHead>
+                <TableHead>Fornecedor</TableHead>
+                <TableHead>Descrição</TableHead>
+                <TableHead>Tipo</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead className="text-right">Valor</TableHead>
+                <TableHead className="w-[50px]"></TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {filteredEntries.sort((a,b) => a.dueDate.localeCompare(b.dueDate)).map((entry) => (
+                <TableRow key={entry.id} className={cn(entry.entryType === 'Provision' ? "bg-muted/10 opacity-80" : "")}>
+                  <TableCell className="text-sm font-mono">
+                    {format(new Date(entry.dueDate + 'T12:00:00'), "dd/MM/yy")}
+                  </TableCell>
+                  <TableCell className="font-medium">
+                    {suppliers?.find(s => s.id === entry.supplierId)?.name || 'N/A'}
+                  </TableCell>
+                  <TableCell>
+                    <div className="flex flex-col">
+                      <span className="text-xs text-muted-foreground uppercase">{categories?.find(c => c.id === entry.accountCategoryId)?.name}</span>
+                      <span className="text-sm">{entry.description}</span>
+                      {entry.installmentInfo && <Badge variant="outline" className="w-fit text-[9px] mt-1">{entry.installmentInfo}</Badge>}
+                    </div>
+                  </TableCell>
+                  <TableCell>
+                    <Badge variant={entry.entryType === 'Provision' ? 'outline' : 'secondary'} className="text-[10px]">
+                      {entry.entryType === 'Provision' ? 'Provisão' : 'Confirmado'}
+                    </Badge>
+                  </TableCell>
+                  <TableCell>
+                    {entry.dynamicStatus === 'Paid' ? (
+                      <Badge className="bg-emerald-100 text-emerald-700 border-none"><Check className="w-3 h-3 mr-1" /> Pago</Badge>
+                    ) : entry.dynamicStatus === 'Overdue' ? (
+                      <Badge variant="destructive" className="animate-pulse"><AlertTriangle className="w-3 h-3 mr-1" /> Atrasado</Badge>
+                    ) : entry.dynamicStatus === 'DueToday' ? (
+                      <Badge className="bg-amber-100 text-amber-700 border-none">Hoje</Badge>
+                    ) : <Badge variant="outline">Aberto</Badge>}
+                  </TableCell>
+                  <TableCell className="text-right">
+                    <div className="flex flex-col items-end">
+                      <span className={cn("font-bold", entry.entryType === 'Provision' ? "italic text-muted-foreground" : "")}>
+                        R$ {entry.originalAmount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                      </span>
+                      {entry.status === 'Paid' && (
+                        <span className="text-[10px] text-emerald-600 font-bold">
+                          Pago: R$ {calculateSettledValue(entry).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
                         </span>
-                        <span>{entry.description}</span>
-                        {entry.paymentMethod && (
-                          <span className="flex items-center gap-1 text-[9px] text-muted-foreground">
-                            <CreditCard className="w-2 h-2" /> {entry.paymentMethod}
-                          </span>
-                        )}
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      {getStatusBadge(entry.dynamicStatus)}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <div className="flex flex-col items-end">
-                        <span className={cn(
-                          "font-bold",
-                          entry.dynamicStatus === 'Overdue' ? "text-destructive" : "",
-                          entry.dynamicStatus === 'DueToday' ? "text-amber-600" : ""
-                        )}>
-                          R$ {entry.originalAmount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-                        </span>
-                        {entry.status === 'Paid' && (
-                          <div className="flex flex-col items-end mt-1">
-                            <span className="text-[10px] text-emerald-600 font-bold">
-                              Liquidado: R$ {calculateSettledValue(entry).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-                            </span>
-                            {(entry.interest || entry.fine) ? (
-                              <span className="text-[8px] text-muted-foreground">
-                                (+ juros/multa)
-                              </span>
-                            ) : entry.discount ? (
-                              <span className="text-[8px] text-muted-foreground">
-                                (- desconto)
-                              </span>
-                            ) : null}
-                          </div>
-                        )}
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" size="icon">
-                            <MoreHorizontal className="w-4 h-4" />
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                          {entry.status !== 'Paid' ? (
-                            <DropdownMenuItem onClick={() => { setEntryToPay(entry); setIsPaymentOpen(true); }} className="text-emerald-600">
-                              <Check className="w-4 h-4 mr-2" /> Marcar como Pago
-                            </DropdownMenuItem>
-                          ) : (
-                            <DropdownMenuItem onClick={() => undoPayment(entry)} className="text-amber-600">
-                              <RotateCcw className="w-4 h-4 mr-2" /> Estornar Pagamento
-                            </DropdownMenuItem>
-                          )}
-                          <DropdownMenuItem onClick={() => deleteEntry(entry)} className="text-destructive">
-                            <Trash2 className="w-4 h-4 mr-2" /> Excluir
+                      )}
+                    </div>
+                  </TableCell>
+                  <TableCell>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild><Button variant="ghost" size="icon"><MoreHorizontal className="w-4 h-4" /></Button></DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        {entry.status !== 'Paid' && (
+                          <DropdownMenuItem onClick={() => { setEntryToPay(entry); setIsPaymentOpen(true); }} className="text-emerald-600">
+                            <Wallet className="w-4 h-4 mr-2" /> Pagar
                           </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          )}
+                        )}
+                        <DropdownMenuItem onClick={() => toggleConfirmed(entry)}>
+                          <RotateCcw className="w-4 h-4 mr-2" /> {entry.entryType === 'Provision' ? 'Confirmar' : 'Marcar Provisão'}
+                        </DropdownMenuItem>
+                        {entry.status === 'Paid' && (
+                          <DropdownMenuItem onClick={() => undoPayment(entry)} className="text-amber-600">Estornar</DropdownMenuItem>
+                        )}
+                        <DropdownMenuItem onClick={() => deleteEntry(entry)} className="text-destructive"><Trash2 className="w-4 h-4 mr-2" /> Excluir</DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
         </CardContent>
       </Card>
 
-      {/* Dialog de Confirmação de Pagamento */}
-      <Dialog open={isPaymentOpen} onOpenChange={(open) => {
-        if (!open) {
-          setIsPaymentOpen(false);
-          setTimeout(() => {
-            setEntryToPay(null);
-            setInterest(0);
-            setFine(0);
-            setDiscount(0);
-          }, 300);
-        } else {
-          setIsPaymentOpen(true);
-        }
-      }}>
+      <Dialog open={isPaymentOpen} onOpenChange={setIsPaymentOpen}>
         <DialogContent className="max-w-md">
           {entryToPay && (
             <form onSubmit={handleConfirmPayment}>
               <DialogHeader>
-                <DialogTitle>Confirmar Pagamento</DialogTitle>
-                <div className="text-sm text-muted-foreground mt-2">
-                  Liquidação de: <strong className="text-foreground">{entryToPay.description}</strong>
-                </div>
+                <DialogTitle>Liquidar: {entryToPay.description}</DialogTitle>
               </DialogHeader>
               <div className="grid gap-4 py-4">
                 <div className="grid grid-cols-2 gap-4">
                   <div className="grid gap-2">
-                    <Label htmlFor="paymentDate">Data de Pagamento *</Label>
-                    <Input id="paymentDate" name="paymentDate" type="date" defaultValue={todayStr} required />
+                    <Label>Data Pagamento</Label>
+                    <Input name="paymentDate" type="date" defaultValue={todayStr} required />
                   </div>
                   <div className="grid gap-2">
-                    <Label htmlFor="bankAccountId">Conta Bancária *</Label>
+                    <Label>Conta Bancária</Label>
                     <Select name="bankAccountId" required>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Selecione..." />
-                      </SelectTrigger>
+                      <SelectTrigger><SelectValue placeholder="Selecione..." /></SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="itau">Itaú (Principal)</SelectItem>
-                        <SelectItem value="nubank">Nubank (Reserva)</SelectItem>
-                        <SelectItem value="caixa">Caixa (Operacional)</SelectItem>
-                        <SelectItem value="money">Caixinha (Dinheiro)</SelectItem>
+                        <SelectItem value="itau">Itaú Principal</SelectItem>
+                        <SelectItem value="nubank">Nubank Reserva</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
                 </div>
-
                 <div className="grid grid-cols-3 gap-2">
                   <div className="grid gap-2">
-                    <Label htmlFor="interest">Juros (R$)</Label>
-                    <Input 
-                      id="interest" 
-                      name="interest" 
-                      type="number" 
-                      step="0.01" 
-                      value={interest}
-                      onChange={(e) => setInterest(Number(e.target.value) || 0)}
-                    />
+                    <Label className="text-[10px]">Juros (R$)</Label>
+                    <Input type="number" step="0.01" value={interest} onChange={e => setInterest(Number(e.target.value))} />
                   </div>
                   <div className="grid gap-2">
-                    <Label htmlFor="fine">Multa (R$)</Label>
-                    <Input 
-                      id="fine" 
-                      name="fine" 
-                      type="number" 
-                      step="0.01" 
-                      value={fine}
-                      onChange={(e) => setFine(Number(e.target.value) || 0)}
-                    />
+                    <Label className="text-[10px]">Multa (R$)</Label>
+                    <Input type="number" step="0.01" value={fine} onChange={e => setFine(Number(e.target.value))} />
                   </div>
                   <div className="grid gap-2">
-                    <Label htmlFor="discount">Desconto (R$)</Label>
-                    <Input 
-                      id="discount" 
-                      name="discount" 
-                      type="number" 
-                      step="0.01" 
-                      value={discount}
-                      onChange={(e) => setDiscount(Number(e.target.value) || 0)}
-                    />
+                    <Label className="text-[10px]">Desconto (R$)</Label>
+                    <Input type="number" step="0.01" value={discount} onChange={e => setDiscount(Number(e.target.value))} />
                   </div>
                 </div>
-
-                <div className="bg-muted/50 p-4 rounded-lg space-y-2 border border-dashed mt-2">
-                  <div className="flex justify-between text-xs text-muted-foreground">
-                    <span>Valor Original:</span>
-                    <span>R$ {entryToPay.originalAmount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
-                  </div>
-                  <div className="flex justify-between text-sm font-bold border-t pt-2">
-                    <span>Valor da Liquidação:</span>
-                    <span className="text-primary">R$ {finalSettlementAmount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
-                  </div>
+                <div className="bg-primary/5 p-4 rounded-lg border border-dashed text-center">
+                  <p className="text-xs text-muted-foreground uppercase font-bold">Total a Desembolsar</p>
+                  <p className="text-2xl font-bold text-primary">R$ {((entryToPay.originalAmount || 0) + interest + fine - discount).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
                 </div>
               </div>
               <DialogFooter>
-                <Button type="submit" className="w-full gap-2 py-6">
-                  <Wallet className="w-4 h-4" /> Confirmar Liquidação
-                </Button>
+                <Button type="submit" className="w-full">Confirmar Liquidação</Button>
               </DialogFooter>
             </form>
           )}

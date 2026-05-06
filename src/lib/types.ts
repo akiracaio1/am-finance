@@ -2,6 +2,7 @@
 export type TransactionStatus = 'Open' | 'Paid' | 'Overdue' | 'DueToday' | 'canceled';
 export type AccountType = 'payable' | 'receivable';
 export type PersonType = 'Pessoa Física' | 'Pessoa Jurídica';
+export type EntryType = 'Provision' | 'Confirmed';
 
 export interface Supplier {
   id: string;
@@ -46,6 +47,7 @@ export interface AccountsPayableEntry {
   dueDate: string;
   paymentMethod?: string;
   status: 'Open' | 'Paid' | 'Overdue' | 'DueToday';
+  entryType: EntryType;
   createdAt: string;
   updatedAt: string;
   paymentDate?: string;
@@ -53,6 +55,7 @@ export interface AccountsPayableEntry {
   interest?: number;
   fine?: number;
   discount?: number;
+  installmentInfo?: string;
 }
 
 export interface AccountsReceivableEntry {
