@@ -1,3 +1,4 @@
+
 "use client";
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -12,7 +13,9 @@ import {
   BookOpen,
   Sparkles,
   Info,
-  HelpCircle
+  HelpCircle,
+  Zap,
+  Globe
 } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { cn } from "@/lib/utils";
@@ -110,7 +113,7 @@ const modules = [
 
 export default function HelpPage() {
   return (
-    <div className="space-y-6 animate-in fade-in duration-700">
+    <div className="space-y-6 animate-in fade-in duration-700 pb-12">
       <div>
         <h1 className="text-3xl font-bold flex items-center gap-3">
           <HelpCircle className="text-primary w-8 h-8" />
@@ -119,13 +122,23 @@ export default function HelpPage() {
         <p className="text-muted-foreground">Guia detalhado para dominar a gestão financeira da Yumi Yumi 🍣.</p>
       </div>
 
-      <Alert className="bg-primary/5 border-primary/20">
-        <Info className="h-4 w-4" />
-        <AlertTitle>Dica de Ouro</AlertTitle>
-        <AlertDescription>
-          O sistema foi desenhado para ser alimentado diariamente. Quanto mais precisos forem os lançamentos em "Contas a Pagar", melhor será a análise da nossa IA nos Relatórios.
-        </AlertDescription>
-      </Alert>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <Alert className="bg-primary/5 border-primary/20">
+          <Info className="h-4 w-4" />
+          <AlertTitle>Dica de Ouro</AlertTitle>
+          <AlertDescription>
+            O sistema foi desenhado para ser alimentado diariamente. Quanto mais precisos forem os lançamentos em "Contas a Pagar", melhor será a análise da nossa IA nos Relatórios.
+          </AlertDescription>
+        </Alert>
+
+        <Alert className="bg-accent/5 border-accent/20">
+          <Zap className="h-4 w-4 text-accent" />
+          <AlertTitle>Performance em Produção</AlertTitle>
+          <AlertDescription>
+            O ambiente atual é de desenvolvimento. Quando o sistema for publicado na Web, ele será até 10x mais rápido graças às otimizações do Next.js.
+          </AlertDescription>
+        </Alert>
+      </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         {modules.map((mod) => (
@@ -154,6 +167,30 @@ export default function HelpPage() {
           </Card>
         ))}
       </div>
+
+      <Card className="bg-slate-900 text-white border-none overflow-hidden">
+        <CardHeader className="flex flex-row items-center gap-4">
+          <div className="p-3 bg-white/10 rounded-full">
+            <Globe className="w-6 h-6 text-accent" />
+          </div>
+          <div>
+            <CardTitle>Próximo Passo: Lançamento Web</CardTitle>
+            <p className="text-slate-400 text-sm">Como o sistema funcionará fora do IDX.</p>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-4 text-sm text-slate-300">
+          <p>
+            Quando terminarmos os ajustes, faremos o <strong>Deploy</strong>. O sistema será hospedado no 
+            Firebase App Hosting, gerando um link seguro (HTTPS) que você poderá acessar de qualquer lugar.
+          </p>
+          <ul className="list-disc list-inside space-y-2">
+            <li>Acesso via celular, tablet ou computador.</li>
+            <li>Segurança garantida pelo Google Cloud.</li>
+            <li>Navegação instantânea e otimizada.</li>
+            <li>Banco de dados em tempo real.</li>
+          </ul>
+        </CardContent>
+      </Card>
     </div>
   );
 }
