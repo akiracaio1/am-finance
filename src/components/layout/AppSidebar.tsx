@@ -11,7 +11,8 @@ import {
   PieChart, 
   CalendarClock,
   BookOpen,
-  HelpCircle
+  HelpCircle,
+  FileSearch
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -23,6 +24,7 @@ const menuItems = [
   { name: "Conciliação", icon: Link2, href: "/reconciliation" },
   { name: "Planejamento", icon: CalendarClock, href: "/planning" },
   { name: "Relatórios & IA", icon: PieChart, href: "/reports" },
+  { name: "Diagnóstico", icon: FileSearch, href: "/import-diagnosis" },
   { name: "Plano de Contas", icon: BookOpen, href: "/chart-of-accounts" },
 ];
 
