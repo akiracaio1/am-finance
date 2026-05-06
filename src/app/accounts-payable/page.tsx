@@ -52,7 +52,7 @@ import { Supplier, AccountCategory, CostCenter, AccountsPayableEntry } from "@/l
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { ScrollArea } from "@/components/ui/scroll-area";
 
-// Searchable component for selection
+// Searchable component for selection with fixed focus and selection logic
 function SearchableList<T extends { id: string; name: string; code?: string }>({ 
   items, 
   onSelect, 
@@ -68,7 +68,6 @@ function SearchableList<T extends { id: string; name: string; code?: string }>({
 }) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
-  const inputRef = useRef<HTMLInputElement>(null);
 
   const filteredItems = useMemo(() => {
     return items.filter(item => 
@@ -77,45 +76,31 @@ function SearchableList<T extends { id: string; name: string; code?: string }>({
     );
   }, [items, search]);
 
-  // Handle focus when popover opens
-  useEffect(() => {
-    if (open) {
-      // Use a tiny timeout to ensure the Popover animation and DOM mount are complete
-      const timer = setTimeout(() => {
-        inputRef.current?.focus();
-      }, 50);
-      return () => clearTimeout(timer);
-    } else {
-      setSearch("");
-    }
-  }, [open]);
-
   return (
-    <Popover open={open} onOpenChange={setOpen}>
+    <Popover open={open} onOpenChange={(o) => {
+      setOpen(o);
+      if (!o) setSearch("");
+    }}>
       <PopoverTrigger asChild>
-        <Button variant="outline" className="w-full justify-between font-normal">
-          {value ? (
-            <span className="truncate">{value.code ? `${value.code} - ` : ""}{value.name}</span>
-          ) : (
-            <span className="text-muted-foreground">{label}</span>
-          )}
+        <Button variant="outline" className="w-full justify-between font-normal text-left">
+          <span className="truncate">
+            {value ? (value.code ? `${value.code} - ` : "") + value.name : label}
+          </span>
           <ChevronDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
         </Button>
       </PopoverTrigger>
       <PopoverContent 
         className="w-[var(--radix-popover-trigger-width)] p-0" 
         align="start"
-        // Prevent Radix from stealing focus back to the trigger on open
-        onOpenAutoFocus={(e) => e.preventDefault()}
       >
         <div className="flex items-center border-b px-3 py-2">
           <Search className="mr-2 h-4 w-4 shrink-0 opacity-50" />
           <input
-            ref={inputRef}
             className="flex h-8 w-full rounded-md bg-transparent text-sm outline-none placeholder:text-muted-foreground"
             placeholder={placeholder}
             value={search}
             onChange={(e) => setSearch(e.target.value)}
+            autoFocus // Fixed: autoFocus inside PopoverContent is reliable
           />
         </div>
         <ScrollArea className="h-60">
@@ -127,16 +112,18 @@ function SearchableList<T extends { id: string; name: string; code?: string }>({
               <div
                 key={item.id}
                 className={cn(
-                  "relative flex cursor-default select-none items-center rounded-sm px-2 py-1.5 text-sm outline-none hover:bg-accent hover:text-accent-foreground",
+                  "relative flex cursor-pointer select-none items-center rounded-sm px-2 py-2 text-sm outline-none hover:bg-accent hover:text-accent-foreground",
                   value?.id === item.id && "bg-accent text-accent-foreground"
                 )}
-                onClick={() => {
+                // Fixed: Use onMouseDown + preventDefault to ensure selection triggers before the popover loses focus/closes
+                onMouseDown={(e) => {
+                  e.preventDefault();
                   onSelect(item);
                   setOpen(false);
                 }}
               >
                 <Check className={cn("mr-2 h-4 w-4", value?.id === item.id ? "opacity-100" : "opacity-0")} />
-                {item.code ? `${item.code} - ` : ""}{item.name}
+                <span className="truncate">{item.code ? `${item.code} - ` : ""}{item.name}</span>
               </div>
             ))}
           </div>
