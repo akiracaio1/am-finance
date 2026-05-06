@@ -45,7 +45,7 @@ interface AccountCategory {
 
 const DEFAULT_STRUCTURE = [
   // 1.0 Operacional
-  { id: "1", code: "1.0", name: "Operacional (Custos Variáveis e Insumos)", type: "Expense", description: "Gastos que variam com o volume de produção." },
+  { id: "1", code: "1.0", name: "Operacional (Custos Variáveis e Insumos)", type: "Expense", description: "Este grupo concentra os gastos que variam diretamente de acordo com o volume de produção ou vendas." },
   { id: "1.1", code: "1.1", name: "Insumos e Materiais Diretos", parentCategoryId: "1", type: "Expense" },
   { id: "1.1.1", code: "1.1.1", name: "Materiais para Revenda", parentCategoryId: "1.1", type: "Expense" },
   { id: "1.1.2", code: "1.1.2", name: "Materiais Aplicados na Prestação de Serviços", parentCategoryId: "1.1", type: "Expense" },
@@ -60,7 +60,7 @@ const DEFAULT_STRUCTURE = [
   { id: "1.3.3", code: "1.3.3", name: "Descontos incondicionais concedidos", parentCategoryId: "1.3", type: "Expense" },
   
   // 2.0 Custos Fixos
-  { id: "2", code: "2.0", name: "Custos Fixos (Despesas Administrativas e Estruturais)", type: "Expense", description: "Gastos recorrentes para manter a empresa aberta." },
+  { id: "2", code: "2.0", name: "Custos Fixos (Despesas Administrativas e Estruturais)", type: "Expense", description: "Gastos recorrentes necessários para manter a empresa aberta, independentemente do volume de vendas." },
   { id: "2.1", code: "2.1", name: "Ocupação e Utilidades", parentCategoryId: "2", type: "Expense" },
   { id: "2.1.1", code: "2.1.1", name: "Aluguel", parentCategoryId: "2.1", type: "Expense" },
   { id: "2.1.2", code: "2.1.2", name: "Energia Elétrica", parentCategoryId: "2.1", type: "Expense" },
@@ -78,17 +78,16 @@ const DEFAULT_STRUCTURE = [
   { id: "2.3.5", code: "2.3.5", name: "Combustíveis (uso administrativo/veículos)", parentCategoryId: "2.3", type: "Expense" },
 
   // 3.0 Marketing
-  { id: "3", code: "3.0", name: "Marketing e Desenvolvimento", type: "Expense", description: "Crescimento da marca e aquisição de clientes." },
+  { id: "3", code: "3.0", name: "Marketing e Desenvolvimento", type: "Expense", description: "Investimentos voltados para o crescimento da marca e aquisição de clientes." },
   { id: "3.1", code: "3.1", name: "Promoção e Publicidade", parentCategoryId: "3", type: "Expense" },
   { id: "3.1.1", code: "3.1.1", name: "Marketing e Publicidade", parentCategoryId: "3.1", type: "Expense" },
   { id: "3.1.2", code: "3.1.2", name: "Tráfego Pago", parentCategoryId: "3.1", type: "Expense" },
-  { id: "3.2", code: "3.2", name: "Treinamento", parentCategoryId: "3", type: "Expense" },
+  { id: "3.2", code: "3.2", name: "Treinamento e Eventos", parentCategoryId: "3", type: "Expense" },
   { id: "3.2.1", code: "3.2.1", name: "Cursos e Treinamentos", parentCategoryId: "3.2", type: "Expense" },
-  { id: "3.3", code: "3.3", name: "Eventos", parentCategoryId: "3", type: "Expense" },
-  { id: "3.3.1", code: "3.3.1", name: "Taxas de Participação em Eventos", parentCategoryId: "3.3", type: "Expense" },
+  { id: "3.2.2", code: "3.2.2", name: "Taxas de Participação em Eventos", parentCategoryId: "3.2", type: "Expense" },
 
   // 4.0 Investimentos
-  { id: "4", code: "4.0", name: "Investimentos e Movimentações de Sócios", type: "Asset", description: "Patrimônio e transações com proprietários." },
+  { id: "4", code: "4.0", name: "Investimentos e Movimentações de Sócios", type: "Asset", description: "Contas relacionadas ao patrimônio e transações com os proprietários." },
   { id: "4.1", code: "4.1", name: "Ativos Imobilizados", parentCategoryId: "4", type: "Asset" },
   { id: "4.1.1", code: "4.1.1", name: "Máquinas, Equipamentos e Instalações Industriais", parentCategoryId: "4.1", type: "Asset" },
   { id: "4.2", code: "4.2", name: "Fluxo de Sócios", parentCategoryId: "4", type: "Equity" },
@@ -300,7 +299,7 @@ export default function ChartOfAccountsPage() {
             </CardHeader>
             <CardContent className="text-xs text-muted-foreground leading-relaxed space-y-2">
               <p>
-                A estrutura <strong>Grupo &gt; Subgrupo &gt; Item</strong> permite que você veja o macro (quanto gasto com Operacional) e o micro (quanto gasto com Gás GLP).
+                A estrutura <strong>Grupo {`&gt;`} Subgrupo {`&gt;`} Item</strong> permite que você veja o macro (quanto gasto com Operacional) e o micro (quanto gasto com Gás GLP).
               </p>
               <p>
                 Isso é fundamental para calcular sua Margem de Contribuição e identificar onde estão os gargalos do seu caixa.
