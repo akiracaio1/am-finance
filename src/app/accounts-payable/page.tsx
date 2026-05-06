@@ -26,7 +26,8 @@ import {
   Search,
   ChevronDown,
   AlertTriangle,
-  X
+  X,
+  CreditCard
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useUser, useFirestore, useCollection, useMemoFirebase } from "@/firebase";
@@ -259,12 +260,17 @@ export default function AccountsPayablePage() {
                       <Label>Fornecedor *</Label>
                       <Popover>
                         <PopoverTrigger asChild>
-                          <Button variant="outline" className="w-full justify-between font-normal">
-                            {selectedSupplierId ? suppliers?.find(s => s.id === selectedSupplierId)?.name : "Selecione o fornecedor"}
+                          <Button variant="outline" className="w-full justify-between font-normal" type="button">
+                            <span className="truncate">
+                              {selectedSupplierId ? suppliers?.find(s => s.id === selectedSupplierId)?.name : "Selecione o fornecedor"}
+                            </span>
                             <ChevronDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
                           </Button>
                         </PopoverTrigger>
-                        <PopoverContent className="w-[300px] p-0" align="start">
+                        <PopoverContent className="w-[300px] p-0" align="start" onOpenAutoFocus={(e) => {
+                          const input = e.currentTarget.querySelector('input');
+                          if (input) setTimeout(() => input.focus(), 50);
+                        }}>
                           <div className="p-2 border-b">
                             <div className="flex items-center gap-2 px-2 bg-muted rounded-md">
                               <Search className="h-4 w-4 opacity-50" />
@@ -286,7 +292,8 @@ export default function AccountsPayablePage() {
                                     "w-full text-left px-3 py-2 text-sm rounded-sm hover:bg-accent",
                                     selectedSupplierId === s.id && "bg-accent"
                                   )}
-                                  onClick={() => {
+                                  onMouseDown={(e) => {
+                                    e.preventDefault(); // Impede perda de foco/fechamento prematuro
                                     setSelectedSupplierId(s.id);
                                     setSupplierSearch("");
                                   }}
@@ -306,12 +313,17 @@ export default function AccountsPayablePage() {
                       <Label>Categoria Financeira *</Label>
                       <Popover>
                         <PopoverTrigger asChild>
-                          <Button variant="outline" className="w-full justify-between font-normal">
-                            {selectedCategoryId ? categories?.find(c => c.id === selectedCategoryId)?.name : "Selecione a categoria"}
+                          <Button variant="outline" className="w-full justify-between font-normal" type="button">
+                            <span className="truncate">
+                              {selectedCategoryId ? categories?.find(c => c.id === selectedCategoryId)?.name : "Selecione a categoria"}
+                            </span>
                             <ChevronDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
                           </Button>
                         </PopoverTrigger>
-                        <PopoverContent className="w-[300px] p-0" align="start">
+                        <PopoverContent className="w-[300px] p-0" align="start" onOpenAutoFocus={(e) => {
+                          const input = e.currentTarget.querySelector('input');
+                          if (input) setTimeout(() => input.focus(), 50);
+                        }}>
                           <div className="p-2 border-b">
                             <div className="flex items-center gap-2 px-2 bg-muted rounded-md">
                               <Search className="h-4 w-4 opacity-50" />
@@ -333,7 +345,8 @@ export default function AccountsPayablePage() {
                                     "w-full text-left px-3 py-2 text-sm rounded-sm hover:bg-accent",
                                     selectedCategoryId === c.id && "bg-accent"
                                   )}
-                                  onClick={() => {
+                                  onMouseDown={(e) => {
+                                    e.preventDefault(); // Impede perda de foco/fechamento prematuro
                                     setSelectedCategoryId(c.id);
                                     setCategorySearch("");
                                   }}
@@ -461,6 +474,11 @@ export default function AccountsPayablePage() {
                         {entry.costCenterId && entry.costCenterId !== "none" && (
                           <span className="text-[10px] text-primary/70">
                             CC: {centers?.find(c => c.id === entry.costCenterId)?.name}
+                          </span>
+                        )}
+                        {entry.paymentMethod && (
+                          <span className="flex items-center gap-1 text-[9px] text-muted-foreground">
+                            <CreditCard className="w-2 h-2" /> {entry.paymentMethod}
                           </span>
                         )}
                       </div>
