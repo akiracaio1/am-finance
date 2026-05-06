@@ -77,9 +77,15 @@ function SearchableList<T extends { id: string; name: string; code?: string }>({
     );
   }, [items, search]);
 
-  // Clear search when closed
+  // Handle focus when popover opens
   useEffect(() => {
-    if (!open) {
+    if (open) {
+      // Use a tiny timeout to ensure the Popover animation and DOM mount are complete
+      const timer = setTimeout(() => {
+        inputRef.current?.focus();
+      }, 50);
+      return () => clearTimeout(timer);
+    } else {
       setSearch("");
     }
   }, [open]);
@@ -99,10 +105,8 @@ function SearchableList<T extends { id: string; name: string; code?: string }>({
       <PopoverContent 
         className="w-[var(--radix-popover-trigger-width)] p-0" 
         align="start"
-        onOpenAutoFocus={(e) => {
-          e.preventDefault();
-          inputRef.current?.focus();
-        }}
+        // Prevent Radix from stealing focus back to the trigger on open
+        onOpenAutoFocus={(e) => e.preventDefault()}
       >
         <div className="flex items-center border-b px-3 py-2">
           <Search className="mr-2 h-4 w-4 shrink-0 opacity-50" />
