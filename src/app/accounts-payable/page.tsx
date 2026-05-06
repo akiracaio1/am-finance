@@ -103,13 +103,17 @@ export default function AccountsPayablePage() {
   const [fine, setFine] = useState(0);
   const [discount, setDiscount] = useState(0);
 
-  // Estados para Novo Lançamento (Multi-parcelas)
+  // Estados para Novo Lançamento (Captura Reativa)
+  const [baseAmount, setBaseAmount] = useState<number>(0);
+  const [baseDueDate, setBaseDueDate] = useState<string>("");
   const [repetitionType, setRepetitionType] = useState<"single" | "fixed" | "installments">("single");
   const [numRepetitions, setNumRepetitions] = useState(1);
   const [generatedInstallments, setGeneratedInstallments] = useState<{date: string, amount: number}[]>([]);
 
   useEffect(() => {
-    setTodayStr(format(new Date(), "yyyy-MM-dd"));
+    const nowStr = format(new Date(), "yyyy-MM-dd");
+    setTodayStr(nowStr);
+    setBaseDueDate(nowStr);
   }, []);
 
   const handleDatePresetChange = (preset: string) => {
@@ -158,15 +162,9 @@ export default function AccountsPayablePage() {
     return collection(db, "users", user.uid, "accountCategories");
   }, [db, user]);
 
-  const centersQuery = useMemoFirebase(() => {
-    if (!db || !user) return null;
-    return collection(db, "users", user.uid, "costCenters");
-  }, [db, user]);
-
   const { data: entries, isLoading: entriesLoading } = useCollection<AccountsPayableEntry>(entriesQuery);
   const { data: suppliers } = useCollection<Supplier>(suppliersQuery);
   const { data: categories } = useCollection<AccountCategory>(categoriesQuery);
-  const { data: centers } = useCollection<CostCenter>(centersQuery);
 
   const getDynamicStatus = (entry: AccountsPayableEntry) => {
     if (entry.status === 'Paid') return 'Paid';
@@ -205,28 +203,27 @@ export default function AccountsPayablePage() {
 
   const hasActiveFilters = filterStatus !== "all" || filterSupplierId !== "all" || filterCategoryId !== "all" || filterDueDateStart || filterDueDateEnd;
 
-  // Lógica de geração de parcelas/repetições
+  // Lógica de geração de parcelas/repetições reativa
   useEffect(() => {
     if (repetitionType === 'single') {
       setGeneratedInstallments([]);
       return;
     }
     
-    // Pegar valores base dos inputs (em um cenário real, usaríamos estados pros inputs)
-    // Aqui vamos apenas preparar o array baseado no numRepetitions
-    const baseDate = (document.getElementById("dueDate") as HTMLInputElement)?.value || todayStr;
-    const baseAmount = Number((document.getElementById("amount") as HTMLInputElement)?.value) || 0;
-    
     const newInstallments = [];
     for (let i = 0; i < numRepetitions; i++) {
-      const date = addMonths(new Date(baseDate + 'T12:00:00'), i);
+      const date = addMonths(new Date(baseDueDate + 'T12:00:00'), i);
+      const amount = repetitionType === 'installments' 
+        ? Number((baseAmount / numRepetitions).toFixed(2)) 
+        : baseAmount;
+
       newInstallments.push({
         date: format(date, "yyyy-MM-dd"),
-        amount: repetitionType === 'installments' ? baseAmount / numRepetitions : baseAmount
+        amount: amount
       });
     }
     setGeneratedInstallments(newInstallments);
-  }, [repetitionType, numRepetitions, todayStr]);
+  }, [repetitionType, numRepetitions, baseAmount, baseDueDate]);
 
   const handleSaveEntry = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -255,7 +252,6 @@ export default function AccountsPayablePage() {
         dueDate: formData.get("dueDate") as string,
       }, { merge: true });
     } else {
-      // Gravar múltiplas parcelas
       generatedInstallments.forEach((inst, index) => {
         const entryId = `pay_${Date.now()}_${index}`;
         const entryRef = doc(db, "users", user.uid, "accountsPayableEntries", entryId);
@@ -272,6 +268,7 @@ export default function AccountsPayablePage() {
     toast({ title: "Lançamento(s) criado(s)", description: "Os registros foram agendados com sucesso." });
     setIsNewEntryOpen(false);
     setRepetitionType("single");
+    setBaseAmount(0);
   };
 
   const handleConfirmPayment = (e: React.FormEvent<HTMLFormElement>) => {
@@ -282,7 +279,7 @@ export default function AccountsPayablePage() {
     
     updateDocumentNonBlocking(entryRef, {
       status: 'Paid',
-      entryType: 'Confirmed', // Sempre confirma ao pagar
+      entryType: 'Confirmed', 
       paymentDate: formData.get("paymentDate") as string,
       bankAccountId: formData.get("bankAccountId") as string,
       interest, fine, discount,
@@ -309,12 +306,14 @@ export default function AccountsPayablePage() {
       status: 'Open', paymentDate: null, bankAccountId: null, 
       interest: 0, fine: 0, discount: 0, updatedAt: new Date().toISOString() 
     });
+    toast({ title: "Pagamento Estornado", description: "O lançamento voltou a ficar em aberto." });
   };
 
   const deleteEntry = (entry: AccountsPayableEntry) => {
     if (!db || !user) return;
     const entryRef = doc(db, "users", user.uid, "accountsPayableEntries", entry.id);
     deleteDocumentNonBlocking(entryRef);
+    toast({ title: "Lançamento excluído" });
   };
 
   return (
@@ -333,7 +332,13 @@ export default function AccountsPayablePage() {
             <Filter className="w-4 h-4" /> Filtros
           </Button>
           
-          <Dialog open={isNewEntryOpen} onOpenChange={setIsNewEntryOpen}>
+          <Dialog open={isNewEntryOpen} onOpenChange={(open) => {
+            setIsNewEntryOpen(open);
+            if (!open) {
+              setRepetitionType("single");
+              setBaseAmount(0);
+            }
+          }}>
             <DialogTrigger asChild>
               <Button className="gap-2 shadow-lg">
                 <Plus className="w-4 h-4" /> Novo Lançamento
@@ -374,11 +379,26 @@ export default function AccountsPayablePage() {
                     <div className="grid grid-cols-3 gap-4">
                       <div className="grid gap-2">
                         <Label>Valor (R$) *</Label>
-                        <Input id="amount" name="amount" type="number" step="0.01" required />
+                        <Input 
+                          id="amount" 
+                          name="amount" 
+                          type="number" 
+                          step="0.01" 
+                          required 
+                          value={baseAmount || ""}
+                          onChange={(e) => setBaseAmount(Number(e.target.value))}
+                        />
                       </div>
                       <div className="grid gap-2">
                         <Label>Vencimento *</Label>
-                        <Input id="dueDate" name="dueDate" type="date" required defaultValue={todayStr} />
+                        <Input 
+                          id="dueDate" 
+                          name="dueDate" 
+                          type="date" 
+                          required 
+                          value={baseDueDate}
+                          onChange={(e) => setBaseDueDate(e.target.value)}
+                        />
                       </div>
                       <div className="grid gap-2">
                         <Label>Emissão</Label>
@@ -406,6 +426,36 @@ export default function AccountsPayablePage() {
                         </Select>
                       </div>
                     </div>
+
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="grid gap-2">
+                        <Label>Forma de Pagamento</Label>
+                        <Select name="paymentMethod" defaultValue="Pix">
+                          <SelectTrigger>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="Pix">Pix</SelectItem>
+                            <SelectItem value="Boleto">Boleto</SelectItem>
+                            <SelectItem value="Cartão">Cartão</SelectItem>
+                            <SelectItem value="Transferência">Transferência</SelectItem>
+                            <SelectItem value="Dinheiro">Dinheiro</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="grid gap-2">
+                        <Label>Centro de Custo (Opcional)</Label>
+                        <Select name="costCenterId">
+                          <SelectTrigger><SelectValue placeholder="Selecione..." /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="null">Nenhum</SelectItem>
+                            <SelectItem value="cozinha">Cozinha</SelectItem>
+                            <SelectItem value="salao">Salão</SelectItem>
+                            <SelectItem value="admin">Administrativo</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </div>
                   </TabsContent>
                   
                   <TabsContent value="repeat" className="space-y-4 pt-4">
@@ -416,15 +466,15 @@ export default function AccountsPayablePage() {
                           <SelectTrigger><SelectValue /></SelectTrigger>
                           <SelectContent>
                             <SelectItem value="single">Lançamento Único</SelectItem>
-                            <SelectItem value="fixed">Fixo Mensal (Repetir Valor)</SelectItem>
-                            <SelectItem value="installments">Parcelado (Dividir Valor)</SelectItem>
+                            <SelectItem value="fixed">Fixo Mensal (Repetir Valor R$ {baseAmount})</SelectItem>
+                            <SelectItem value="installments">Parcelado (Dividir Valor R$ {baseAmount})</SelectItem>
                           </SelectContent>
                         </Select>
                       </div>
 
                       {repetitionType !== 'single' && (
                         <div className="grid gap-2">
-                          <Label>Número de Meses / Parcelas</Label>
+                          <Label>{repetitionType === 'installments' ? 'Número de Parcelas' : 'Número de Repetições (Meses)'}</Label>
                           <Input type="number" min="2" max="60" value={numRepetitions} onChange={e => setNumRepetitions(Number(e.target.value))} />
                         </div>
                       )}
@@ -503,6 +553,7 @@ export default function AccountsPayablePage() {
                       <SelectItem value="today">Hoje</SelectItem>
                       <SelectItem value="thisWeek">Essa Semana</SelectItem>
                       <SelectItem value="thisMonth">Este Mês</SelectItem>
+                      <SelectItem value="nextWeek">Próxima Semana</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
@@ -606,7 +657,7 @@ export default function AccountsPayablePage() {
                           <RotateCcw className="w-4 h-4 mr-2" /> {entry.entryType === 'Provision' ? 'Confirmar' : 'Marcar Provisão'}
                         </DropdownMenuItem>
                         {entry.status === 'Paid' && (
-                          <DropdownMenuItem onClick={() => undoPayment(entry)} className="text-amber-600">Estornar</DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => undoPayment(entry)} className="text-amber-600">Estornar Pagamento</DropdownMenuItem>
                         )}
                         <DropdownMenuItem onClick={() => deleteEntry(entry)} className="text-destructive"><Trash2 className="w-4 h-4 mr-2" /> Excluir</DropdownMenuItem>
                       </DropdownMenuContent>
