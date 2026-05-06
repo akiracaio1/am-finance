@@ -37,7 +37,7 @@ const UpcomingAccountSchema = z.object({
   type: z.enum(['payable', 'receivable']).describe('Tipo da conta futura (a pagar ou a receber).'),
 });
 
-export const AnalyzeFinancialDataWithAIInputSchema = z.object({
+const AnalyzeFinancialDataWithAIInputSchema = z.object({
   simplifiedDRE: SimplifiedDRESchema.describe('Dados simplificados da Demonstração de Resultado do Exercício.'),
   cashFlowStatement: z.array(CashFlowPeriodSchema).describe('Dados do Fluxo de Caixa para vários períodos.'),
   overdueAccounts: z.array(OverdueAccountSchema).describe('Lista de contas em atraso.'),
@@ -45,7 +45,7 @@ export const AnalyzeFinancialDataWithAIInputSchema = z.object({
 });
 export type AnalyzeFinancialDataWithAIInput = z.infer<typeof AnalyzeFinancialDataWithAIInputSchema>;
 
-export const AnalyzeFinancialDataWithAIOutputSchema = z.object({
+const AnalyzeFinancialDataWithAIOutputSchema = z.object({
   overallSummary: z.string().describe('Um resumo conciso e geral do desempenho financeiro.'),
   keyInsights: z.array(z.string()).describe('Insights chave derivados dos dados financeiros.'),
   strategicRecommendations: z.array(z.string()).describe('Recomendações estratégicas para melhorar o desempenho financeiro.'),
