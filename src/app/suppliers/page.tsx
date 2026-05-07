@@ -41,7 +41,7 @@ import {
 import { Label } from "@/components/ui/label";
 import { toast } from "@/hooks/use-toast";
 import { Supplier, PersonType } from "@/lib/types";
-import * as XLSX from 'xlsx';
+import { read, utils, writeFile } from 'xlsx';
 
 export default function SuppliersPage() {
   const { user } = useUser();
@@ -62,8 +62,7 @@ export default function SuppliersPage() {
 
   const filteredSuppliers = suppliers?.filter(s => 
     s.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    s.cnpj?.includes(searchTerm) ||
-    s.pixKey?.toLowerCase().includes(searchTerm.toLowerCase())
+    s.cnpj?.includes(searchTerm)
   ) || [];
 
   const downloadTemplate = () => {
@@ -77,10 +76,10 @@ export default function SuppliersPage() {
       "Categoria": "Insumos",
       "ChavePix": "00000000000"
     }];
-    const ws = XLSX.utils.json_to_sheet(sampleData, { header: headers });
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, "Fornecedores");
-    XLSX.writeFile(wb, "modelo_fornecedores.xlsx");
+    const ws = utils.json_to_sheet(sampleData, { header: headers });
+    const wb = utils.book_new();
+    utils.book_append_sheet(wb, ws, "Fornecedores");
+    writeFile(wb, "modelo_fornecedores.xlsx");
   };
 
   const handleImportExcel = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -90,34 +89,24 @@ export default function SuppliersPage() {
     
     try {
       const dataBuffer = await file.arrayBuffer();
-      const workbook = XLSX.read(dataBuffer, { type: 'array' });
+      const workbook = read(dataBuffer, { type: 'array' });
       const sheetName = workbook.SheetNames[0];
       const sheet = workbook.Sheets[sheetName];
-      const rows = XLSX.utils.sheet_to_json(sheet) as any[];
-
-      if (rows.length === 0) throw new Error("O arquivo Excel está vazio.");
+      const rows = utils.sheet_to_json(sheet) as any[];
 
       const errors: string[] = [];
       const validData: Supplier[] = [];
 
       rows.forEach((row, index) => {
-        const lineNum = index + 2;
+        const line = index + 2;
         const nome = row["Nome"] || row["nome"];
         const type = row["Tipo Pessoa"] || row["tipopessoa"];
-
-        if (!nome) {
-          errors.push(`Linha ${lineNum}: Nome é obrigatório.`);
-          return;
-        }
-        if (type !== "Pessoa Física" && type !== "Pessoa Jurídica") {
-          errors.push(`Linha ${lineNum}: Tipo deve ser 'Pessoa Física' ou 'Pessoa Jurídica'.`);
-          return;
-        }
+        if (!nome) { errors.push(`Linha ${line}: Nome obrigatório.`); return; }
 
         validData.push({
           id: `sup_imp_${Date.now()}_${index}`,
           name: String(nome),
-          personType: type as PersonType,
+          personType: (type === "Pessoa Física" ? "Pessoa Física" : "Pessoa Jurídica") as PersonType,
           cnpj: String(row["CPF_CNPJ"] || ""),
           email: String(row["Email"] || ""),
           phone: String(row["Telefone"] || ""),
@@ -129,7 +118,7 @@ export default function SuppliersPage() {
       });
 
       if (errors.length > 0) {
-        toast({ variant: "destructive", title: "Erro na Importação", description: `Cancelado: ${errors.slice(0, 2).join(" | ")}` });
+        toast({ variant: "destructive", title: "Erro na Importação", description: errors[0] });
       } else {
         validData.forEach(s => {
           setDocumentNonBlocking(doc(db, "users", user.uid, "suppliers", s.id), s, { merge: true });
@@ -165,7 +154,7 @@ export default function SuppliersPage() {
       <div className="flex justify-between items-end">
         <div>
           <h1 className="text-3xl font-bold">Fornecedores</h1>
-          <p className="text-muted-foreground">Gestão estratégica da base de fornecedores.</p>
+          <p className="text-muted-foreground">Gestão estratégica da base.</p>
         </div>
         <div className="flex gap-2">
           <Button variant="outline" className="gap-2" onClick={downloadTemplate}><Download className="w-4 h-4" /> Baixar Modelo</Button>
@@ -173,7 +162,7 @@ export default function SuppliersPage() {
           <Button variant="outline" className="gap-2" onClick={() => fileInputRef.current?.click()} disabled={isImporting}>
             {isImporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileSpreadsheet className="w-4 h-4" />} Importar Excel
           </Button>
-          <Button className="gap-2 shadow-lg" onClick={() => setIsDialogOpen(true)}><Plus className="w-4 h-4" /> Novo Fornecedor</Button>
+          <Button className="gap-2 shadow-lg" onClick={() => { setEditingSupplier(null); setIsDialogOpen(true); }}><Plus className="w-4 h-4" /> Novo Fornecedor</Button>
         </div>
       </div>
 
@@ -181,12 +170,12 @@ export default function SuppliersPage() {
         <CardHeader className="pb-3">
           <div className="relative max-w-sm">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-            <Input placeholder="Buscar por nome, CNPJ ou Pix..." className="pl-9 h-9" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
+            <Input placeholder="Buscar fornecedor..." className="pl-9" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
           </div>
         </CardHeader>
         <CardContent>
           <Table>
-            <TableHeader><TableRow><TableHead>Fornecedor</TableHead><TableHead>Documento / Pix</TableHead><TableHead>Categoria</TableHead><TableHead className="text-right">Ações</TableHead></TableRow></TableHeader>
+            <TableHeader><TableRow><TableHead>Fornecedor</TableHead><TableHead>Documento</TableHead><TableHead>Categoria</TableHead><TableHead className="text-right">Ações</TableHead></TableRow></TableHeader>
             <TableBody>
               {filteredSuppliers.map((supplier) => (
                 <TableRow key={supplier.id}>
@@ -198,10 +187,7 @@ export default function SuppliersPage() {
                       <div className="flex flex-col"><span className="text-sm">{supplier.name}</span><span className="text-[10px] text-muted-foreground">{supplier.personType}</span></div>
                     </div>
                   </TableCell>
-                  <TableCell>
-                    <p className="font-mono text-[10px]">{supplier.cnpj || "-"}</p>
-                    {supplier.pixKey && <p className="text-[9px] text-accent font-bold">PIX: {supplier.pixKey}</p>}
-                  </TableCell>
+                  <TableCell className="text-xs font-mono">{supplier.cnpj || "-"}</TableCell>
                   <TableCell><Badge variant="outline" className="text-[10px]">{supplier.category || "Geral"}</Badge></TableCell>
                   <TableCell className="text-right">
                     <DropdownMenu>

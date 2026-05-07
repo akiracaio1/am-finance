@@ -23,7 +23,8 @@ import {
   Loader2,
   Download,
   FileSpreadsheet,
-  Pencil
+  Pencil,
+  Check
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useUser, useFirestore, useCollection, useMemoFirebase } from "@/firebase";
@@ -69,7 +70,7 @@ import {
   isBefore,
   isSameDay
 } from "date-fns";
-import * as XLSX from 'xlsx';
+import { read, utils, writeFile } from 'xlsx';
 
 export default function AccountsPayablePage() {
   const { user } = useUser();
@@ -91,12 +92,12 @@ export default function AccountsPayablePage() {
   const [filterDueDateEnd, setFilterDueDateEnd] = useState("");
   const [datePreset, setDatePreset] = useState("custom");
 
-  // Pagamento (Liquidação)
+  // Liquidação
   const [interest, setInterest] = useState(0);
   const [fine, setFine] = useState(0);
   const [discount, setDiscount] = useState(0);
 
-  // Form State (Controlled)
+  // Form State
   const [formType, setFormType] = useState<EntryType>("Confirmed");
   const [formDescription, setFormDescription] = useState("");
   const [formAmount, setFormAmount] = useState<number>(0);
@@ -146,7 +147,6 @@ export default function AccountsPayablePage() {
     if (entry.status === 'Paid') return 'Paid';
     const dueDate = new Date(entry.dueDate + 'T12:00:00');
     const today = new Date(todayStr + 'T12:00:00');
-    
     if (isBefore(dueDate, today) && !isSameDay(dueDate, today)) return 'Overdue';
     if (isSameDay(dueDate, today)) return 'DueToday';
     return 'Open';
@@ -212,11 +212,6 @@ export default function AccountsPayablePage() {
     }
   };
 
-  const clearFilters = () => {
-    setFilterStatus("all"); setFilterSupplierId("all"); setFilterCategoryId("all");
-    setFilterDueDateStart(""); setFilterDueDateEnd(""); setDatePreset("custom");
-  };
-
   const downloadTemplate = () => {
     const headers = ["Vencimento", "Fornecedor", "Categoria", "Descricao", "Valor", "Tipo", "Emissao", "FormaPagamento", "CentroCusto"];
     const sampleData = [{
@@ -230,10 +225,10 @@ export default function AccountsPayablePage() {
       "FormaPagamento": "Pix",
       "CentroCusto": "Geral"
     }];
-    const ws = XLSX.utils.json_to_sheet(sampleData, { header: headers });
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, "Contas a Pagar");
-    XLSX.writeFile(wb, "modelo_contas_pagar.xlsx");
+    const ws = utils.json_to_sheet(sampleData, { header: headers });
+    const wb = utils.book_new();
+    utils.book_append_sheet(wb, ws, "Contas a Pagar");
+    writeFile(wb, "modelo_contas_pagar.xlsx");
   };
 
   const handleImportExcel = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -243,10 +238,10 @@ export default function AccountsPayablePage() {
     
     try {
       const dataBuffer = await file.arrayBuffer();
-      const workbook = XLSX.read(dataBuffer, { type: 'array' });
+      const workbook = read(dataBuffer, { type: 'array' });
       const sheetName = workbook.SheetNames[0];
       const sheet = workbook.Sheets[sheetName];
-      const rows = XLSX.utils.sheet_to_json(sheet) as any[];
+      const rows = utils.sheet_to_json(sheet) as any[];
 
       if (rows.length === 0) throw new Error("O arquivo Excel está vazio.");
 
@@ -262,7 +257,7 @@ export default function AccountsPayablePage() {
         const centroCustoNome = row["CentroCusto"] || row["centrocusto"];
 
         if (!vencimentoRaw || !fornecedorNome || !categoriaNome || !valor) {
-          errors.push(`Linha ${line}: Campos obrigatórios faltando (Vencimento, Fornecedor, Categoria ou Valor).`);
+          errors.push(`Linha ${line}: Campos obrigatórios faltando.`);
           return;
         }
 
@@ -270,18 +265,12 @@ export default function AccountsPayablePage() {
         const category = leafCategories.find(c => c.name.toLowerCase().trim() === String(categoriaNome).toLowerCase().trim());
         const costCenter = centers?.find(cc => cc.name.toLowerCase().trim() === String(centroCustoNome || "").toLowerCase().trim());
 
-        if (!supplier) {
-          errors.push(`Linha ${line}: Fornecedor '${fornecedorNome}' não cadastrado no sistema.`);
-          return;
-        }
-        if (!category) {
-          errors.push(`Linha ${line}: Categoria '${categoriaNome}' não cadastrada no plano de contas (Item).`);
-          return;
-        }
+        if (!supplier) { errors.push(`Linha ${line}: Fornecedor '${fornecedorNome}' não cadastrado.`); return; }
+        if (!category) { errors.push(`Linha ${line}: Categoria '${categoriaNome}' não cadastrada (Item).`); return; }
 
         let formattedDueDate = "";
         if (typeof vencimentoRaw === 'number') {
-          formattedDueDate = format(XLSX.utils.numdate(vencimentoRaw), "yyyy-MM-dd");
+          formattedDueDate = format(utils.numdate(vencimentoRaw), "yyyy-MM-dd");
         } else {
           const dateStr = String(vencimentoRaw);
           if (dateStr.includes("/")) {
@@ -289,22 +278,6 @@ export default function AccountsPayablePage() {
             formattedDueDate = `${y}-${m}-${d}`;
           } else {
             formattedDueDate = dateStr;
-          }
-        }
-
-        let formattedIssueDate = "";
-        const emissaoRaw = row["Emissao"] || row["emissao"];
-        if (emissaoRaw) {
-          if (typeof emissaoRaw === 'number') {
-            formattedIssueDate = format(XLSX.utils.numdate(emissaoRaw), "yyyy-MM-dd");
-          } else {
-            const dateStr = String(emissaoRaw);
-            if (dateStr.includes("/")) {
-              const [d, m, y] = dateStr.split("/");
-              formattedIssueDate = `${y}-${m}-${d}`;
-            } else {
-              formattedIssueDate = dateStr;
-            }
           }
         }
 
@@ -316,8 +289,6 @@ export default function AccountsPayablePage() {
           description: String(row["Descricao"] || "Importado via Excel"),
           originalAmount: Number(valor),
           dueDate: formattedDueDate,
-          issueDate: formattedIssueDate,
-          paymentMethod: String(row["FormaPagamento"] || "Pix"),
           status: 'Open',
           entryType: (String(row["Tipo"] || "").toLowerCase() === 'provision' ? 'Provision' : 'Confirmed') as EntryType,
           createdAt: new Date().toISOString(),
@@ -326,16 +297,12 @@ export default function AccountsPayablePage() {
       });
 
       if (errors.length > 0) {
-        toast({ 
-          variant: "destructive", 
-          title: "Erro na Importação", 
-          description: `A importação foi cancelada devido a erros: ${errors.slice(0, 2).join(" | ")}${errors.length > 2 ? '...' : ''}` 
-        });
+        toast({ variant: "destructive", title: "Erro na Importação", description: errors.slice(0, 2).join(" | ") });
       } else {
         batchData.forEach(d => {
           setDocumentNonBlocking(doc(db, "users", user.uid, "accountsPayableEntries", d.id), d, { merge: true });
         });
-        toast({ title: "Importação Concluída", description: `${batchData.length} lançamentos foram importados com sucesso.` });
+        toast({ title: "Importação Concluída", description: `${batchData.length} lançamentos importados.` });
       }
     } catch (err: any) {
       toast({ variant: "destructive", title: "Erro ao ler arquivo", description: err.message });
@@ -370,16 +337,12 @@ export default function AccountsPayablePage() {
         generatedInstallments.forEach((inst, idx) => {
           const id = `pay_${Date.now()}_${idx}`;
           setDocumentNonBlocking(doc(db, "users", user.uid, "accountsPayableEntries", id), { 
-            ...baseData, 
-            id, 
-            status: 'Open', 
-            originalAmount: inst.amount, 
-            dueDate: inst.date, 
+            ...baseData, id, status: 'Open', originalAmount: inst.amount, dueDate: inst.date, 
             installmentInfo: repetitionType === 'installments' ? `${idx + 1}/${numRepetitions}` : undefined,
             createdAt: new Date().toISOString() 
           }, { merge: true });
         });
-        toast({ title: `${generatedInstallments.length} lançamentos gerados` });
+        toast({ title: "Lançamentos gerados" });
       }
     }
     setIsNewEntryOpen(false); setEditingEntry(null);
@@ -401,19 +364,10 @@ export default function AccountsPayablePage() {
   };
 
   const resetForm = () => {
-    setEditingEntry(null);
-    setFormType("Confirmed");
-    setFormDescription("");
-    setFormAmount(0);
-    setFormDueDate(format(new Date(), "yyyy-MM-dd"));
-    setFormIssueDate("");
-    setFormSupplierId("");
-    setFormCategoryId("");
-    setFormPaymentMethod("Pix");
-    setFormCostCenterId("none");
-    setRepetitionType("single");
-    setNumRepetitions(1);
-    setIsNewEntryOpen(true);
+    setEditingEntry(null); setFormType("Confirmed"); setFormDescription(""); setFormAmount(0);
+    setFormDueDate(format(new Date(), "yyyy-MM-dd")); setFormIssueDate(""); setFormSupplierId("");
+    setFormCategoryId(""); setFormPaymentMethod("Pix"); setFormCostCenterId("none"); setRepetitionType("single");
+    setNumRepetitions(1); setIsNewEntryOpen(true);
   };
 
   return (
@@ -421,7 +375,7 @@ export default function AccountsPayablePage() {
       <div className="flex justify-between items-end">
         <div>
           <h1 className="text-3xl font-bold flex items-center gap-3"><ArrowDownCircle className="text-destructive w-8 h-8" />Contas a Pagar</h1>
-          <p className="text-muted-foreground">Gestão financeira profissional com foco em planejamento.</p>
+          <p className="text-muted-foreground">Gestão financeira profissional.</p>
         </div>
         <div className="flex gap-2">
           <Button variant="outline" className="gap-2" onClick={downloadTemplate}><Download className="w-4 h-4" /> Baixar Modelo</Button>
@@ -434,44 +388,19 @@ export default function AccountsPayablePage() {
         </div>
       </div>
 
-      <Collapsible title="Filtros" open={showFilters} onOpenChange={setShowFilters}>
+      <Collapsible open={showFilters} onOpenChange={setShowFilters}>
         <CollapsibleContent className="space-y-4">
           <Card className="bg-muted/30 border-dashed">
             <CardContent className="pt-6">
               <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
-                <div className="space-y-2">
-                  <Label className="text-xs font-bold uppercase text-muted-foreground">Status</Label>
-                  <Select value={filterStatus} onValueChange={setFilterStatus}>
-                    <SelectTrigger className="bg-background"><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">Todos</SelectItem>
-                      <SelectItem value="DueToday">Hoje</SelectItem>
-                      <SelectItem value="Overdue">Atrasado</SelectItem>
-                      <SelectItem value="Open">Em Aberto</SelectItem>
-                      <SelectItem value="Paid">Pago</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-2">
-                  <Label className="text-xs font-bold uppercase text-muted-foreground">Vencimento Rápido</Label>
-                  <Select value={datePreset} onValueChange={handleDatePresetChange}>
-                    <SelectTrigger className="bg-background"><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="custom">Personalizado</SelectItem>
-                      <SelectItem value="today">Hoje</SelectItem>
-                      <SelectItem value="thisWeek">Esta Semana</SelectItem>
-                      <SelectItem value="thisMonth">Este Mês</SelectItem>
-                      <SelectItem value="lastMonth">Mês Passado</SelectItem>
-                      <SelectItem value="thisYear">Este Ano</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
+                <div className="space-y-2"><Label>Status</Label><Select value={filterStatus} onValueChange={setFilterStatus}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">Todos</SelectItem><SelectItem value="DueToday">Hoje</SelectItem><SelectItem value="Overdue">Atrasado</SelectItem><SelectItem value="Open">Em Aberto</SelectItem><SelectItem value="Paid">Pago</SelectItem></SelectContent></Select></div>
+                <div className="space-y-2"><Label>Período Rápido</Label><Select value={datePreset} onValueChange={handleDatePresetChange}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="custom">Personalizado</SelectItem><SelectItem value="today">Hoje</SelectItem><SelectItem value="thisWeek">Esta Semana</SelectItem><SelectItem value="thisMonth">Este Mês</SelectItem><SelectItem value="lastMonth">Mês Passado</SelectItem></SelectContent></Select></div>
                 <div className="space-y-2 md:col-span-3">
-                  <Label className="text-xs font-bold uppercase text-muted-foreground">Período e Limpeza</Label>
+                  <Label>Intervalo Personalizado</Label>
                   <div className="flex gap-2">
-                    <Input type="date" value={filterDueDateStart} onChange={e => setFilterDueDateStart(e.target.value)} className="h-9" />
-                    <Input type="date" value={filterDueDateEnd} onChange={e => setFilterDueDateEnd(e.target.value)} className="h-9" />
-                    <Button variant="ghost" onClick={clearFilters} className="h-9"><FilterX className="w-4 h-4" /></Button>
+                    <Input type="date" value={filterDueDateStart} onChange={e => setFilterDueDateStart(e.target.value)} />
+                    <Input type="date" value={filterDueDateEnd} onChange={e => setFilterDueDateEnd(e.target.value)} />
+                    <Button variant="ghost" onClick={() => { setFilterStatus("all"); setFilterDueDateStart(""); setFilterDueDateEnd(""); setDatePreset("custom"); }}><FilterX className="w-4 h-4" /></Button>
                   </div>
                 </div>
               </div>
@@ -481,10 +410,10 @@ export default function AccountsPayablePage() {
       </Collapsible>
 
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <Card className="bg-destructive/5"><CardHeader className="p-4 pb-2 text-[10px] font-bold uppercase text-destructive/70">Atrasado</CardHeader><CardContent className="p-4 pt-0 text-xl font-bold">R$ {totalOverdue.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</CardContent></Card>
-        <Card className="bg-amber-50"><CardHeader className="p-4 pb-2 text-[10px] font-bold uppercase text-amber-700">Hoje</CardHeader><CardContent className="p-4 pt-0 text-xl font-bold">R$ {totalDueToday.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</CardContent></Card>
-        <Card className="bg-primary/5"><CardHeader className="p-4 pb-2 text-[10px] font-bold uppercase text-primary/70">Em Aberto</CardHeader><CardContent className="p-4 pt-0 text-xl font-bold">R$ {totalOpen.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</CardContent></Card>
-        <Card className="bg-emerald-50"><CardHeader className="p-4 pb-2 text-[10px] font-bold uppercase text-emerald-700">Total Pago</CardHeader><CardContent className="p-4 pt-0 text-xl font-bold">R$ {totalPaid.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</CardContent></Card>
+        <Card className="bg-destructive/5"><CardHeader className="p-4 pb-2 text-xs font-bold uppercase text-destructive/70">Atrasado</CardHeader><CardContent className="p-4 pt-0 text-xl font-bold">R$ {totalOverdue.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</CardContent></Card>
+        <Card className="bg-amber-50"><CardHeader className="p-4 pb-2 text-xs font-bold uppercase text-amber-700">Hoje</CardHeader><CardContent className="p-4 pt-0 text-xl font-bold">R$ {totalDueToday.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</CardContent></Card>
+        <Card className="bg-primary/5"><CardHeader className="p-4 pb-2 text-xs font-bold uppercase text-primary/70">Em Aberto</CardHeader><CardContent className="p-4 pt-0 text-xl font-bold">R$ {totalOpen.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</CardContent></Card>
+        <Card className="bg-emerald-50"><CardHeader className="p-4 pb-2 text-xs font-bold uppercase text-emerald-700">Total Pago</CardHeader><CardContent className="p-4 pt-0 text-xl font-bold">R$ {totalPaid.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</CardContent></Card>
       </div>
 
       <Card>
@@ -493,10 +422,10 @@ export default function AccountsPayablePage() {
             <TableHeader><TableRow><TableHead>Vencimento</TableHead><TableHead>Fornecedor</TableHead><TableHead>Descrição</TableHead><TableHead>Status</TableHead><TableHead className="text-right">Valor</TableHead><TableHead className="w-[50px]"></TableHead></TableRow></TableHeader>
             <TableBody>
               {filteredEntries.sort((a,b) => a.dueDate.localeCompare(b.dueDate)).map((entry) => (
-                <TableRow key={entry.id} className={cn(entry.entryType === 'Provision' && "bg-muted/30 border-dashed border-2")}>
+                <TableRow key={entry.id} className={cn(entry.entryType === 'Provision' && "bg-muted/20 border-l-4 border-l-muted-foreground")}>
                   <TableCell className="text-xs">
                     {format(new Date(entry.dueDate + 'T12:00:00'), "dd/MM/yy")}
-                    {entry.entryType === 'Provision' && <Badge variant="secondary" className="block text-[8px] mt-1 scale-90 -ml-1">PROVISÃO</Badge>}
+                    {entry.entryType === 'Provision' && <Badge variant="secondary" className="block text-[8px] mt-1">PROVISÃO</Badge>}
                   </TableCell>
                   <TableCell className="font-medium">{suppliers?.find(s => s.id === entry.supplierId)?.name || 'N/A'}</TableCell>
                   <TableCell>
@@ -508,20 +437,15 @@ export default function AccountsPayablePage() {
                   <TableCell>
                     {entry.dynamicStatus === 'Paid' ? <Badge className="bg-emerald-100 text-emerald-700">Pago</Badge> : 
                      entry.dynamicStatus === 'Overdue' ? <Badge variant="destructive">Atrasado</Badge> : 
-                     entry.dynamicStatus === 'DueToday' ? <Badge className="bg-amber-100 text-amber-700">Hoje</Badge> : 
                      <Badge variant="outline">Aberto</Badge>}
                   </TableCell>
-                  <TableCell className="text-right font-bold">
-                    R$ {entry.originalAmount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-                  </TableCell>
+                  <TableCell className="text-right font-bold">R$ {entry.originalAmount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</TableCell>
                   <TableCell>
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild><Button variant="ghost" size="icon"><MoreHorizontal className="w-4 h-4" /></Button></DropdownMenuTrigger>
                       <DropdownMenuContent align="end">
                         {entry.status !== 'Paid' && <DropdownMenuItem onClick={() => { setEntryToPay(entry); setIsPaymentOpen(true); }} className="text-emerald-600 font-bold">Liquidar</DropdownMenuItem>}
-                        <DropdownMenuItem onClick={() => openEdit(entry)} className="gap-2">
-                          <Pencil className="w-4 h-4" /> Editar
-                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => openEdit(entry)} className="gap-2"><Pencil className="w-4 h-4" /> Editar</DropdownMenuItem>
                         <DropdownMenuItem onClick={() => deleteDocumentNonBlocking(doc(db, "users", user.uid, "accountsPayableEntries", entry.id))} className="text-destructive">Excluir</DropdownMenuItem>
                       </DropdownMenuContent>
                     </DropdownMenu>
@@ -536,12 +460,11 @@ export default function AccountsPayablePage() {
       <Dialog open={isNewEntryOpen} onOpenChange={setIsNewEntryOpen}>
         <DialogContent className="max-w-3xl">
           <DialogHeader><DialogTitle>{editingEntry ? 'Editar' : 'Novo'} Lançamento</DialogTitle></DialogHeader>
-          <Tabs defaultValue="main" className="w-full">
+          <Tabs defaultValue="main">
             <TabsList className="grid w-full grid-cols-2">
               <TabsTrigger value="main">Dados Principais</TabsTrigger>
-              <TabsTrigger value="repetition" disabled={!!editingEntry}>Repetir / Parcelar</TabsTrigger>
+              <TabsTrigger value="repetition" disabled={!!editingEntry}>Parcelar / Repetir</TabsTrigger>
             </TabsList>
-            
             <form onSubmit={handleSaveEntry}>
               <TabsContent value="main" className="space-y-4 py-4">
                 <div className="grid grid-cols-2 gap-4">
@@ -552,7 +475,7 @@ export default function AccountsPayablePage() {
                   <div className="grid gap-2"><Label>Valor*</Label><Input type="number" step="0.01" value={formAmount || ""} onChange={e => setFormAmount(Number(e.target.value))} required /></div>
                   <div className="grid gap-2"><Label>Vencimento*</Label><Input type="date" value={formDueDate} onChange={e => setFormDueDate(e.target.value)} required /></div>
                   <div className="grid gap-2"><Label>Emissão</Label><Input type="date" value={formIssueDate} onChange={e => setFormIssueDate(e.target.value)} /></div>
-                  <div className="grid gap-2"><Label>Forma Pagto.</Label><Select value={formPaymentMethod} onValueChange={setFormPaymentMethod}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="Pix">Pix</SelectItem><SelectItem value="Boleto">Boleto</SelectItem><SelectItem value="Cartão">Cartão</SelectItem></SelectContent></Select></div>
+                  <div className="grid gap-2"><Label>Pagamento</Label><Select value={formPaymentMethod} onValueChange={setFormPaymentMethod}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="Pix">Pix</SelectItem><SelectItem value="Boleto">Boleto</SelectItem><SelectItem value="Cartão">Cartão</SelectItem></SelectContent></Select></div>
                 </div>
                 <div className="grid grid-cols-3 gap-4">
                   <div className="grid gap-2"><Label>Fornecedor*</Label><Select value={formSupplierId} onValueChange={setFormSupplierId} required><SelectTrigger><SelectValue placeholder="Selecione..." /></SelectTrigger><SelectContent>{suppliers?.map(s => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}</SelectContent></Select></div>
@@ -560,55 +483,37 @@ export default function AccountsPayablePage() {
                   <div className="grid gap-2"><Label>Centro de Custo</Label><Select value={formCostCenterId} onValueChange={setFormCostCenterId}><SelectTrigger><SelectValue placeholder="Opcional..." /></SelectTrigger><SelectContent><SelectItem value="none">Nenhum</SelectItem>{centers?.map(c => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}</SelectContent></Select></div>
                 </div>
               </TabsContent>
-
               <TabsContent value="repetition" className="space-y-4 py-4">
                 <div className="grid grid-cols-2 gap-4">
-                  <div className="grid gap-2"><Label>Tipo de Repetição</Label><Select value={repetitionType} onValueChange={(v: any) => setRepetitionType(v)}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="single">Lançamento Único</SelectItem><SelectItem value="fixed">Fixo Mensal</SelectItem><SelectItem value="installments">Parcelado</SelectItem></SelectContent></Select></div>
-                  {repetitionType !== 'single' && (
-                    <div className="grid gap-2"><Label>Nº de Meses / Parcelas</Label><Input type="number" min={1} max={60} value={numRepetitions} onChange={e => setNumRepetitions(Number(e.target.value))} /></div>
-                  )}
+                  <div className="grid gap-2"><Label>Repetição</Label><Select value={repetitionType} onValueChange={(v: any) => setRepetitionType(v)}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="single">Único</SelectItem><SelectItem value="fixed">Fixo Mensal</SelectItem><SelectItem value="installments">Parcelado</SelectItem></SelectContent></Select></div>
+                  {repetitionType !== 'single' && <div className="grid gap-2"><Label>Nº de Meses</Label><Input type="number" min={1} value={numRepetitions} onChange={e => setNumRepetitions(Number(e.target.value))} /></div>}
                 </div>
                 {generatedInstallments.length > 0 && (
-                  <div className="border rounded-md p-4 bg-muted/20">
-                    <Label className="text-xs font-bold uppercase mb-2 block">Prévia:</Label>
-                    <div className="max-h-40 overflow-y-auto space-y-2">
-                      {generatedInstallments.map((inst, idx) => (
-                        <div key={idx} className="flex justify-between items-center text-xs p-2 bg-background border rounded">
-                          <span>{idx + 1}ª - {format(new Date(inst.date + 'T12:00:00'), "dd/MM/yyyy")}</span>
-                          <span className="font-bold">R$ {inst.amount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
-                        </div>
-                      ))}
-                    </div>
+                  <div className="max-h-32 overflow-y-auto border p-2 rounded bg-muted/20 space-y-1">
+                    {generatedInstallments.map((inst, i) => <div key={i} className="flex justify-between text-xs"><span>{i+1}ª: {inst.date}</span><span className="font-bold">R$ {inst.amount}</span></div>)}
                   </div>
                 )}
               </TabsContent>
-              <DialogFooter className="mt-4"><Button type="submit" className="w-full">Salvar Lançamento(s)</Button></DialogFooter>
+              <DialogFooter><Button type="submit" className="w-full">Salvar</Button></DialogFooter>
             </form>
           </Tabs>
         </DialogContent>
       </Dialog>
 
       <Dialog open={isPaymentOpen} onOpenChange={setIsPaymentOpen}>
-        <DialogContent className="max-w-md">
+        <DialogContent>
           {entryToPay && (
-            <form onSubmit={(e) => {
-              e.preventDefault();
-              if (!db || !user) return;
-              updateDocumentNonBlocking(doc(db, "users", user.uid, "accountsPayableEntries", entryToPay.id), {
-                status: 'Paid', interest, fine, discount, paymentDate: todayStr, updatedAt: new Date().toISOString()
-              });
-              setIsPaymentOpen(false); setEntryToPay(null);
-            }}>
+            <form onSubmit={(e) => { e.preventDefault(); if (!db || !user) return; updateDocumentNonBlocking(doc(db, "users", user.uid, "accountsPayableEntries", entryToPay.id), { status: 'Paid', interest, fine, discount, paymentDate: todayStr, updatedAt: new Date().toISOString() }); setIsPaymentOpen(false); }}>
               <DialogHeader><DialogTitle>Liquidar: {entryToPay.description}</DialogTitle></DialogHeader>
               <div className="grid gap-4 py-4">
                 <div className="grid grid-cols-3 gap-2">
-                  <div className="grid gap-2"><Label className="text-[10px]">Juros (+)</Label><Input type="number" step="0.01" value={interest} onChange={e => setInterest(Number(e.target.value))} /></div>
-                  <div className="grid gap-2"><Label className="text-[10px]">Multa (+)</Label><Input type="number" step="0.01" value={fine} onChange={e => setFine(Number(e.target.value))} /></div>
-                  <div className="grid gap-2"><Label className="text-[10px]">Desc. (-)</Label><Input type="number" step="0.01" value={discount} onChange={e => setDiscount(Number(e.target.value))} /></div>
+                  <div className="grid gap-2"><Label className="text-[10px]">Juros</Label><Input type="number" value={interest} onChange={e => setInterest(Number(e.target.value))} /></div>
+                  <div className="grid gap-2"><Label className="text-[10px]">Multa</Label><Input type="number" value={fine} onChange={e => setFine(Number(e.target.value))} /></div>
+                  <div className="grid gap-2"><Label className="text-[10px]">Desc.</Label><Input type="number" value={discount} onChange={e => setDiscount(Number(e.target.value))} /></div>
                 </div>
-                <div className="bg-primary/5 p-4 rounded-lg text-center font-bold text-xl">R$ {(entryToPay.originalAmount + interest + fine - discount).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</div>
+                <div className="bg-primary/5 p-4 rounded text-center font-bold text-xl">Total: R$ {(entryToPay.originalAmount + interest + fine - discount).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</div>
               </div>
-              <DialogFooter><Button type="submit" className="w-full">Confirmar Pagamento</Button></DialogFooter>
+              <DialogFooter><Button type="submit" className="w-full">Confirmar</Button></DialogFooter>
             </form>
           )}
         </DialogContent>
