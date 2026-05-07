@@ -25,11 +25,13 @@ import {
   Loader2,
   AlertCircle,
   Download,
-  FileSpreadsheet
+  FileSpreadsheet,
+  Calendar,
+  Split
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useUser, useFirestore, useCollection, useMemoFirebase } from "@/firebase";
-import { collection, doc } from "firebase/firestore";
+import { collection, doc, addDoc, serverTimestamp } from "firebase/firestore";
 import { setDocumentNonBlocking, deleteDocumentNonBlocking, updateDocumentNonBlocking } from "@/firebase/non-blocking-updates";
 import { 
   Dialog, 
@@ -100,7 +102,7 @@ export default function AccountsPayablePage() {
   const [fine, setFine] = useState(0);
   const [discount, setDiscount] = useState(0);
 
-  // Form
+  // Form State (Controlled)
   const [formType, setFormType] = useState<EntryType>("Confirmed");
   const [formDescription, setFormDescription] = useState("");
   const [formAmount, setFormAmount] = useState<number>(0);
@@ -176,6 +178,30 @@ export default function AccountsPayablePage() {
   const totalDueToday = filteredEntries.filter(e => e.dynamicStatus === 'DueToday').reduce((acc, curr) => acc + curr.originalAmount, 0);
   const totalOpen = filteredEntries.filter(e => e.dynamicStatus === 'Open').reduce((acc, curr) => acc + curr.originalAmount, 0);
   const totalPaid = filteredEntries.filter(e => e.dynamicStatus === 'Paid').reduce((acc, curr) => acc + calculateSettledValue(curr), 0);
+
+  // Logic to generate installments preview
+  useEffect(() => {
+    if (repetitionType === 'single') {
+      setGeneratedInstallments([]);
+      return;
+    }
+
+    const newInstallments = [];
+    const baseDate = new Date(formDueDate + 'T12:00:00');
+    
+    for (let i = 0; i < numRepetitions; i++) {
+      const installmentDate = addMonths(baseDate, i);
+      const installmentAmount = repetitionType === 'installments' 
+        ? Number((formAmount / numRepetitions).toFixed(2)) 
+        : formAmount;
+
+      newInstallments.push({
+        date: format(installmentDate, "yyyy-MM-dd"),
+        amount: installmentAmount
+      });
+    }
+    setGeneratedInstallments(newInstallments);
+  }, [repetitionType, numRepetitions, formAmount, formDueDate]);
 
   const handleDatePresetChange = (preset: string) => {
     setDatePreset(preset);
@@ -306,17 +332,71 @@ export default function AccountsPayablePage() {
     e.preventDefault();
     if (!db || !user) return;
     const baseData = {
-      supplierId: formSupplierId, accountCategoryId: formCategoryId, costCenterId: formCostCenterId === "none" ? null : formCostCenterId,
-      description: formDescription, issueDate: formIssueDate, paymentMethod: formPaymentMethod, entryType: formType, updatedAt: new Date().toISOString(),
+      supplierId: formSupplierId, 
+      accountCategoryId: formCategoryId, 
+      costCenterId: formCostCenterId === "none" ? null : formCostCenterId,
+      description: formDescription, 
+      issueDate: formIssueDate, 
+      paymentMethod: formPaymentMethod, 
+      entryType: formType, 
+      updatedAt: new Date().toISOString(),
     };
 
     if (editingEntry) {
       updateDocumentNonBlocking(doc(db, "users", user.uid, "accountsPayableEntries", editingEntry.id), { ...baseData, originalAmount: formAmount, dueDate: formDueDate });
+      toast({ title: "Lançamento atualizado" });
     } else {
-      const id = `pay_${Date.now()}`;
-      setDocumentNonBlocking(doc(db, "users", user.uid, "accountsPayableEntries", id), { ...baseData, id, status: 'Open', originalAmount: formAmount, dueDate: formDueDate, createdAt: new Date().toISOString() }, { merge: true });
+      if (repetitionType === 'single') {
+        const id = `pay_${Date.now()}`;
+        setDocumentNonBlocking(doc(db, "users", user.uid, "accountsPayableEntries", id), { ...baseData, id, status: 'Open', originalAmount: formAmount, dueDate: formDueDate, createdAt: new Date().toISOString() }, { merge: true });
+      } else {
+        generatedInstallments.forEach((inst, idx) => {
+          const id = `pay_${Date.now()}_${idx}`;
+          setDocumentNonBlocking(doc(db, "users", user.uid, "accountsPayableEntries", id), { 
+            ...baseData, 
+            id, 
+            status: 'Open', 
+            originalAmount: inst.amount, 
+            dueDate: inst.date, 
+            installmentInfo: repetitionType === 'installments' ? `${idx + 1}/${numRepetitions}` : undefined,
+            createdAt: new Date().toISOString() 
+          }, { merge: true });
+        });
+        toast({ title: `${generatedInstallments.length} lançamentos gerados` });
+      }
     }
     setIsNewEntryOpen(false); setEditingEntry(null);
+  };
+
+  const openEdit = (entry: AccountsPayableEntry) => {
+    setEditingEntry(entry);
+    setFormType(entry.entryType);
+    setFormDescription(entry.description);
+    setFormAmount(entry.originalAmount);
+    setFormDueDate(entry.dueDate);
+    setFormIssueDate(entry.issueDate || "");
+    setFormSupplierId(entry.supplierId);
+    setFormCategoryId(entry.accountCategoryId);
+    setFormPaymentMethod(entry.paymentMethod || "Pix");
+    setFormCostCenterId(entry.costCenterId || "none");
+    setRepetitionType("single");
+    setIsNewEntryOpen(true);
+  };
+
+  const resetForm = () => {
+    setEditingEntry(null);
+    setFormType("Confirmed");
+    setFormDescription("");
+    setFormAmount(0);
+    setFormDueDate(format(new Date(), "yyyy-MM-dd"));
+    setFormIssueDate("");
+    setFormSupplierId("");
+    setFormCategoryId("");
+    setFormPaymentMethod("Pix");
+    setFormCostCenterId("none");
+    setRepetitionType("single");
+    setNumRepetitions(1);
+    setIsNewEntryOpen(true);
   };
 
   return (
@@ -324,7 +404,7 @@ export default function AccountsPayablePage() {
       <div className="flex justify-between items-end">
         <div>
           <h1 className="text-3xl font-bold flex items-center gap-3"><ArrowDownCircle className="text-destructive w-8 h-8" />Contas a Pagar</h1>
-          <p className="text-muted-foreground">Gestão financeira com foco em fluxo de caixa.</p>
+          <p className="text-muted-foreground">Gestão financeira com foco em planejamento.</p>
         </div>
         <div className="flex gap-2">
           <Button variant="outline" className="gap-2" onClick={downloadTemplate}><Download className="w-4 h-4" /> Modelo</Button>
@@ -333,7 +413,7 @@ export default function AccountsPayablePage() {
             {isImporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileSpreadsheet className="w-4 h-4" />} Importar Excel
           </Button>
           <Button variant="outline" className="gap-2" onClick={() => setShowFilters(!showFilters)}><Filter className="w-4 h-4" /> Filtros</Button>
-          <Button className="gap-2 shadow-lg" onClick={() => { setEditingEntry(null); setIsNewEntryOpen(true); }}><Plus className="w-4 h-4" /> Novo Lançamento</Button>
+          <Button className="gap-2 shadow-lg" onClick={resetForm}><Plus className="w-4 h-4" /> Novo Lançamento</Button>
         </div>
       </div>
 
@@ -396,13 +476,16 @@ export default function AccountsPayablePage() {
             <TableHeader><TableRow><TableHead>Vencimento</TableHead><TableHead>Fornecedor</TableHead><TableHead>Descrição</TableHead><TableHead>Status</TableHead><TableHead className="text-right">Valor</TableHead><TableHead className="w-[50px]"></TableHead></TableRow></TableHeader>
             <TableBody>
               {filteredEntries.sort((a,b) => a.dueDate.localeCompare(b.dueDate)).map((entry) => (
-                <TableRow key={entry.id}>
-                  <TableCell className="text-xs">{format(new Date(entry.dueDate + 'T12:00:00'), "dd/MM/yy")}</TableCell>
+                <TableRow key={entry.id} className={cn(entry.entryType === 'Provision' && "bg-muted/30 border-dashed border-2")}>
+                  <TableCell className="text-xs">
+                    {format(new Date(entry.dueDate + 'T12:00:00'), "dd/MM/yy")}
+                    {entry.entryType === 'Provision' && <Badge variant="secondary" className="block text-[8px] mt-1 scale-90 -ml-1">PROVISÃO</Badge>}
+                  </TableCell>
                   <TableCell className="font-medium">{suppliers?.find(s => s.id === entry.supplierId)?.name || 'N/A'}</TableCell>
                   <TableCell>
                     <div className="flex flex-col">
                       <span className="text-[9px] text-muted-foreground uppercase">{leafCategories.find(c => c.id === entry.accountCategoryId)?.name}</span>
-                      <span className="text-sm">{entry.description}</span>
+                      <span className="text-sm">{entry.description} {entry.installmentInfo && `(${entry.installmentInfo})`}</span>
                     </div>
                   </TableCell>
                   <TableCell>
@@ -422,7 +505,7 @@ export default function AccountsPayablePage() {
                       <DropdownMenuTrigger asChild><Button variant="ghost" size="icon"><MoreHorizontal className="w-4 h-4" /></Button></DropdownMenuTrigger>
                       <DropdownMenuContent align="end">
                         {entry.status !== 'Paid' && <DropdownMenuItem onClick={() => { setEntryToPay(entry); setIsPaymentOpen(true); }} className="text-emerald-600 font-bold">Liquidar</DropdownMenuItem>}
-                        <DropdownMenuItem onClick={() => { setEditingEntry(entry); setIsNewEntryOpen(true); }}>Editar</DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => openEdit(entry)}>Editar</DropdownMenuItem>
                         <DropdownMenuItem onClick={() => deleteDocumentNonBlocking(doc(db, "users", user.uid, "accountsPayableEntries", entry.id))} className="text-destructive">Excluir</DropdownMenuItem>
                       </DropdownMenuContent>
                     </DropdownMenu>
@@ -436,26 +519,57 @@ export default function AccountsPayablePage() {
 
       {/* Modal de Novo/Editar */}
       <Dialog open={isNewEntryOpen} onOpenChange={setIsNewEntryOpen}>
-        <DialogContent className="max-w-2xl">
-          <form onSubmit={handleSaveEntry}>
-            <DialogHeader><DialogTitle>{editingEntry ? 'Editar' : 'Novo'} Lançamento</DialogTitle></DialogHeader>
-            <div className="grid gap-4 py-4">
-              <div className="grid grid-cols-2 gap-4">
-                <div className="grid gap-2"><Label>Tipo</Label><Select value={formType} onValueChange={(v: any) => setFormType(v)}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="Confirmed">Confirmado</SelectItem><SelectItem value="Provision">Provisão</SelectItem></SelectContent></Select></div>
-                <div className="grid gap-2"><Label>Descrição*</Label><Input value={formDescription} onChange={e => setFormDescription(e.target.value)} required /></div>
-              </div>
-              <div className="grid grid-cols-3 gap-4">
-                <div className="grid gap-2"><Label>Valor*</Label><Input type="number" step="0.01" value={formAmount || ""} onChange={e => setFormAmount(Number(e.target.value))} required /></div>
-                <div className="grid gap-2"><Label>Vencimento*</Label><Input type="date" value={formDueDate} onChange={e => setFormDueDate(e.target.value)} required /></div>
-                <div className="grid gap-2"><Label>Forma Pagto.</Label><Select value={formPaymentMethod} onValueChange={setFormPaymentMethod}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="Pix">Pix</SelectItem><SelectItem value="Boleto">Boleto</SelectItem><SelectItem value="Cartão">Cartão</SelectItem></SelectContent></Select></div>
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div className="grid gap-2"><Label>Fornecedor*</Label><Select value={formSupplierId} onValueChange={setFormSupplierId} required><SelectTrigger><SelectValue placeholder="Selecione..." /></SelectTrigger><SelectContent>{suppliers?.map(s => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}</SelectContent></Select></div>
-                <div className="grid gap-2"><Label>Categoria*</Label><Select value={formCategoryId} onValueChange={setFormCategoryId} required><SelectTrigger><SelectValue placeholder="Selecione..." /></SelectTrigger><SelectContent>{leafCategories.map(c => <SelectItem key={c.id} value={c.id}>{c.code} - {c.name}</SelectItem>)}</SelectContent></Select></div>
-              </div>
-            </div>
-            <DialogFooter><Button type="submit" className="w-full">Salvar</Button></DialogFooter>
-          </form>
+        <DialogContent className="max-w-3xl">
+          <DialogHeader><DialogTitle>{editingEntry ? 'Editar' : 'Novo'} Lançamento</DialogTitle></DialogHeader>
+          <Tabs defaultValue="main" className="w-full">
+            <TabsList className="grid w-full grid-cols-2">
+              <TabsTrigger value="main">Dados Principais</TabsTrigger>
+              <TabsTrigger value="repetition" disabled={!!editingEntry}>Repetir / Parcelar</TabsTrigger>
+            </TabsList>
+            
+            <form onSubmit={handleSaveEntry}>
+              <TabsContent value="main" className="space-y-4 py-4">
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="grid gap-2"><Label>Tipo</Label><Select value={formType} onValueChange={(v: any) => setFormType(v)}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="Confirmed">Confirmado</SelectItem><SelectItem value="Provision">Provisão</SelectItem></SelectContent></Select></div>
+                  <div className="grid gap-2"><Label>Descrição*</Label><Input value={formDescription} onChange={e => setFormDescription(e.target.value)} required /></div>
+                </div>
+                <div className="grid grid-cols-4 gap-4">
+                  <div className="grid gap-2"><Label>Valor*</Label><Input type="number" step="0.01" value={formAmount || ""} onChange={e => setFormAmount(Number(e.target.value))} required /></div>
+                  <div className="grid gap-2"><Label>Vencimento*</Label><Input type="date" value={formDueDate} onChange={e => setFormDueDate(e.target.value)} required /></div>
+                  <div className="grid gap-2"><Label>Emissão</Label><Input type="date" value={formIssueDate} onChange={e => setFormIssueDate(e.target.value)} /></div>
+                  <div className="grid gap-2"><Label>Forma Pagto.</Label><Select value={formPaymentMethod} onValueChange={setFormPaymentMethod}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="Pix">Pix</SelectItem><SelectItem value="Boleto">Boleto</SelectItem><SelectItem value="Cartão">Cartão</SelectItem></SelectContent></Select></div>
+                </div>
+                <div className="grid grid-cols-3 gap-4">
+                  <div className="grid gap-2"><Label>Fornecedor*</Label><Select value={formSupplierId} onValueChange={setFormSupplierId} required><SelectTrigger><SelectValue placeholder="Selecione..." /></SelectTrigger><SelectContent>{suppliers?.map(s => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}</SelectContent></Select></div>
+                  <div className="grid gap-2"><Label>Categoria*</Label><Select value={formCategoryId} onValueChange={setFormCategoryId} required><SelectTrigger><SelectValue placeholder="Selecione..." /></SelectTrigger><SelectContent>{leafCategories.map(c => <SelectItem key={c.id} value={c.id}>{c.code} - {c.name}</SelectItem>)}</SelectContent></Select></div>
+                  <div className="grid gap-2"><Label>Centro de Custo</Label><Select value={formCostCenterId} onValueChange={setFormCostCenterId}><SelectTrigger><SelectValue placeholder="Opcional..." /></SelectTrigger><SelectContent><SelectItem value="none">Nenhum</SelectItem>{centers?.map(c => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}</SelectContent></Select></div>
+                </div>
+              </TabsContent>
+
+              <TabsContent value="repetition" className="space-y-4 py-4">
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="grid gap-2"><Label>Tipo de Repetição</Label><Select value={repetitionType} onValueChange={(v: any) => setRepetitionType(v)}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="single">Lançamento Único</SelectItem><SelectItem value="fixed">Fixo Mensal (Repetir valor)</SelectItem><SelectItem value="installments">Parcelado (Dividir valor total)</SelectItem></SelectContent></Select></div>
+                  {repetitionType !== 'single' && (
+                    <div className="grid gap-2"><Label>Nº de Meses / Parcelas</Label><Input type="number" min={1} max={60} value={numRepetitions} onChange={e => setNumRepetitions(Number(e.target.value))} /></div>
+                  )}
+                </div>
+                {generatedInstallments.length > 0 && (
+                  <div className="border rounded-md p-4 bg-muted/20">
+                    <Label className="text-xs font-bold uppercase mb-2 block">Prévia dos Lançamentos:</Label>
+                    <div className="max-h-40 overflow-y-auto space-y-2">
+                      {generatedInstallments.map((inst, idx) => (
+                        <div key={idx} className="flex justify-between items-center text-xs p-2 bg-background border rounded">
+                          <span>{idx + 1}ª - {format(new Date(inst.date + 'T12:00:00'), "dd/MM/yyyy")}</span>
+                          <span className="font-bold">R$ {inst.amount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </TabsContent>
+              <DialogFooter className="mt-4"><Button type="submit" className="w-full">Salvar Lançamento(s)</Button></DialogFooter>
+            </form>
+          </Tabs>
         </DialogContent>
       </Dialog>
 
@@ -488,4 +602,3 @@ export default function AccountsPayablePage() {
     </div>
   );
 }
-
