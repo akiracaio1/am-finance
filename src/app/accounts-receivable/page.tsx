@@ -91,76 +91,85 @@ export default function AccountsReceivablePage() {
     XLSX.writeFile(wb, "modelo_contas_receber.xlsx");
   };
 
-  const handleImportExcel = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleImportExcel = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file || !db || !user) return;
     setIsImporting(true);
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      try {
-        const dataBuffer = new Uint8Array(event.target?.result as ArrayBuffer);
-        const workbook = XLSX.read(dataBuffer, { type: 'array' });
-        const sheet = workbook.Sheets[workbook.SheetNames[0]];
-        const rows = XLSX.utils.sheet_to_json(sheet) as any[];
+    
+    try {
+      const dataBuffer = await file.arrayBuffer();
+      const workbook = XLSX.read(dataBuffer, { type: 'array' });
+      const sheetName = workbook.SheetNames[0];
+      const sheet = workbook.Sheets[sheetName];
+      const rows = XLSX.utils.sheet_to_json(sheet) as any[];
 
-        if (rows.length === 0) throw new Error("Arquivo vazio.");
+      if (rows.length === 0) throw new Error("O arquivo Excel está vazio.");
 
-        const errors: string[] = [];
-        const validData: any[] = [];
+      const errors: string[] = [];
+      const validData: any[] = [];
 
-        rows.forEach((row, index) => {
-          const line = index + 2;
-          const vencimento = row["Vencimento"] || row["vencimento"];
-          const cliente = row["Cliente"] || row["cliente"];
-          const categoriaNome = row["Categoria"] || row["categoria"];
-          const valor = row["Valor"] || row["valor"];
+      rows.forEach((row, index) => {
+        const line = index + 2;
+        const vencimentoRaw = row["Vencimento"] || row["vencimento"];
+        const cliente = row["Cliente"] || row["cliente"];
+        const categoriaNome = row["Categoria"] || row["categoria"];
+        const valor = row["Valor"] || row["valor"];
 
-          if (!vencimento || !cliente || !categoriaNome || !valor) {
-            errors.push(`Linha ${line}: Campos obrigatórios faltando.`);
-            return;
-          }
-
-          const category = leafCategories.find(c => c.name.toLowerCase().trim() === String(categoriaNome).toLowerCase().trim());
-          if (!category) {
-            errors.push(`Linha ${line}: Categoria '${categoriaNome}' não cadastrada.`);
-            return;
-          }
-
-          let formattedDate = String(vencimento);
-          if (typeof vencimento === 'number') {
-            formattedDate = format(XLSX.utils.numdate(vencimento), "yyyy-MM-dd");
-          } else if (formattedDate.includes("/")) {
-            const [d, m, y] = formattedDate.split("/");
-            formattedDate = `${y}-${m}-${d}`;
-          }
-
-          validData.push({
-            id: `rec_imp_${Date.now()}_${index}`,
-            customerName: String(cliente),
-            accountCategoryId: category.id,
-            description: String(row["Descricao"] || "Receita Importada"),
-            amount: Number(valor),
-            dueDate: formattedDate,
-            status: 'Open',
-            createdAt: new Date().toISOString(),
-            updatedAt: new Date().toISOString(),
-          });
-        });
-
-        if (errors.length > 0) {
-          toast({ variant: "destructive", title: "Erro de Integridade", description: errors.slice(0, 3).join(" | ") });
-        } else {
-          validData.forEach(d => setDocumentNonBlocking(doc(db, "users", user.uid, "accountsReceivableEntries", d.id), d, { merge: true }));
-          toast({ title: "Importação concluída!", description: `${validData.length} receitas adicionadas.` });
+        if (!vencimentoRaw || !cliente || !categoriaNome || !valor) {
+          errors.push(`Linha ${line}: Campos obrigatórios faltando (Vencimento, Cliente, Categoria ou Valor).`);
+          return;
         }
-      } catch (err: any) {
-        toast({ variant: "destructive", title: "Erro na leitura", description: err.message });
-      } finally {
-        setIsImporting(false);
-        if (fileInputRef.current) fileInputRef.current.value = "";
+
+        const category = leafCategories.find(c => c.name.toLowerCase().trim() === String(categoriaNome).toLowerCase().trim());
+        if (!category) {
+          errors.push(`Linha ${line}: Categoria '${categoriaNome}' não cadastrada no plano de contas.`);
+          return;
+        }
+
+        let formattedDueDate = "";
+        if (typeof vencimentoRaw === 'number') {
+          formattedDueDate = format(XLSX.utils.numdate(vencimentoRaw), "yyyy-MM-dd");
+        } else {
+          const dateStr = String(vencimentoRaw);
+          if (dateStr.includes("/")) {
+            const [d, m, y] = dateStr.split("/");
+            formattedDueDate = `${y}-${m}-${d}`;
+          } else {
+            formattedDueDate = dateStr;
+          }
+        }
+
+        validData.push({
+          id: `rec_imp_${Date.now()}_${index}`,
+          customerName: String(cliente),
+          accountCategoryId: category.id,
+          description: String(row["Descricao"] || "Receita Importada via Excel"),
+          amount: Number(valor),
+          dueDate: formattedDueDate,
+          status: 'Open',
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        });
+      });
+
+      if (errors.length > 0) {
+        toast({ 
+          variant: "destructive", 
+          title: "Erro na Importação", 
+          description: `Importação cancelada: ${errors.slice(0, 2).join(" | ")}` 
+        });
+      } else {
+        validData.forEach(d => {
+          setDocumentNonBlocking(doc(db, "users", user.uid, "accountsReceivableEntries", d.id), d, { merge: true });
+        });
+        toast({ title: "Importação Concluída", description: `${validData.length} recebimentos foram importados.` });
       }
-    };
-    reader.readAsArrayBuffer(file);
+    } catch (err: any) {
+      toast({ variant: "destructive", title: "Erro ao ler arquivo", description: err.message });
+    } finally {
+      setIsImporting(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
   };
 
   const handleSaveEntry = (e: React.FormEvent<HTMLFormElement>) => {
@@ -184,15 +193,15 @@ export default function AccountsReceivablePage() {
       <div className="flex justify-between items-end">
         <div>
           <h1 className="text-3xl font-bold flex items-center gap-3"><ArrowUpCircle className="text-accent w-8 h-8" />Contas a Receber</h1>
-          <p className="text-muted-foreground">Monitoramento inteligente de faturamento.</p>
+          <p className="text-muted-foreground">Monitoramento inteligente de faturamento e entradas.</p>
         </div>
         <div className="flex gap-2">
-          <Button variant="outline" className="gap-2" onClick={downloadTemplate}><Download className="w-4 h-4" /> Modelo</Button>
+          <Button variant="outline" className="gap-2" onClick={downloadTemplate}><Download className="w-4 h-4" /> Baixar Modelo</Button>
           <input type="file" accept=".xlsx, .xls" className="hidden" ref={fileInputRef} onChange={handleImportExcel} />
           <Button variant="outline" className="gap-2" onClick={() => fileInputRef.current?.click()} disabled={isImporting}>
             {isImporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileSpreadsheet className="w-4 h-4" />} Importar Excel
           </Button>
-          <Button className="gap-2 bg-accent shadow-lg" onClick={() => setIsNewEntryOpen(true)}><Plus className="w-4 h-4" /> Novo Recebimento</Button>
+          <Button className="gap-2 bg-accent shadow-lg text-accent-foreground" onClick={() => setIsNewEntryOpen(true)}><Plus className="w-4 h-4" /> Novo Recebimento</Button>
         </div>
       </div>
 
@@ -243,7 +252,7 @@ export default function AccountsReceivablePage() {
               </div>
               <div className="grid gap-2"><Label>Categoria*</Label><Select name="categoryId" required><SelectTrigger><SelectValue placeholder="Selecione..." /></SelectTrigger><SelectContent>{leafCategories.map(c => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}</SelectContent></Select></div>
             </div>
-            <DialogFooter><Button type="submit" className="bg-accent w-full">Salvar</Button></DialogFooter>
+            <DialogFooter><Button type="submit" className="bg-accent text-accent-foreground w-full">Salvar</Button></DialogFooter>
           </form>
         </DialogContent>
       </Dialog>

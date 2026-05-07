@@ -83,65 +83,65 @@ export default function SuppliersPage() {
     XLSX.writeFile(wb, "modelo_fornecedores.xlsx");
   };
 
-  const handleImportExcel = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleImportExcel = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file || !db || !user) return;
     setIsImporting(true);
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      try {
-        const dataBuffer = new Uint8Array(event.target?.result as ArrayBuffer);
-        const workbook = XLSX.read(dataBuffer, { type: 'array' });
-        const sheet = workbook.Sheets[workbook.SheetNames[0]];
-        const rows = XLSX.utils.sheet_to_json(sheet) as any[];
+    
+    try {
+      const dataBuffer = await file.arrayBuffer();
+      const workbook = XLSX.read(dataBuffer, { type: 'array' });
+      const sheetName = workbook.SheetNames[0];
+      const sheet = workbook.Sheets[sheetName];
+      const rows = XLSX.utils.sheet_to_json(sheet) as any[];
 
-        if (rows.length === 0) throw new Error("Arquivo vazio.");
+      if (rows.length === 0) throw new Error("O arquivo Excel está vazio.");
 
-        const errors: string[] = [];
-        const validData: Supplier[] = [];
+      const errors: string[] = [];
+      const validData: Supplier[] = [];
 
-        rows.forEach((row, index) => {
-          const lineNum = index + 2;
-          const nome = row["Nome"] || row["nome"];
-          const type = row["Tipo Pessoa"] || row["tipopessoa"];
+      rows.forEach((row, index) => {
+        const lineNum = index + 2;
+        const nome = row["Nome"] || row["nome"];
+        const type = row["Tipo Pessoa"] || row["tipopessoa"];
 
-          if (!nome) {
-            errors.push(`Linha ${lineNum}: Nome é obrigatório.`);
-            return;
-          }
-          if (type !== "Pessoa Física" && type !== "Pessoa Jurídica") {
-            errors.push(`Linha ${lineNum}: Tipo deve ser 'Pessoa Física' ou 'Pessoa Jurídica'.`);
-            return;
-          }
-
-          validData.push({
-            id: `sup_imp_${Date.now()}_${index}`,
-            name: String(nome),
-            personType: type as PersonType,
-            cnpj: String(row["CPF_CNPJ"] || ""),
-            email: String(row["Email"] || ""),
-            phone: String(row["Telefone"] || ""),
-            category: String(row["Categoria"] || "Geral"),
-            pixKey: String(row["ChavePix"] || ""),
-            createdAt: new Date().toISOString(),
-            updatedAt: new Date().toISOString(),
-          });
-        });
-
-        if (errors.length > 0) {
-          toast({ variant: "destructive", title: "Erro de Validação", description: errors.slice(0, 3).join(" | ") });
-        } else {
-          validData.forEach(s => setDocumentNonBlocking(doc(db, "users", user.uid, "suppliers", s.id), s, { merge: true }));
-          toast({ title: "Importação concluída!", description: `${validData.length} fornecedores cadastrados.` });
+        if (!nome) {
+          errors.push(`Linha ${lineNum}: Nome é obrigatório.`);
+          return;
         }
-      } catch (err: any) {
-        toast({ variant: "destructive", title: "Erro na leitura", description: err.message });
-      } finally {
-        setIsImporting(false);
-        if (fileInputRef.current) fileInputRef.current.value = "";
+        if (type !== "Pessoa Física" && type !== "Pessoa Jurídica") {
+          errors.push(`Linha ${lineNum}: Tipo deve ser 'Pessoa Física' ou 'Pessoa Jurídica'.`);
+          return;
+        }
+
+        validData.push({
+          id: `sup_imp_${Date.now()}_${index}`,
+          name: String(nome),
+          personType: type as PersonType,
+          cnpj: String(row["CPF_CNPJ"] || ""),
+          email: String(row["Email"] || ""),
+          phone: String(row["Telefone"] || ""),
+          category: String(row["Categoria"] || "Geral"),
+          pixKey: String(row["ChavePix"] || ""),
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        });
+      });
+
+      if (errors.length > 0) {
+        toast({ variant: "destructive", title: "Erro na Importação", description: `Cancelado: ${errors.slice(0, 2).join(" | ")}` });
+      } else {
+        validData.forEach(s => {
+          setDocumentNonBlocking(doc(db, "users", user.uid, "suppliers", s.id), s, { merge: true });
+        });
+        toast({ title: "Importação Concluída", description: `${validData.length} fornecedores importados.` });
       }
-    };
-    reader.readAsArrayBuffer(file);
+    } catch (err: any) {
+      toast({ variant: "destructive", title: "Erro ao ler arquivo", description: err.message });
+    } finally {
+      setIsImporting(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
   };
 
   const handleSaveSupplier = (e: React.FormEvent) => {
@@ -165,10 +165,10 @@ export default function SuppliersPage() {
       <div className="flex justify-between items-end">
         <div>
           <h1 className="text-3xl font-bold">Fornecedores</h1>
-          <p className="text-muted-foreground">Base cadastral para gestão de pagamentos.</p>
+          <p className="text-muted-foreground">Gestão estratégica da base de fornecedores.</p>
         </div>
         <div className="flex gap-2">
-          <Button variant="outline" className="gap-2" onClick={downloadTemplate}><Download className="w-4 h-4" /> Modelo</Button>
+          <Button variant="outline" className="gap-2" onClick={downloadTemplate}><Download className="w-4 h-4" /> Baixar Modelo</Button>
           <input type="file" accept=".xlsx, .xls" className="hidden" ref={fileInputRef} onChange={handleImportExcel} />
           <Button variant="outline" className="gap-2" onClick={() => fileInputRef.current?.click()} disabled={isImporting}>
             {isImporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileSpreadsheet className="w-4 h-4" />} Importar Excel
@@ -181,7 +181,7 @@ export default function SuppliersPage() {
         <CardHeader className="pb-3">
           <div className="relative max-w-sm">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-            <Input placeholder="Buscar..." className="pl-9 h-9" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
+            <Input placeholder="Buscar por nome, CNPJ ou Pix..." className="pl-9 h-9" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
           </div>
         </CardHeader>
         <CardContent>
@@ -232,7 +232,7 @@ export default function SuppliersPage() {
               </div>
               <div className="grid gap-2"><Label>Chave Pix</Label><Input name="pixKey" defaultValue={editingSupplier?.pixKey} /></div>
             </div>
-            <DialogFooter><Button type="submit" className="w-full">Salvar</Button></DialogFooter>
+            <DialogFooter><Button type="submit" className="w-full">Salvar Fornecedor</Button></DialogFooter>
           </form>
         </DialogContent>
       </Dialog>

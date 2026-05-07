@@ -236,83 +236,113 @@ export default function AccountsPayablePage() {
     XLSX.writeFile(wb, "modelo_contas_pagar.xlsx");
   };
 
-  const handleImportExcel = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleImportExcel = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file || !db || !user) return;
     setIsImporting(true);
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      try {
-        const dataBuffer = new Uint8Array(event.target?.result as ArrayBuffer);
-        const workbook = XLSX.read(dataBuffer, { type: 'array' });
-        const sheet = workbook.Sheets[workbook.SheetNames[0]];
-        const rows = XLSX.utils.sheet_to_json(sheet) as any[];
+    
+    try {
+      const dataBuffer = await file.arrayBuffer();
+      const workbook = XLSX.read(dataBuffer, { type: 'array' });
+      const sheetName = workbook.SheetNames[0];
+      const sheet = workbook.Sheets[sheetName];
+      const rows = XLSX.utils.sheet_to_json(sheet) as any[];
 
-        if (rows.length === 0) throw new Error("Arquivo vazio.");
+      if (rows.length === 0) throw new Error("O arquivo Excel está vazio.");
 
-        const errors: string[] = [];
-        const batchData: any[] = [];
+      const errors: string[] = [];
+      const batchData: any[] = [];
 
-        rows.forEach((row, index) => {
-          const line = index + 2;
-          const vencimento = row["Vencimento"] || row["vencimento"];
-          const fornecedorNome = row["Fornecedor"] || row["fornecedor"];
-          const categoriaNome = row["Categoria"] || row["categoria"];
-          const valor = row["Valor"] || row["valor"];
+      rows.forEach((row, index) => {
+        const line = index + 2;
+        const vencimentoRaw = row["Vencimento"] || row["vencimento"];
+        const fornecedorNome = row["Fornecedor"] || row["fornecedor"];
+        const categoriaNome = row["Categoria"] || row["categoria"];
+        const valor = row["Valor"] || row["valor"];
+        const centroCustoNome = row["CentroCusto"] || row["centrocusto"];
 
-          if (!vencimento || !fornecedorNome || !categoriaNome || !valor) {
-            errors.push(`Linha ${line}: Campos obrigatórios faltando.`);
-            return;
-          }
-
-          const supplier = suppliers?.find(s => s.name.toLowerCase().trim() === String(fornecedorNome).toLowerCase().trim());
-          const category = leafCategories.find(c => c.name.toLowerCase().trim() === String(categoriaNome).toLowerCase().trim());
-          
-          if (!supplier) {
-            errors.push(`Linha ${line}: Fornecedor '${fornecedorNome}' não cadastrado.`);
-            return;
-          }
-          if (!category) {
-            errors.push(`Linha ${line}: Categoria '${categoriaNome}' não cadastrada.`);
-            return;
-          }
-
-          let formattedDate = String(vencimento);
-          if (typeof vencimento === 'number') {
-            formattedDate = format(XLSX.utils.numdate(vencimento), "yyyy-MM-dd");
-          } else if (formattedDate.includes("/")) {
-            const [d, m, y] = formattedDate.split("/");
-            formattedDate = `${y}-${m}-${d}`;
-          }
-
-          batchData.push({
-            id: `pay_imp_${Date.now()}_${index}`,
-            supplierId: supplier.id,
-            accountCategoryId: category.id,
-            description: String(row["Descricao"] || "Importado"),
-            originalAmount: Number(valor),
-            dueDate: formattedDate,
-            status: 'Open',
-            entryType: (row["Tipo"] === 'Provision' ? 'Provision' : 'Confirmed') as EntryType,
-            createdAt: new Date().toISOString(),
-            updatedAt: new Date().toISOString(),
-          });
-        });
-
-        if (errors.length > 0) {
-          toast({ variant: "destructive", title: "Erro de Integridade", description: errors.slice(0, 3).join(" | ") });
-        } else {
-          batchData.forEach(d => setDocumentNonBlocking(doc(db, "users", user.uid, "accountsPayableEntries", d.id), d, { merge: true }));
-          toast({ title: "Importação concluída", description: `${batchData.length} registros adicionados.` });
+        if (!vencimentoRaw || !fornecedorNome || !categoriaNome || !valor) {
+          errors.push(`Linha ${line}: Campos obrigatórios faltando (Vencimento, Fornecedor, Categoria ou Valor).`);
+          return;
         }
-      } catch (err: any) {
-        toast({ variant: "destructive", title: "Erro na leitura", description: err.message });
-      } finally {
-        setIsImporting(false);
-        if (fileInputRef.current) fileInputRef.current.value = "";
+
+        const supplier = suppliers?.find(s => s.name.toLowerCase().trim() === String(fornecedorNome).toLowerCase().trim());
+        const category = leafCategories.find(c => c.name.toLowerCase().trim() === String(categoriaNome).toLowerCase().trim());
+        const costCenter = centers?.find(cc => cc.name.toLowerCase().trim() === String(centroCustoNome || "").toLowerCase().trim());
+
+        if (!supplier) {
+          errors.push(`Linha ${line}: Fornecedor '${fornecedorNome}' não cadastrado no sistema.`);
+          return;
+        }
+        if (!category) {
+          errors.push(`Linha ${line}: Categoria '${categoriaNome}' não cadastrada no plano de contas (Item).`);
+          return;
+        }
+
+        let formattedDueDate = "";
+        if (typeof vencimentoRaw === 'number') {
+          formattedDueDate = format(XLSX.utils.numdate(vencimentoRaw), "yyyy-MM-dd");
+        } else {
+          const dateStr = String(vencimentoRaw);
+          if (dateStr.includes("/")) {
+            const [d, m, y] = dateStr.split("/");
+            formattedDueDate = `${y}-${m}-${d}`;
+          } else {
+            formattedDueDate = dateStr;
+          }
+        }
+
+        let formattedIssueDate = "";
+        const emissaoRaw = row["Emissao"] || row["emissao"];
+        if (emissaoRaw) {
+          if (typeof emissaoRaw === 'number') {
+            formattedIssueDate = format(XLSX.utils.numdate(emissaoRaw), "yyyy-MM-dd");
+          } else {
+            const dateStr = String(emissaoRaw);
+            if (dateStr.includes("/")) {
+              const [d, m, y] = dateStr.split("/");
+              formattedIssueDate = `${y}-${m}-${d}`;
+            } else {
+              formattedIssueDate = dateStr;
+            }
+          }
+        }
+
+        batchData.push({
+          id: `pay_imp_${Date.now()}_${index}`,
+          supplierId: supplier.id,
+          accountCategoryId: category.id,
+          costCenterId: costCenter ? costCenter.id : null,
+          description: String(row["Descricao"] || "Importado via Excel"),
+          originalAmount: Number(valor),
+          dueDate: formattedDueDate,
+          issueDate: formattedIssueDate,
+          paymentMethod: String(row["FormaPagamento"] || "Pix"),
+          status: 'Open',
+          entryType: (String(row["Tipo"] || "").toLowerCase() === 'provision' ? 'Provision' : 'Confirmed') as EntryType,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        });
+      });
+
+      if (errors.length > 0) {
+        toast({ 
+          variant: "destructive", 
+          title: "Erro na Importação", 
+          description: `A importação foi cancelada devido a erros: ${errors.slice(0, 2).join(" | ")}${errors.length > 2 ? '...' : ''}` 
+        });
+      } else {
+        batchData.forEach(d => {
+          setDocumentNonBlocking(doc(db, "users", user.uid, "accountsPayableEntries", d.id), d, { merge: true });
+        });
+        toast({ title: "Importação Concluída", description: `${batchData.length} lançamentos foram importados com sucesso.` });
       }
-    };
-    reader.readAsArrayBuffer(file);
+    } catch (err: any) {
+      toast({ variant: "destructive", title: "Erro ao ler arquivo", description: err.message });
+    } finally {
+      setIsImporting(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
   };
 
   const handleSaveEntry = (e: React.FormEvent) => {
@@ -391,10 +421,10 @@ export default function AccountsPayablePage() {
       <div className="flex justify-between items-end">
         <div>
           <h1 className="text-3xl font-bold flex items-center gap-3"><ArrowDownCircle className="text-destructive w-8 h-8" />Contas a Pagar</h1>
-          <p className="text-muted-foreground">Gestão financeira com foco em planejamento.</p>
+          <p className="text-muted-foreground">Gestão financeira profissional com foco em planejamento.</p>
         </div>
         <div className="flex gap-2">
-          <Button variant="outline" className="gap-2" onClick={downloadTemplate}><Download className="w-4 h-4" /> Modelo</Button>
+          <Button variant="outline" className="gap-2" onClick={downloadTemplate}><Download className="w-4 h-4" /> Baixar Modelo</Button>
           <input type="file" accept=".xlsx, .xls" className="hidden" ref={fileInputRef} onChange={handleImportExcel} />
           <Button variant="outline" className="gap-2" onClick={() => fileInputRef.current?.click()} disabled={isImporting}>
             {isImporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileSpreadsheet className="w-4 h-4" />} Importar Excel
