@@ -21,7 +21,6 @@ import {
   Trash2, 
   FilterX, 
   Loader2,
-  AlertCircle,
   Download,
   FileSpreadsheet,
   Pencil
@@ -70,7 +69,7 @@ import {
   isBefore,
   isSameDay
 } from "date-fns";
-import { read, utils, writeFile } from 'xlsx';
+import * as XLSX from 'xlsx';
 
 export default function AccountsPayablePage() {
   const { user } = useUser();
@@ -97,7 +96,7 @@ export default function AccountsPayablePage() {
   const [fine, setFine] = useState(0);
   const [discount, setDiscount] = useState(0);
 
-  // Form State (Controlled para persistência entre abas)
+  // Form State (Controlled)
   const [formType, setFormType] = useState<EntryType>("Confirmed");
   const [formDescription, setFormDescription] = useState("");
   const [formAmount, setFormAmount] = useState<number>(0);
@@ -231,10 +230,10 @@ export default function AccountsPayablePage() {
       "FormaPagamento": "Pix",
       "CentroCusto": "Geral"
     }];
-    const ws = utils.json_to_sheet(sampleData, { header: headers });
-    const wb = utils.book_new();
-    utils.book_append_sheet(wb, ws, "Contas a Pagar");
-    writeFile(wb, "modelo_contas_pagar.xlsx");
+    const ws = XLSX.utils.json_to_sheet(sampleData, { header: headers });
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Contas a Pagar");
+    XLSX.writeFile(wb, "modelo_contas_pagar.xlsx");
   };
 
   const handleImportExcel = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -245,9 +244,9 @@ export default function AccountsPayablePage() {
     reader.onload = (event) => {
       try {
         const dataBuffer = new Uint8Array(event.target?.result as ArrayBuffer);
-        const workbook = read(dataBuffer, { type: 'array' });
+        const workbook = XLSX.read(dataBuffer, { type: 'array' });
         const sheet = workbook.Sheets[workbook.SheetNames[0]];
-        const rows = utils.sheet_to_json(sheet) as any[];
+        const rows = XLSX.utils.sheet_to_json(sheet) as any[];
 
         if (rows.length === 0) throw new Error("Arquivo vazio.");
 
@@ -280,7 +279,7 @@ export default function AccountsPayablePage() {
 
           let formattedDate = String(vencimento);
           if (typeof vencimento === 'number') {
-            formattedDate = format(utils.numdate(vencimento), "yyyy-MM-dd");
+            formattedDate = format(XLSX.utils.numdate(vencimento), "yyyy-MM-dd");
           } else if (formattedDate.includes("/")) {
             const [d, m, y] = formattedDate.split("/");
             formattedDate = `${y}-${m}-${d}`;

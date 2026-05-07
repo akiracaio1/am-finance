@@ -49,7 +49,7 @@ import { Label } from "@/components/ui/label";
 import { toast } from "@/hooks/use-toast";
 import { AccountsReceivableEntry, AccountCategory } from "@/lib/types";
 import { format } from "date-fns";
-import { read, utils, writeFile } from 'xlsx';
+import * as XLSX from 'xlsx';
 
 export default function AccountsReceivablePage() {
   const { user } = useUser();
@@ -85,10 +85,10 @@ export default function AccountsReceivablePage() {
       "Descricao": "Repasse Semanal",
       "Valor": 8400.00
     }];
-    const ws = utils.json_to_sheet(sampleData, { header: headers });
-    const wb = utils.book_new();
-    utils.book_append_sheet(wb, ws, "Contas a Receber");
-    writeFile(wb, "modelo_contas_receber.xlsx");
+    const ws = XLSX.utils.json_to_sheet(sampleData, { header: headers });
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Contas a Receber");
+    XLSX.writeFile(wb, "modelo_contas_receber.xlsx");
   };
 
   const handleImportExcel = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -99,9 +99,9 @@ export default function AccountsReceivablePage() {
     reader.onload = (event) => {
       try {
         const dataBuffer = new Uint8Array(event.target?.result as ArrayBuffer);
-        const workbook = read(dataBuffer, { type: 'array' });
+        const workbook = XLSX.read(dataBuffer, { type: 'array' });
         const sheet = workbook.Sheets[workbook.SheetNames[0]];
-        const rows = utils.sheet_to_json(sheet) as any[];
+        const rows = XLSX.utils.sheet_to_json(sheet) as any[];
 
         if (rows.length === 0) throw new Error("Arquivo vazio.");
 
@@ -128,7 +128,7 @@ export default function AccountsReceivablePage() {
 
           let formattedDate = String(vencimento);
           if (typeof vencimento === 'number') {
-            formattedDate = format(utils.numdate(vencimento), "yyyy-MM-dd");
+            formattedDate = format(XLSX.utils.numdate(vencimento), "yyyy-MM-dd");
           } else if (formattedDate.includes("/")) {
             const [d, m, y] = formattedDate.split("/");
             formattedDate = `${y}-${m}-${d}`;
