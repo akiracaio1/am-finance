@@ -23,7 +23,8 @@ import {
   Loader2,
   AlertCircle,
   Download,
-  FileSpreadsheet
+  FileSpreadsheet,
+  Pencil
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useUser, useFirestore, useCollection, useMemoFirebase } from "@/firebase";
@@ -96,7 +97,7 @@ export default function AccountsPayablePage() {
   const [fine, setFine] = useState(0);
   const [discount, setDiscount] = useState(0);
 
-  // Form State
+  // Form State (Controlled)
   const [formType, setFormType] = useState<EntryType>("Confirmed");
   const [formDescription, setFormDescription] = useState("");
   const [formAmount, setFormAmount] = useState<number>(0);
@@ -489,7 +490,9 @@ export default function AccountsPayablePage() {
                       <DropdownMenuTrigger asChild><Button variant="ghost" size="icon"><MoreHorizontal className="w-4 h-4" /></Button></DropdownMenuTrigger>
                       <DropdownMenuContent align="end">
                         {entry.status !== 'Paid' && <DropdownMenuItem onClick={() => { setEntryToPay(entry); setIsPaymentOpen(true); }} className="text-emerald-600 font-bold">Liquidar</DropdownMenuItem>}
-                        <DropdownMenuItem onClick={() => openEdit(entry)}>Editar</DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => openEdit(entry)} className="gap-2">
+                          <Pencil className="w-4 h-4" /> Editar
+                        </DropdownMenuItem>
                         <DropdownMenuItem onClick={() => deleteDocumentNonBlocking(doc(db, "users", user.uid, "accountsPayableEntries", entry.id))} className="text-destructive">Excluir</DropdownMenuItem>
                       </DropdownMenuContent>
                     </DropdownMenu>
