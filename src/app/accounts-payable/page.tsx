@@ -19,16 +19,14 @@ import {
   MoreHorizontal, 
   Plus, 
   Trash2, 
-  Check, 
-  AlertTriangle, 
   Wallet, 
   FilterX, 
   Edit2,
-  RotateCcw,
   Upload,
   Loader2,
   AlertCircle,
-  Download
+  Download,
+  FileSpreadsheet
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useUser, useFirestore, useCollection, useMemoFirebase } from "@/firebase";
@@ -70,10 +68,9 @@ import {
   endOfMonth, 
   addMonths,
   startOfYear,
-  endOfYear,
-  subMonths,
-  parse
+  subMonths
 } from "date-fns";
+import * as XLSX from 'xlsx';
 
 export default function AccountsPayablePage() {
   const { user } = useUser();
@@ -229,92 +226,115 @@ export default function AccountsPayablePage() {
   };
 
   const downloadTemplate = () => {
-    const headers = "Vencimento, Fornecedor, Categoria, Descricao, Valor, Tipo, Emissao, FormaPagamento, CentroCusto";
-    const example = "25/12/2024, Peixaria Central, Materiais para Revenda, Compra Salmão, 1500.00, Confirmed, 20/12/2024, Pix, Cozinha";
-    const blob = new Blob([`${headers}\n${example}`], { type: 'text/csv;charset=utf-8;' });
-    const link = document.createElement("a");
-    link.href = URL.createObjectURL(blob);
-    link.setAttribute("download", "modelo_contas_pagar.csv");
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+    const headers = ["Vencimento", "Fornecedor", "Categoria", "Descricao", "Valor", "Tipo", "Emissao", "FormaPagamento", "CentroCusto"];
+    const sampleData = [
+      {
+        "Vencimento": "25/12/2024",
+        "Fornecedor": "Peixaria Central",
+        "Categoria": "Materiais para Revenda",
+        "Descricao": "Compra Salmão",
+        "Valor": 1500.00,
+        "Tipo": "Confirmed",
+        "Emissao": "20/12/2024",
+        "FormaPagamento": "Pix",
+        "CentroCusto": "Cozinha"
+      }
+    ];
+    
+    const worksheet = XLSX.utils.json_to_sheet(sampleData, { header: headers });
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, "Contas a Pagar");
+    XLSX.writeFile(workbook, "modelo_contas_pagar.xlsx");
   };
 
-  const handleImportCSV = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleImportExcel = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file || !db || !user) return;
 
     setIsImporting(true);
     const reader = new FileReader();
     reader.onload = (event) => {
-      const text = event.target?.result as string;
-      const lines = text.split("\n").map(l => l.trim()).filter(l => l !== "");
-      if (lines.length < 2) {
-        toast({ variant: "destructive", title: "Erro na importação", description: "Arquivo vazio." });
-        setIsImporting(false);
-        return;
-      }
+      try {
+        const dataBuffer = new Uint8Array(event.target?.result as ArrayBuffer);
+        const workbook = XLSX.read(dataBuffer, { type: 'array' });
+        const sheetName = workbook.SheetNames[0];
+        const worksheet = workbook.Sheets[sheetName];
+        const rows = XLSX.utils.sheet_to_json(worksheet) as any[];
 
-      const headers = lines[0].split(",").map(h => h.trim().toLowerCase());
-      const rows = lines.slice(1);
-      const errors: string[] = [];
-      const batchData: any[] = [];
-
-      rows.forEach((row, index) => {
-        const columns = row.split(",").map(c => c.trim());
-        const data: any = {};
-        headers.forEach((h, i) => { data[h] = columns[i]; });
-
-        const line = index + 2;
-        if (!data.vencimento || !data.fornecedor || !data.categoria || !data.descricao || !data.valor || !data.tipo) {
-          errors.push(`Linha ${line}: Campos obrigatórios faltando.`);
+        if (rows.length === 0) {
+          toast({ variant: "destructive", title: "Erro na importação", description: "Arquivo vazio." });
+          setIsImporting(false);
+          return;
         }
 
-        const supplier = suppliers?.find(s => s.name.toLowerCase() === data.fornecedor?.toLowerCase());
-        const category = leafCategories.find(c => c.name.toLowerCase() === data.categoria?.toLowerCase());
-        const center = centers?.find(c => c.name.toLowerCase() === data.centrocusto?.toLowerCase());
+        const errors: string[] = [];
+        const batchData: any[] = [];
 
-        if (!supplier) errors.push(`Linha ${line}: Fornecedor '${data.fornecedor}' não encontrado.`);
-        if (!category) errors.push(`Linha ${line}: Categoria '${data.categoria}' não encontrada ou não é um item folha.`);
+        rows.forEach((row, index) => {
+          const line = index + 2;
+          const vencimento = row["Vencimento"] || row["vencimento"];
+          const fornecedorNome = row["Fornecedor"] || row["fornecedor"];
+          const categoriaNome = row["Categoria"] || row["categoria"];
+          const valor = row["Valor"] || row["valor"];
 
-        if (errors.length === 0) {
-          const entryId = `pay_imp_${Date.now()}_${index}`;
-          let formattedDate = data.vencimento;
-          if (formattedDate.includes("/")) {
-            try { formattedDate = format(parse(formattedDate, "dd/MM/yyyy", new Date()), "yyyy-MM-dd"); } catch (e) {}
+          if (!vencimento || !fornecedorNome || !categoriaNome || !valor) {
+            errors.push(`Linha ${line}: Campos obrigatórios (Vencimento, Fornecedor, Categoria, Valor) faltando.`);
           }
 
-          batchData.push({
-            id: entryId,
-            supplierId: supplier!.id,
-            accountCategoryId: category!.id,
-            costCenterId: center?.id || null,
-            description: data.descricao,
-            originalAmount: parseFloat(data.valor.replace("R$", "").replace(".", "").replace(",", ".")),
-            dueDate: formattedDate,
-            issueDate: data.emissao || "",
-            status: 'Open',
-            entryType: (data.tipo === 'Provision' ? 'Provision' : 'Confirmed') as EntryType,
-            paymentMethod: data.formapagamento || "Pix",
-            createdAt: new Date().toISOString(),
-            updatedAt: new Date().toISOString(),
-          });
-        }
-      });
+          const supplier = suppliers?.find(s => s.name.toLowerCase() === String(fornecedorNome).toLowerCase());
+          const category = leafCategories.find(c => c.name.toLowerCase() === String(categoriaNome).toLowerCase());
+          const center = centers?.find(c => c.name.toLowerCase() === String(row["CentroCusto"] || row["centrocusto"] || "").toLowerCase());
 
-      if (errors.length > 0) {
-        toast({ variant: "destructive", title: "Erro de Validação", description: errors.slice(0, 3).join(" | ") });
-      } else {
-        batchData.forEach(d => {
-          const ref = doc(db, "users", user.uid, "accountsPayableEntries", d.id);
-          setDocumentNonBlocking(ref, d, { merge: true });
+          if (!supplier) errors.push(`Linha ${line}: Fornecedor '${fornecedorNome}' não encontrado.`);
+          if (!category) errors.push(`Linha ${line}: Categoria '${categoriaNome}' não encontrada.`);
+
+          if (errors.length === 0) {
+            const entryId = `pay_imp_${Date.now()}_${index}`;
+            let formattedDate = String(vencimento);
+            
+            // Excel serial date check
+            if (typeof vencimento === 'number') {
+              formattedDate = format(XLSX.utils.numdate(vencimento), "yyyy-MM-dd");
+            } else if (formattedDate.includes("/")) {
+              const [d, m, y] = formattedDate.split("/");
+              formattedDate = `${y}-${m}-${d}`;
+            }
+
+            batchData.push({
+              id: entryId,
+              supplierId: supplier!.id,
+              accountCategoryId: category!.id,
+              costCenterId: center?.id || null,
+              description: String(row["Descricao"] || row["descricao"] || "Importado"),
+              originalAmount: Number(valor),
+              dueDate: formattedDate,
+              issueDate: row["Emissao"] ? String(row["Emissao"]) : "",
+              status: 'Open',
+              entryType: (row["Tipo"] === 'Provision' ? 'Provision' : 'Confirmed') as EntryType,
+              paymentMethod: String(row["FormaPagamento"] || row["formapagamento"] || "Pix"),
+              createdAt: new Date().toISOString(),
+              updatedAt: new Date().toISOString(),
+            });
+          }
         });
-        toast({ title: "Importação concluída", description: `${batchData.length} itens importados.` });
+
+        if (errors.length > 0) {
+          toast({ variant: "destructive", title: "Erro de Validação", description: errors.slice(0, 3).join(" | ") });
+        } else {
+          batchData.forEach(d => {
+            const ref = doc(db, "users", user.uid, "accountsPayableEntries", d.id);
+            setDocumentNonBlocking(ref, d, { merge: true });
+          });
+          toast({ title: "Importação concluída", description: `${batchData.length} itens importados.` });
+        }
+      } catch (err) {
+        toast({ variant: "destructive", title: "Erro técnico", description: "Falha ao processar arquivo Excel." });
+      } finally {
+        setIsImporting(false);
+        if (fileInputRef.current) fileInputRef.current.value = "";
       }
-      setIsImporting(false);
-      if (fileInputRef.current) fileInputRef.current.value = "";
     };
-    reader.readAsText(file);
+    reader.readAsArrayBuffer(file);
   };
 
   useEffect(() => {
@@ -376,9 +396,9 @@ export default function AccountsPayablePage() {
           <Button variant="outline" className="gap-2" onClick={downloadTemplate}>
             <Download className="w-4 h-4" /> Baixar Modelo
           </Button>
-          <input type="file" accept=".csv" className="hidden" ref={fileInputRef} onChange={handleImportCSV} />
+          <input type="file" accept=".xlsx, .xls" className="hidden" ref={fileInputRef} onChange={handleImportExcel} />
           <Button variant="outline" className="gap-2" onClick={() => fileInputRef.current?.click()} disabled={isImporting}>
-            {isImporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}Importar CSV
+            {isImporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileSpreadsheet className="w-4 h-4" />}Importar Excel
           </Button>
           <Button variant="outline" className="gap-2" onClick={() => setShowFilters(!showFilters)}><Filter className="w-4 h-4" /> Filtros</Button>
           <Dialog open={isNewEntryOpen} onOpenChange={setIsNewEntryOpen}><DialogTrigger asChild><Button className="gap-2 shadow-lg"><Plus className="w-4 h-4" /> Novo Lançamento</Button></DialogTrigger>
@@ -413,7 +433,7 @@ export default function AccountsPayablePage() {
       </div>
 
       <div className="bg-muted/30 p-3 rounded-lg border border-dashed text-xs text-muted-foreground flex items-center gap-3">
-        <AlertCircle className="w-4 h-4" /><span>Colunas CSV: <strong>Vencimento, Fornecedor, Categoria, Descricao, Valor, Tipo, Emissao, FormaPagamento, CentroCusto</strong>.</span>
+        <AlertCircle className="w-4 h-4" /><span>Colunas Excel: <strong>Vencimento, Fornecedor, Categoria, Descricao, Valor, Tipo, Emissao, FormaPagamento, CentroCusto</strong>.</span>
       </div>
 
       <Collapsible open={showFilters} onOpenChange={setShowFilters}><CollapsibleContent className="space-y-4"><Card className="bg-muted/30"><CardContent className="pt-6">

@@ -14,7 +14,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { Search, Plus, MoreVertical, Mail, Building2, Loader2, CreditCard, User, Edit2, FileText, Trash2, Upload, AlertCircle, Download } from "lucide-react";
+import { Search, Plus, MoreVertical, Building2, Loader2, User, Edit2, Trash2, Upload, AlertCircle, Download, FileSpreadsheet } from "lucide-react";
 import { 
   DropdownMenu, 
   DropdownMenuContent, 
@@ -52,7 +52,7 @@ import {
 import { Label } from "@/components/ui/label";
 import { toast } from "@/hooks/use-toast";
 import { Supplier, PersonType } from "@/lib/types";
-import { useRouter } from "next/navigation";
+import * as XLSX from 'xlsx';
 
 export default function SuppliersPage() {
   const { user } = useUser();
@@ -80,15 +80,23 @@ export default function SuppliersPage() {
   ) || [];
 
   const downloadTemplate = () => {
-    const headers = "Nome, Tipo Pessoa, CPF_CNPJ, Email, Telefone, Categoria, ChavePix";
-    const example = "Exemplo Empresa LTDA, Pessoa Jurídica, 00.000.000/0001-00, contato@exemplo.com, (11) 99999-9999, Insumos, 00000000000100";
-    const blob = new Blob([`${headers}\n${example}`], { type: 'text/csv;charset=utf-8;' });
-    const link = document.createElement("a");
-    link.href = URL.createObjectURL(blob);
-    link.setAttribute("download", "modelo_fornecedores.csv");
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+    const headers = ["Nome", "Tipo Pessoa", "CPF_CNPJ", "Email", "Telefone", "Categoria", "ChavePix"];
+    const sampleData = [
+      {
+        "Nome": "Exemplo Empresa LTDA",
+        "Tipo Pessoa": "Pessoa Jurídica",
+        "CPF_CNPJ": "00.000.000/0001-00",
+        "Email": "contato@exemplo.com",
+        "Telefone": "(11) 99999-9999",
+        "Categoria": "Insumos",
+        "ChavePix": "00000000000100"
+      }
+    ];
+
+    const worksheet = XLSX.utils.json_to_sheet(sampleData, { header: headers });
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, "Fornecedores");
+    XLSX.writeFile(workbook, "modelo_fornecedores.xlsx");
   };
 
   const handleSaveSupplier = async (e: React.FormEvent<HTMLFormElement>) => {
@@ -124,72 +132,77 @@ export default function SuppliersPage() {
     setEditingSupplier(null);
   };
 
-  const handleImportCSV = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleImportExcel = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file || !db || !user) return;
 
     setIsImporting(true);
     const reader = new FileReader();
     reader.onload = (event) => {
-      const text = event.target?.result as string;
-      const lines = text.split("\n").map(l => l.trim()).filter(l => l !== "");
-      if (lines.length < 2) {
-        toast({ variant: "destructive", title: "Erro na importação", description: "O arquivo está vazio ou mal formatado." });
-        setIsImporting(false);
-        return;
-      }
+      try {
+        const data = new Uint8Array(event.target?.result as ArrayBuffer);
+        const workbook = XLSX.read(data, { type: 'array' });
+        const sheetName = workbook.SheetNames[0];
+        const worksheet = workbook.Sheets[sheetName];
+        const rows = XLSX.utils.sheet_to_json(worksheet) as any[];
 
-      const headers = lines[0].split(",").map(h => h.trim().toLowerCase());
-      const rows = lines.slice(1);
-      const errors: string[] = [];
-      const validData: Supplier[] = [];
-
-      rows.forEach((row, index) => {
-        const columns = row.split(",").map(c => c.trim());
-        const data: any = {};
-        headers.forEach((h, i) => { data[h] = columns[i]; });
-
-        const lineNum = index + 2;
-        if (!data.nome) errors.push(`Linha ${lineNum}: Nome é obrigatório.`);
-        const type = data["tipo pessoa"] || data.tipopessoa;
-        if (!type || (type !== "Pessoa Física" && type !== "Pessoa Jurídica")) {
-          errors.push(`Linha ${lineNum}: Tipo Pessoa deve ser 'Pessoa Física' ou 'Pessoa Jurídica'.`);
+        if (rows.length === 0) {
+          toast({ variant: "destructive", title: "Erro na importação", description: "O arquivo está vazio." });
+          setIsImporting(false);
+          return;
         }
 
-        if (errors.length === 0) {
-          const id = `sup_imp_${Date.now()}_${index}`;
-          validData.push({
-            id,
-            name: data.nome,
-            personType: type as PersonType,
-            cnpj: data.cpf_cnpj || data.cnpj || "",
-            email: data.email || "",
-            phone: data.telefone || "",
-            category: data.categoria || "Importado",
-            pixKey: data.chavepix || "",
-            createdAt: new Date().toISOString(),
-            updatedAt: new Date().toISOString(),
+        const errors: string[] = [];
+        const validData: Supplier[] = [];
+
+        rows.forEach((row, index) => {
+          const lineNum = index + 2;
+          const nome = row["Nome"] || row["nome"];
+          const type = row["Tipo Pessoa"] || row["Tipo de Pessoa"] || row["tipopessoa"];
+
+          if (!nome) errors.push(`Linha ${lineNum}: Nome é obrigatório.`);
+          if (!type || (type !== "Pessoa Física" && type !== "Pessoa Jurídica")) {
+            errors.push(`Linha ${lineNum}: Tipo Pessoa deve ser 'Pessoa Física' ou 'Pessoa Jurídica'.`);
+          }
+
+          if (errors.length === 0) {
+            const id = `sup_imp_${Date.now()}_${index}`;
+            validData.push({
+              id,
+              name: String(nome),
+              personType: type as PersonType,
+              cnpj: String(row["CPF_CNPJ"] || row["cnpj"] || ""),
+              email: String(row["Email"] || row["email"] || ""),
+              phone: String(row["Telefone"] || row["telefone"] || ""),
+              category: String(row["Categoria"] || row["categoria"] || "Importado"),
+              pixKey: String(row["ChavePix"] || row["chavepix"] || ""),
+              createdAt: new Date().toISOString(),
+              updatedAt: new Date().toISOString(),
+            });
+          }
+        });
+
+        if (errors.length > 0) {
+          toast({
+            variant: "destructive",
+            title: "Erro de Validação",
+            description: `Corrija os erros: ${errors.slice(0, 3).join(" | ")}${errors.length > 3 ? "..." : ""}`,
           });
+        } else {
+          validData.forEach(s => {
+            const ref = doc(db, "users", user.uid, "suppliers", s.id);
+            setDocumentNonBlocking(ref, s, { merge: true });
+          });
+          toast({ title: "Importação concluída!", description: `${validData.length} fornecedores importados.` });
         }
-      });
-
-      if (errors.length > 0) {
-        toast({
-          variant: "destructive",
-          title: "Erro de Validação",
-          description: `Corrija os erros: ${errors.slice(0, 3).join(" | ")}${errors.length > 3 ? "..." : ""}`,
-        });
-      } else {
-        validData.forEach(s => {
-          const ref = doc(db, "users", user.uid, "suppliers", s.id);
-          setDocumentNonBlocking(ref, s, { merge: true });
-        });
-        toast({ title: "Importação concluída!", description: `${validData.length} fornecedores importados.` });
+      } catch (err) {
+        toast({ variant: "destructive", title: "Erro técnico", description: "Não foi possível ler o arquivo Excel." });
+      } finally {
+        setIsImporting(false);
+        if (fileInputRef.current) fileInputRef.current.value = "";
       }
-      setIsImporting(false);
-      if (fileInputRef.current) fileInputRef.current.value = "";
     };
-    reader.readAsText(file);
+    reader.readAsArrayBuffer(file);
   };
 
   const openEditDialog = (supplier: Supplier) => {
@@ -224,10 +237,10 @@ export default function SuppliersPage() {
           <Button variant="outline" className="gap-2" onClick={downloadTemplate}>
             <Download className="w-4 h-4" /> Baixar Modelo
           </Button>
-          <input type="file" accept=".csv" className="hidden" ref={fileInputRef} onChange={handleImportCSV} />
+          <input type="file" accept=".xlsx, .xls" className="hidden" ref={fileInputRef} onChange={handleImportExcel} />
           <Button variant="outline" className="gap-2" onClick={() => fileInputRef.current?.click()} disabled={isImporting}>
-            {isImporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
-            Importar CSV
+            {isImporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileSpreadsheet className="w-4 h-4" />}
+            Importar Excel
           </Button>
 
           <Dialog open={isDialogOpen} onOpenChange={(open) => {
@@ -285,7 +298,7 @@ export default function SuppliersPage() {
 
       <div className="bg-muted/30 p-4 rounded-lg border border-dashed text-xs text-muted-foreground flex items-center gap-3">
         <AlertCircle className="w-4 h-4 text-primary" />
-        <span>Para importação, use as colunas: <strong>Nome, Tipo Pessoa, CPF_CNPJ, Email, Telefone, Categoria, ChavePix</strong>.</span>
+        <span>Para importação, use o modelo Excel (.xlsx) com as colunas: <strong>Nome, Tipo Pessoa, CPF_CNPJ, Email, Telefone, Categoria, ChavePix</strong>.</span>
       </div>
 
       <Card>

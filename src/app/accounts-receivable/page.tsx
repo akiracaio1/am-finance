@@ -15,7 +15,6 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { 
   ArrowUpCircle, 
-  Upload, 
   Plus,
   Loader2,
   Trash2,
@@ -24,7 +23,8 @@ import {
   Wallet,
   MoreHorizontal,
   AlertCircle,
-  Download
+  Download,
+  FileSpreadsheet
 } from "lucide-react";
 import { useUser, useFirestore, useCollection, useMemoFirebase } from "@/firebase";
 import { collection, doc } from "firebase/firestore";
@@ -54,7 +54,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "@/hooks/use-toast";
 import { AccountsReceivableEntry, AccountCategory } from "@/lib/types";
-import { format, parse } from "date-fns";
+import { format } from "date-fns";
+import * as XLSX from 'xlsx';
 
 export default function AccountsReceivablePage() {
   const { user } = useUser();
@@ -77,15 +78,21 @@ export default function AccountsReceivablePage() {
   const { data: categories } = useCollection<AccountCategory>(categoriesQuery);
 
   const downloadTemplate = () => {
-    const headers = "Vencimento, Cliente, Categoria, Descricao, Valor";
-    const example = "25/12/2024, iFood Brasil, Vendas iFood Semanal, Repasse Semanal, 8400.00";
-    const blob = new Blob([`${headers}\n${example}`], { type: 'text/csv;charset=utf-8;' });
-    const link = document.createElement("a");
-    link.href = URL.createObjectURL(blob);
-    link.setAttribute("download", "modelo_contas_receber.csv");
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+    const headers = ["Vencimento", "Cliente", "Categoria", "Descricao", "Valor"];
+    const sampleData = [
+      {
+        "Vencimento": "25/12/2024",
+        "Cliente": "iFood Brasil",
+        "Categoria": "Vendas iFood Semanal",
+        "Descricao": "Repasse Semanal",
+        "Valor": 8400.00
+      }
+    ];
+
+    const worksheet = XLSX.utils.json_to_sheet(sampleData, { header: headers });
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, "Contas a Receber");
+    XLSX.writeFile(workbook, "modelo_contas_receber.xlsx");
   };
 
   const handleSaveEntry = (e: React.FormEvent<HTMLFormElement>) => {
@@ -110,70 +117,82 @@ export default function AccountsReceivablePage() {
     setIsNewEntryOpen(false);
   };
 
-  const handleImportCSV = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleImportExcel = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file || !db || !user) return;
 
     setIsImporting(true);
     const reader = new FileReader();
     reader.onload = (event) => {
-      const text = event.target?.result as string;
-      const lines = text.split("\n").map(l => l.trim()).filter(l => l !== "");
-      if (lines.length < 2) {
-        toast({ variant: "destructive", title: "Erro na importação", description: "Arquivo vazio." });
-        setIsImporting(false);
-        return;
-      }
+      try {
+        const dataBuffer = new Uint8Array(event.target?.result as ArrayBuffer);
+        const workbook = XLSX.read(dataBuffer, { type: 'array' });
+        const sheetName = workbook.SheetNames[0];
+        const worksheet = workbook.Sheets[sheetName];
+        const rows = XLSX.utils.sheet_to_json(worksheet) as any[];
 
-      const headers = lines[0].split(",").map(h => h.trim().toLowerCase());
-      const rows = lines.slice(1);
-      const errors: string[] = [];
-      const validData: any[] = [];
-
-      rows.forEach((row, index) => {
-        const columns = row.split(",").map(c => c.trim());
-        const data: any = {};
-        headers.forEach((h, i) => { data[h] = columns[i]; });
-
-        const line = index + 2;
-        if (!data.vencimento || !data.cliente || !data.categoria || !data.valor) {
-          errors.push(`Linha ${line}: Campos obrigatórios (Vencimento, Cliente, Categoria, Valor) faltando.`);
+        if (rows.length === 0) {
+          toast({ variant: "destructive", title: "Erro na importação", description: "Arquivo vazio." });
+          setIsImporting(false);
+          return;
         }
 
-        const category = categories?.find(c => c.name.toLowerCase() === data.categoria?.toLowerCase());
-        if (!category) errors.push(`Linha ${line}: Categoria '${data.categoria}' não cadastrada.`);
+        const errors: string[] = [];
+        const validData: any[] = [];
 
-        if (errors.length === 0) {
-          let formattedDate = data.vencimento;
-          if (formattedDate.includes("/")) {
-            try { formattedDate = format(parse(formattedDate, "dd/MM/yyyy", new Date()), "yyyy-MM-dd"); } catch (e) {}
+        rows.forEach((row, index) => {
+          const line = index + 2;
+          const vencimento = row["Vencimento"] || row["vencimento"];
+          const cliente = row["Cliente"] || row["cliente"];
+          const categoriaNome = row["Categoria"] || row["categoria"];
+          const valor = row["Valor"] || row["valor"];
+
+          if (!vencimento || !cliente || !categoriaNome || !valor) {
+            errors.push(`Linha ${line}: Campos obrigatórios (Vencimento, Cliente, Categoria, Valor) faltando.`);
           }
-          validData.push({
-            id: `rec_imp_${Date.now()}_${index}`,
-            customerName: data.cliente,
-            accountCategoryId: category!.id,
-            description: data.descricao || "Venda Importada",
-            amount: parseFloat(data.valor.replace("R$", "").replace(".", "").replace(",", ".")),
-            dueDate: formattedDate,
-            status: 'Open',
-            createdAt: new Date().toISOString(),
-            updatedAt: new Date().toISOString(),
-          });
-        }
-      });
 
-      if (errors.length > 0) {
-        toast({ variant: "destructive", title: "Erro na Planilha", description: errors.slice(0, 3).join(" | ") });
-      } else {
-        validData.forEach(d => {
-          setDocumentNonBlocking(doc(db, "users", user.uid, "accountsReceivableEntries", d.id), d, { merge: true });
+          const category = categories?.find(c => c.name.toLowerCase() === String(categoriaNome).toLowerCase());
+          if (!category) errors.push(`Linha ${line}: Categoria '${categoriaNome}' não cadastrada.`);
+
+          if (errors.length === 0) {
+            let formattedDate = String(vencimento);
+            if (typeof vencimento === 'number') {
+              formattedDate = format(XLSX.utils.numdate(vencimento), "yyyy-MM-dd");
+            } else if (formattedDate.includes("/")) {
+              const [d, m, y] = formattedDate.split("/");
+              formattedDate = `${y}-${m}-${d}`;
+            }
+
+            validData.push({
+              id: `rec_imp_${Date.now()}_${index}`,
+              customerName: String(cliente),
+              accountCategoryId: category!.id,
+              description: String(row["Descricao"] || row["descricao"] || "Venda Importada"),
+              amount: Number(valor),
+              dueDate: formattedDate,
+              status: 'Open',
+              createdAt: new Date().toISOString(),
+              updatedAt: new Date().toISOString(),
+            });
+          }
         });
-        toast({ title: "Importação concluída!", description: `${validData.length} receitas importadas.` });
+
+        if (errors.length > 0) {
+          toast({ variant: "destructive", title: "Erro na Planilha", description: errors.slice(0, 3).join(" | ") });
+        } else {
+          validData.forEach(d => {
+            setDocumentNonBlocking(doc(db, "users", user.uid, "accountsReceivableEntries", d.id), d, { merge: true });
+          });
+          toast({ title: "Importação concluída!", description: `${validData.length} receitas importadas.` });
+        }
+      } catch (err) {
+        toast({ variant: "destructive", title: "Erro técnico", description: "Falha ao processar arquivo Excel." });
+      } finally {
+        setIsImporting(false);
+        if (fileInputRef.current) fileInputRef.current.value = "";
       }
-      setIsImporting(false);
-      if (fileInputRef.current) fileInputRef.current.value = "";
     };
-    reader.readAsText(file);
+    reader.readAsArrayBuffer(file);
   };
 
   const totalOpen = entries?.filter(e => e.status === 'Open').reduce((acc, curr) => acc + curr.amount, 0) || 0;
@@ -190,9 +209,9 @@ export default function AccountsReceivablePage() {
           <Button variant="outline" className="gap-2" onClick={downloadTemplate}>
             <Download className="w-4 h-4" /> Baixar Modelo
           </Button>
-          <input type="file" accept=".csv" className="hidden" ref={fileInputRef} onChange={handleImportCSV} />
+          <input type="file" accept=".xlsx, .xls" className="hidden" ref={fileInputRef} onChange={handleImportExcel} />
           <Button variant="outline" className="gap-2" onClick={() => fileInputRef.current?.click()} disabled={isImporting}>
-            {isImporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}Importar CSV
+            {isImporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileSpreadsheet className="w-4 h-4" />}Importar Excel
           </Button>
           <Dialog open={isNewEntryOpen} onOpenChange={setIsNewEntryOpen}><DialogTrigger asChild><Button className="gap-2 bg-accent"><Plus className="w-4 h-4" /> Novo Recebimento</Button></DialogTrigger>
             <DialogContent><form onSubmit={handleSaveEntry}><DialogHeader><DialogTitle>Nova Receita</DialogTitle></DialogHeader>
@@ -211,7 +230,7 @@ export default function AccountsReceivablePage() {
       </div>
 
       <div className="bg-muted/30 p-3 rounded-lg border border-dashed text-xs text-muted-foreground flex items-center gap-3">
-        <AlertCircle className="w-4 h-4" /><span>Colunas CSV: <strong>Vencimento, Cliente, Categoria, Descricao, Valor</strong>.</span>
+        <AlertCircle className="w-4 h-4" /><span>Colunas Excel: <strong>Vencimento, Cliente, Categoria, Descricao, Valor</strong>.</span>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
