@@ -1,7 +1,7 @@
 
 "use client";
 
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { 
   Table, 
   TableBody, 
@@ -14,7 +14,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { Search, Plus, MoreVertical, Mail, Building2, Loader2, CreditCard, User, Edit2, FileText, Trash2 } from "lucide-react";
+import { Search, Plus, MoreVertical, Mail, Building2, Loader2, CreditCard, User, Edit2, FileText, Trash2, Upload, AlertCircle, CheckCircle2 } from "lucide-react";
 import { 
   DropdownMenu, 
   DropdownMenuContent, 
@@ -64,8 +64,9 @@ export default function SuppliersPage() {
   const [editingSupplier, setEditingSupplier] = useState<Supplier | null>(null);
   const [supplierToDelete, setSupplierToDelete] = useState<Supplier | null>(null);
   const [selectedPersonType, setSelectedPersonType] = useState<PersonType>("Pessoa Jurídica");
+  const [isImporting, setIsImporting] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Memoize the collection reference based on the logged-in user
   const suppliersQuery = useMemoFirebase(() => {
     if (!db || !user) return null;
     return collection(db, "users", user.uid, "suppliers");
@@ -102,20 +103,82 @@ export default function SuppliersPage() {
 
     if (editingSupplier) {
       updateDocumentNonBlocking(supplierRef, supplierData);
-      toast({
-        title: "Fornecedor atualizado",
-        description: `${supplierData.name} foi atualizado com sucesso.`,
-      });
+      toast({ title: "Fornecedor atualizado" });
     } else {
       setDocumentNonBlocking(supplierRef, supplierData, { merge: true });
-      toast({
-        title: "Fornecedor adicionado",
-        description: `${supplierData.name} foi cadastrado com sucesso.`,
-      });
+      toast({ title: "Fornecedor adicionado" });
     }
 
     setIsDialogOpen(false);
     setEditingSupplier(null);
+  };
+
+  const handleImportCSV = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !db || !user) return;
+
+    setIsImporting(true);
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const text = event.target?.result as string;
+      const lines = text.split("\n").map(l => l.trim()).filter(l => l !== "");
+      if (lines.length < 2) {
+        toast({ variant: "destructive", title: "Erro na importação", description: "O arquivo está vazio ou mal formatado." });
+        setIsImporting(false);
+        return;
+      }
+
+      const headers = lines[0].split(",").map(h => h.trim().toLowerCase());
+      const rows = lines.slice(1);
+      const errors: string[] = [];
+      const validData: Supplier[] = [];
+
+      rows.forEach((row, index) => {
+        const columns = row.split(",").map(c => c.trim());
+        const data: any = {};
+        headers.forEach((h, i) => { data[h] = columns[i]; });
+
+        const lineNum = index + 2;
+        if (!data.nome) errors.push(`Linha ${lineNum}: Nome é obrigatório.`);
+        const type = data["tipo pessoa"] || data.tipopessoa;
+        if (!type || (type !== "Pessoa Física" && type !== "Pessoa Jurídica")) {
+          errors.push(`Linha ${lineNum}: Tipo Pessoa deve ser 'Pessoa Física' ou 'Pessoa Jurídica'.`);
+        }
+
+        if (errors.length === 0) {
+          const id = `sup_imp_${Date.now()}_${index}`;
+          validData.push({
+            id,
+            name: data.nome,
+            personType: type as PersonType,
+            cnpj: data.cpf_cnpj || data.cnpj || "",
+            email: data.email || "",
+            phone: data.telefone || "",
+            category: data.categoria || "Importado",
+            pixKey: data.chavepix || "",
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+          });
+        }
+      });
+
+      if (errors.length > 0) {
+        toast({
+          variant: "destructive",
+          title: "Erro de Validação",
+          description: `Corrija os erros: ${errors.slice(0, 3).join(" | ")}${errors.length > 3 ? "..." : ""}`,
+        });
+      } else {
+        validData.forEach(s => {
+          const ref = doc(db, "users", user.uid, "suppliers", s.id);
+          setDocumentNonBlocking(ref, s, { merge: true });
+        });
+        toast({ title: "Importação concluída!", description: `${validData.length} fornecedores importados.` });
+      }
+      setIsImporting(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    };
+    reader.readAsText(file);
   };
 
   const openEditDialog = (supplier: Supplier) => {
@@ -133,157 +196,98 @@ export default function SuppliersPage() {
     if (!db || !user || !supplierToDelete) return;
     const supplierRef = doc(db, "users", user.uid, "suppliers", supplierToDelete.id);
     deleteDocumentNonBlocking(supplierRef);
-    toast({
-      title: "Fornecedor arquivado",
-      description: `${supplierToDelete.name} foi removido da sua lista ativa.`,
-    });
+    toast({ title: "Fornecedor arquivado" });
     setIsDeleteDialogOpen(false);
     setSupplierToDelete(null);
   };
 
-  const handleViewStatement = (supplier: Supplier) => {
-    // Redireciona para contas a pagar filtrando pelo fornecedor
-    router.push(`/accounts-payable?supplierId=${supplier.id}`);
-    toast({
-      title: "Abrindo extrato",
-      description: `Filtrando movimentações de ${supplier.name}.`,
-    });
-  };
-
   return (
-    <div className="space-y-6 animate-in fade-in duration-500">
+    <div className="space-y-6 animate-in fade-in duration-500 pb-10">
       <div className="flex justify-between items-end">
         <div>
           <h1 className="text-3xl font-bold">Fornecedores</h1>
           <p className="text-muted-foreground">Gerencie suas parcerias e prestadores de serviço.</p>
         </div>
         
-        <Dialog open={isDialogOpen} onOpenChange={(open) => {
-          setIsDialogOpen(open);
-          if (!open) setEditingSupplier(null);
-        }}>
-          <DialogTrigger asChild>
-            <Button className="gap-2">
-              <Plus className="w-4 h-4" /> Adicionar Fornecedor
-            </Button>
-          </DialogTrigger>
-          <DialogContent className="max-w-md">
-            <form onSubmit={handleSaveSupplier}>
-              <DialogHeader>
-                <DialogTitle>{editingSupplier ? "Editar Fornecedor" : "Novo Fornecedor"}</DialogTitle>
-              </DialogHeader>
-              <div className="grid gap-4 py-4">
-                <div className="grid gap-2">
-                  <Label htmlFor="name">Nome / Razão Social *</Label>
-                  <Input 
-                    id="name" 
-                    name="name" 
-                    placeholder="Ex: Peixaria Central" 
-                    defaultValue={editingSupplier?.name} 
-                    required 
-                  />
-                </div>
-                
-                <div className="grid gap-2">
-                  <Label htmlFor="personType">Tipo de Pessoa *</Label>
-                  <Select 
-                    value={selectedPersonType} 
-                    onValueChange={(v) => setSelectedPersonType(v as PersonType)}
-                  >
-                    <SelectTrigger id="personType">
-                      <SelectValue placeholder="Selecione o tipo" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="Pessoa Física">Pessoa Física</SelectItem>
-                      <SelectItem value="Pessoa Jurídica">Pessoa Jurídica</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
+        <div className="flex gap-2">
+          <input type="file" accept=".csv" className="hidden" ref={fileInputRef} onChange={handleImportCSV} />
+          <Button variant="outline" className="gap-2" onClick={() => fileInputRef.current?.click()} disabled={isImporting}>
+            {isImporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
+            Importar CSV
+          </Button>
 
-                <div className="grid gap-2">
-                  <Label htmlFor="pixKey">Chave Pix</Label>
-                  <Input 
-                    id="pixKey" 
-                    name="pixKey" 
-                    placeholder="E-mail, CPF, CNPJ ou Aleatória" 
-                    defaultValue={editingSupplier?.pixKey}
-                  />
-                </div>
-
-                <div className="grid grid-cols-2 gap-4">
+          <Dialog open={isDialogOpen} onOpenChange={(open) => {
+            setIsDialogOpen(open);
+            if (!open) setEditingSupplier(null);
+          }}>
+            <DialogTrigger asChild>
+              <Button className="gap-2 shadow-lg">
+                <Plus className="w-4 h-4" /> Novo Fornecedor
+              </Button>
+            </DialogTrigger>
+            <DialogContent className="max-w-md">
+              <form onSubmit={handleSaveSupplier}>
+                <DialogHeader>
+                  <DialogTitle>{editingSupplier ? "Editar Fornecedor" : "Novo Fornecedor"}</DialogTitle>
+                </DialogHeader>
+                <div className="grid gap-4 py-4">
                   <div className="grid gap-2">
-                    <Label htmlFor="cnpj">{selectedPersonType === 'Pessoa Física' ? 'CPF' : 'CNPJ'}</Label>
-                    <Input 
-                      id="cnpj" 
-                      name="cnpj" 
-                      placeholder="000.000.000-00" 
-                      defaultValue={editingSupplier?.cnpj}
-                    />
+                    <Label htmlFor="name">Nome / Razão Social *</Label>
+                    <Input id="name" name="name" placeholder="Ex: Peixaria Central" defaultValue={editingSupplier?.name} required />
                   </div>
                   <div className="grid gap-2">
-                    <Label htmlFor="category">Categoria</Label>
-                    <Input 
-                      id="category" 
-                      name="category" 
-                      placeholder="Ex: Insumos" 
-                      defaultValue={editingSupplier?.category}
-                    />
+                    <Label htmlFor="personType">Tipo de Pessoa *</Label>
+                    <Select value={selectedPersonType} onValueChange={(v) => setSelectedPersonType(v as PersonType)}>
+                      <SelectTrigger id="personType"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="Pessoa Física">Pessoa Física</SelectItem>
+                        <SelectItem value="Pessoa Jurídica">Pessoa Jurídica</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="grid gap-2">
+                    <Label htmlFor="pixKey">Chave Pix</Label>
+                    <Input id="pixKey" name="pixKey" placeholder="E-mail, CPF, CNPJ..." defaultValue={editingSupplier?.pixKey} />
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="grid gap-2">
+                      <Label htmlFor="cnpj">{selectedPersonType === 'Pessoa Física' ? 'CPF' : 'CNPJ'}</Label>
+                      <Input id="cnpj" name="cnpj" placeholder="000.000.000-00" defaultValue={editingSupplier?.cnpj} />
+                    </div>
+                    <div className="grid gap-2">
+                      <Label htmlFor="category">Categoria</Label>
+                      <Input id="category" name="category" placeholder="Ex: Insumos" defaultValue={editingSupplier?.category} />
+                    </div>
                   </div>
                 </div>
-                
-                <div className="grid gap-2">
-                  <Label htmlFor="email">E-mail de Contato</Label>
-                  <Input 
-                    id="email" 
-                    name="email" 
-                    type="email" 
-                    placeholder="contato@empresa.com" 
-                    defaultValue={editingSupplier?.email}
-                  />
-                </div>
-                <div className="grid gap-2">
-                  <Label htmlFor="phone">Telefone</Label>
-                  <Input 
-                    id="phone" 
-                    name="phone" 
-                    placeholder="(00) 00000-0000" 
-                    defaultValue={editingSupplier?.phone}
-                  />
-                </div>
-              </div>
-              <DialogFooter>
-                <Button type="submit">
-                  {editingSupplier ? "Atualizar Fornecedor" : "Salvar Fornecedor"}
-                </Button>
-              </DialogFooter>
-            </form>
-          </DialogContent>
-        </Dialog>
+                <DialogFooter>
+                  <Button type="submit" className="w-full">{editingSupplier ? "Atualizar" : "Salvar"}</Button>
+                </DialogFooter>
+              </form>
+            </DialogContent>
+          </Dialog>
+        </div>
+      </div>
+
+      <div className="bg-muted/30 p-4 rounded-lg border border-dashed text-xs text-muted-foreground flex items-center gap-3">
+        <AlertCircle className="w-4 h-4 text-primary" />
+        <span>Para importação, use as colunas: <strong>Nome, Tipo Pessoa, CPF_CNPJ, Email, Telefone, Categoria, ChavePix</strong>.</span>
       </div>
 
       <Card>
         <CardHeader className="pb-3">
           <div className="relative max-w-sm">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-            <Input 
-              placeholder="Buscar por nome, Pix ou CNPJ..." 
-              className="pl-9"
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-            />
+            <Input placeholder="Buscar por nome, Pix ou CNPJ..." className="pl-9" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
           </div>
         </CardHeader>
         <CardContent>
           {isLoading ? (
-            <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
-              <Loader2 className="w-8 h-8 animate-spin mb-2" />
-              <p>Carregando seus fornecedores...</p>
-            </div>
+            <div className="flex justify-center py-12"><Loader2 className="animate-spin text-muted-foreground" /></div>
           ) : filteredSuppliers.length === 0 ? (
             <div className="text-center py-12 border-2 border-dashed rounded-lg">
               <Building2 className="w-12 h-12 text-muted-foreground/30 mx-auto mb-4" />
-              <h3 className="text-lg font-medium text-muted-foreground">Nenhum fornecedor encontrado</h3>
-              <p className="text-sm text-muted-foreground mb-4">Comece adicionando seu primeiro fornecedor no botão acima.</p>
+              <h3 className="text-muted-foreground">Nenhum fornecedor cadastrado.</h3>
             </div>
           ) : (
             <Table>
@@ -298,7 +302,7 @@ export default function SuppliersPage() {
               </TableHeader>
               <TableBody>
                 {filteredSuppliers.map((supplier) => (
-                  <TableRow key={supplier.id} className="group transition-data">
+                  <TableRow key={supplier.id}>
                     <TableCell className="font-medium">
                       <div className="flex items-center gap-3">
                         <div className="w-8 h-8 rounded bg-muted flex items-center justify-center text-primary">
@@ -306,52 +310,22 @@ export default function SuppliersPage() {
                         </div>
                         <div>
                           <p>{supplier.name}</p>
-                          <p className="text-[10px] text-muted-foreground font-normal">{supplier.personType}</p>
+                          <p className="text-[10px] text-muted-foreground">{supplier.personType}</p>
                         </div>
                       </div>
                     </TableCell>
                     <TableCell>
-                      <div className="space-y-1">
-                        <p className="font-mono text-xs">{supplier.cnpj || "-"}</p>
-                        {supplier.pixKey && (
-                          <div className="flex items-center gap-1 text-[10px] text-accent font-bold">
-                            <CreditCard className="w-3 h-3" /> Pix: {supplier.pixKey}
-                          </div>
-                        )}
-                      </div>
+                      <p className="font-mono text-xs">{supplier.cnpj || "-"}</p>
+                      {supplier.pixKey && <p className="text-[10px] text-accent font-bold">Pix: {supplier.pixKey}</p>}
                     </TableCell>
-                    <TableCell>
-                      <Badge variant="secondary" className="bg-primary/10 text-primary hover:bg-primary/20">
-                        {supplier.category || "Geral"}
-                      </Badge>
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex flex-col gap-0.5 text-muted-foreground text-xs">
-                        {supplier.email && <div className="flex items-center gap-1"><Mail className="w-3 h-3" /> {supplier.email}</div>}
-                        {supplier.phone && <p>{supplier.phone}</p>}
-                        {!supplier.email && !supplier.phone && "-"}
-                      </div>
-                    </TableCell>
+                    <TableCell><Badge variant="secondary" className="bg-primary/5 text-primary">{supplier.category || "Geral"}</Badge></TableCell>
+                    <TableCell className="text-muted-foreground text-xs">{supplier.email || supplier.phone || "-"}</TableCell>
                     <TableCell className="text-right">
                       <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" size="icon">
-                            <MoreVertical className="w-4 h-4" />
-                          </Button>
-                        </DropdownMenuTrigger>
+                        <DropdownMenuTrigger asChild><Button variant="ghost" size="icon"><MoreVertical className="w-4 h-4" /></Button></DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
-                          <DropdownMenuItem onClick={() => openEditDialog(supplier)}>
-                            <Edit2 className="w-4 h-4 mr-2" /> Editar Detalhes
-                          </DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => handleViewStatement(supplier)}>
-                            <FileText className="w-4 h-4 mr-2" /> Ver Extrato
-                          </DropdownMenuItem>
-                          <DropdownMenuItem 
-                            className="text-destructive focus:text-destructive" 
-                            onClick={() => openDeleteDialog(supplier)}
-                          >
-                            <Trash2 className="w-4 h-4 mr-2" /> Arquivar
-                          </DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => openEditDialog(supplier)}><Edit2 className="w-4 h-4 mr-2" /> Editar</DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => openDeleteDialog(supplier)} className="text-destructive"><Trash2 className="w-4 h-4 mr-2" /> Arquivar</DropdownMenuItem>
                         </DropdownMenuContent>
                       </DropdownMenu>
                     </TableCell>
@@ -367,16 +341,11 @@ export default function SuppliersPage() {
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Arquivar Fornecedor?</AlertDialogTitle>
-            <AlertDialogDescription>
-              Você está prestes a arquivar <strong>{supplierToDelete?.name}</strong>. 
-              Isso removerá o fornecedor da sua lista ativa, mas não afetará lançamentos financeiros já existentes.
-            </AlertDialogDescription>
+            <AlertDialogDescription>Deseja remover <strong>{supplierToDelete?.name}</strong> da lista ativa?</AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancelar</AlertDialogCancel>
-            <AlertDialogAction onClick={confirmDelete} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
-              Arquivar
-            </AlertDialogAction>
+            <AlertDialogAction onClick={confirmDelete} className="bg-destructive">Arquivar</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
