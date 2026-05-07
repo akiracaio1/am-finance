@@ -417,7 +417,7 @@ export default function AccountsPayablePage() {
         </div>
       </div>
 
-      <Collapsible open={showFilters} onOpenChange={setShowFilters}>
+      <Collapsible title="Filtros" open={showFilters} onOpenChange={setShowFilters}>
         <CollapsibleContent className="space-y-4">
           <Card className="bg-muted/30 border-dashed">
             <CardContent className="pt-6">
