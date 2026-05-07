@@ -27,7 +27,8 @@ import {
   RotateCcw,
   Upload,
   Loader2,
-  AlertCircle
+  AlertCircle,
+  Download
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useUser, useFirestore, useCollection, useMemoFirebase } from "@/firebase";
@@ -227,6 +228,18 @@ export default function AccountsPayablePage() {
     setFilterDueDateStart(""); setFilterDueDateEnd(""); setDatePreset("custom");
   };
 
+  const downloadTemplate = () => {
+    const headers = "Vencimento, Fornecedor, Categoria, Descricao, Valor, Tipo, Emissao, FormaPagamento, CentroCusto";
+    const example = "25/12/2024, Peixaria Central, Materiais para Revenda, Compra Salmão, 1500.00, Confirmed, 20/12/2024, Pix, Cozinha";
+    const blob = new Blob([`${headers}\n${example}`], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(blob);
+    link.setAttribute("download", "modelo_contas_pagar.csv");
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
   const handleImportCSV = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file || !db || !user) return;
@@ -360,6 +373,9 @@ export default function AccountsPayablePage() {
           <p className="text-muted-foreground">Gestão de despesas e provisões.</p>
         </div>
         <div className="flex gap-2">
+          <Button variant="outline" className="gap-2" onClick={downloadTemplate}>
+            <Download className="w-4 h-4" /> Baixar Modelo
+          </Button>
           <input type="file" accept=".csv" className="hidden" ref={fileInputRef} onChange={handleImportCSV} />
           <Button variant="outline" className="gap-2" onClick={() => fileInputRef.current?.click()} disabled={isImporting}>
             {isImporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}Importar CSV

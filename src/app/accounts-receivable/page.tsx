@@ -23,7 +23,8 @@ import {
   Calendar,
   Wallet,
   MoreHorizontal,
-  AlertCircle
+  AlertCircle,
+  Download
 } from "lucide-react";
 import { useUser, useFirestore, useCollection, useMemoFirebase } from "@/firebase";
 import { collection, doc } from "firebase/firestore";
@@ -74,6 +75,18 @@ export default function AccountsReceivablePage() {
 
   const { data: entries, isLoading: entriesLoading } = useCollection<AccountsReceivableEntry>(entriesQuery);
   const { data: categories } = useCollection<AccountCategory>(categoriesQuery);
+
+  const downloadTemplate = () => {
+    const headers = "Vencimento, Cliente, Categoria, Descricao, Valor";
+    const example = "25/12/2024, iFood Brasil, Vendas iFood Semanal, Repasse Semanal, 8400.00";
+    const blob = new Blob([`${headers}\n${example}`], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(blob);
+    link.setAttribute("download", "modelo_contas_receber.csv");
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
 
   const handleSaveEntry = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -174,6 +187,9 @@ export default function AccountsReceivablePage() {
           <p className="text-muted-foreground">Monitore o faturamento.</p>
         </div>
         <div className="flex gap-2">
+          <Button variant="outline" className="gap-2" onClick={downloadTemplate}>
+            <Download className="w-4 h-4" /> Baixar Modelo
+          </Button>
           <input type="file" accept=".csv" className="hidden" ref={fileInputRef} onChange={handleImportCSV} />
           <Button variant="outline" className="gap-2" onClick={() => fileInputRef.current?.click()} disabled={isImporting}>
             {isImporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}Importar CSV

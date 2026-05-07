@@ -14,7 +14,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { Search, Plus, MoreVertical, Mail, Building2, Loader2, CreditCard, User, Edit2, FileText, Trash2, Upload, AlertCircle, CheckCircle2 } from "lucide-react";
+import { Search, Plus, MoreVertical, Mail, Building2, Loader2, CreditCard, User, Edit2, FileText, Trash2, Upload, AlertCircle, Download } from "lucide-react";
 import { 
   DropdownMenu, 
   DropdownMenuContent, 
@@ -57,7 +57,6 @@ import { useRouter } from "next/navigation";
 export default function SuppliersPage() {
   const { user } = useUser();
   const db = useFirestore();
-  const router = useRouter();
   const [searchTerm, setSearchTerm] = useState("");
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
@@ -79,6 +78,18 @@ export default function SuppliersPage() {
     s.cnpj?.includes(searchTerm) ||
     s.pixKey?.toLowerCase().includes(searchTerm.toLowerCase())
   ) || [];
+
+  const downloadTemplate = () => {
+    const headers = "Nome, Tipo Pessoa, CPF_CNPJ, Email, Telefone, Categoria, ChavePix";
+    const example = "Exemplo Empresa LTDA, Pessoa Jurídica, 00.000.000/0001-00, contato@exemplo.com, (11) 99999-9999, Insumos, 00000000000100";
+    const blob = new Blob([`${headers}\n${example}`], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(blob);
+    link.setAttribute("download", "modelo_fornecedores.csv");
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
 
   const handleSaveSupplier = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -210,6 +221,9 @@ export default function SuppliersPage() {
         </div>
         
         <div className="flex gap-2">
+          <Button variant="outline" className="gap-2" onClick={downloadTemplate}>
+            <Download className="w-4 h-4" /> Baixar Modelo
+          </Button>
           <input type="file" accept=".csv" className="hidden" ref={fileInputRef} onChange={handleImportCSV} />
           <Button variant="outline" className="gap-2" onClick={() => fileInputRef.current?.click()} disabled={isImporting}>
             {isImporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
