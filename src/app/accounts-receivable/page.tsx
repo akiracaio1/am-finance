@@ -73,6 +73,7 @@ export default function AccountsReceivablePage() {
 
   const leafCategories = useMemo(() => {
     if (!categories) return [];
+    // Apenas categorias que não são pais de ninguém (itens folha)
     return categories.filter(cat => !categories.some(child => child.parentCategoryId === cat.id));
   }, [categories]);
 
@@ -114,12 +115,15 @@ export default function AccountsReceivablePage() {
         const valor = row["Valor"] || row["valor"];
 
         if (!vencimentoRaw || !cliente || !categoriaNome || !valor) {
-          errors.push(`Linha ${line}: Campos faltando.`);
+          errors.push(`Linha ${line}: Todos os campos são obrigatórios.`);
           return;
         }
 
         const category = leafCategories.find(c => c.name.toLowerCase().trim() === String(categoriaNome).toLowerCase().trim());
-        if (!category) { errors.push(`Linha ${line}: Categoria '${categoriaNome}' não cadastrada.`); return; }
+        if (!category) { 
+          errors.push(`Linha ${line}: Categoria '${categoriaNome}' não cadastrada ou não é um Item (Folha).`); 
+          return; 
+        }
 
         let formattedDueDate = "";
         if (typeof vencimentoRaw === 'number') {
@@ -138,7 +142,7 @@ export default function AccountsReceivablePage() {
           id: `rec_imp_${Date.now()}_${index}`,
           customerName: String(cliente),
           accountCategoryId: category.id,
-          description: String(row["Descricao"] || "Receita Importada"),
+          description: String(row["Descricao"] || row["descricao"] || "Receita Importada"),
           amount: Number(valor),
           dueDate: formattedDueDate,
           status: 'Open',
@@ -148,7 +152,11 @@ export default function AccountsReceivablePage() {
       });
 
       if (errors.length > 0) {
-        toast({ variant: "destructive", title: "Erro na Importação", description: errors.slice(0, 2).join(" | ") });
+        toast({ 
+          variant: "destructive", 
+          title: "Erro na Importação", 
+          description: "A importação foi bloqueada por erros: " + errors.slice(0, 2).join(" | ") 
+        });
       } else {
         validData.forEach(d => {
           setDocumentNonBlocking(doc(db, "users", user.uid, "accountsReceivableEntries", d.id), d, { merge: true });
@@ -156,7 +164,7 @@ export default function AccountsReceivablePage() {
         toast({ title: "Importação Concluída", description: `${validData.length} recebimentos importados.` });
       }
     } catch (err: any) {
-      toast({ variant: "destructive", title: "Erro ao ler arquivo", description: err.message });
+      toast({ variant: "destructive", title: "Erro ao ler arquivo", description: "Certifique-se de que é um arquivo Excel (.xlsx) válido." });
     } finally {
       setIsImporting(false);
       if (fileInputRef.current) fileInputRef.current.value = "";
@@ -168,12 +176,20 @@ export default function AccountsReceivablePage() {
     if (!db || !user) return;
     const formData = new FormData(e.currentTarget);
     const entryId = `rec_${Date.now()}`;
-    setDocumentNonBlocking(doc(db, "users", user.uid, "accountsReceivableEntries", entryId), {
-      id: entryId, customerName: formData.get("customerName"), accountCategoryId: formData.get("categoryId"),
-      description: formData.get("description"), amount: Number(formData.get("amount")), dueDate: formData.get("dueDate"),
-      status: 'Open', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
-    }, { merge: true });
+    const data = {
+      id: entryId, 
+      customerName: formData.get("customerName"), 
+      accountCategoryId: formData.get("categoryId"),
+      description: formData.get("description"), 
+      amount: Number(formData.get("amount")), 
+      dueDate: formData.get("dueDate"),
+      status: 'Open', 
+      createdAt: new Date().toISOString(), 
+      updatedAt: new Date().toISOString(),
+    };
+    setDocumentNonBlocking(doc(db, "users", user.uid, "accountsReceivableEntries", entryId), data, { merge: true });
     setIsNewEntryOpen(false);
+    toast({ title: "Recebimento salvo" });
   };
 
   const totalOpen = entries?.filter(e => e.status === 'Open').reduce((acc, curr) => acc + curr.amount, 0) || 0;
@@ -184,7 +200,7 @@ export default function AccountsReceivablePage() {
       <div className="flex justify-between items-end">
         <div>
           <h1 className="text-3xl font-bold flex items-center gap-3"><ArrowUpCircle className="text-accent w-8 h-8" />Contas a Receber</h1>
-          <p className="text-muted-foreground">Entradas inteligentes.</p>
+          <p className="text-muted-foreground">Gestão de entradas e faturamento.</p>
         </div>
         <div className="flex gap-2">
           <Button variant="outline" className="gap-2" onClick={downloadTemplate}><Download className="w-4 h-4" /> Baixar Modelo</Button>
@@ -192,7 +208,7 @@ export default function AccountsReceivablePage() {
           <Button variant="outline" className="gap-2" onClick={() => fileInputRef.current?.click()} disabled={isImporting}>
             {isImporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileSpreadsheet className="w-4 h-4" />} Importar Excel
           </Button>
-          <Button className="gap-2 bg-accent shadow-lg text-accent-foreground" onClick={() => setIsNewEntryOpen(true)}><Plus className="w-4 h-4" /> Novo Recebimento</Button>
+          <Button className="gap-2 bg-accent shadow-lg text-accent-foreground hover:bg-accent/90" onClick={() => setIsNewEntryOpen(true)}><Plus className="w-4 h-4" /> Novo Recebimento</Button>
         </div>
       </div>
 
@@ -216,8 +232,16 @@ export default function AccountsReceivablePage() {
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild><Button variant="ghost" size="icon"><MoreHorizontal className="w-4 h-4" /></Button></DropdownMenuTrigger>
                       <DropdownMenuContent align="end">
-                        {entry.status !== 'Paid' && <DropdownMenuItem onClick={() => updateDocumentNonBlocking(doc(db, "users", user.uid, "accountsReceivableEntries", entry.id), { status: 'Paid', paymentDate: format(new Date(), "yyyy-MM-dd"), updatedAt: new Date().toISOString() })} className="text-emerald-600 font-bold">Baixar</DropdownMenuItem>}
-                        <DropdownMenuItem onClick={() => deleteDocumentNonBlocking(doc(db, "users", user.uid, "accountsReceivableEntries", entry.id))} className="text-destructive">Excluir</DropdownMenuItem>
+                        {entry.status !== 'Paid' && <DropdownMenuItem onClick={() => {
+                          if (!db || !user) return;
+                          updateDocumentNonBlocking(doc(db, "users", user.uid, "accountsReceivableEntries", entry.id), { status: 'Paid', paymentDate: format(new Date(), "yyyy-MM-dd"), updatedAt: new Date().toISOString() });
+                          toast({ title: "Recebimento baixado" });
+                        }} className="text-emerald-600 font-bold">Baixar</DropdownMenuItem>}
+                        <DropdownMenuItem onClick={() => {
+                          if (!db || !user) return;
+                          deleteDocumentNonBlocking(doc(db, "users", user.uid, "accountsReceivableEntries", entry.id));
+                          toast({ title: "Recebimento excluído" });
+                        }} className="text-destructive">Excluir</DropdownMenuItem>
                       </DropdownMenuContent>
                     </DropdownMenu>
                   </TableCell>
@@ -233,11 +257,12 @@ export default function AccountsReceivablePage() {
           <form onSubmit={handleSaveEntry}>
             <DialogHeader><DialogTitle>Novo Recebimento</DialogTitle></DialogHeader>
             <div className="grid gap-4 py-4">
-              <div className="grid gap-2"><Label>Origem*</Label><Input name="customerName" required /></div>
+              <div className="grid gap-2"><Label>Origem (Cliente)*</Label><Input name="customerName" placeholder="Ex: iFood, Balcão..." required /></div>
               <div className="grid grid-cols-2 gap-4">
                 <div className="grid gap-2"><Label>Valor*</Label><Input name="amount" type="number" step="0.01" required /></div>
                 <div className="grid gap-2"><Label>Vencimento*</Label><Input name="dueDate" type="date" required /></div>
               </div>
+              <div className="grid gap-2"><Label>Descrição</Label><Input name="description" placeholder="Opcional..." /></div>
               <div className="grid gap-2"><Label>Categoria*</Label><Select name="categoryId" required><SelectTrigger><SelectValue placeholder="Selecione..." /></SelectTrigger><SelectContent>{leafCategories.map(c => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}</SelectContent></Select></div>
             </div>
             <DialogFooter><Button type="submit" className="w-full">Salvar</Button></DialogFooter>

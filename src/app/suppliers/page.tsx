@@ -101,32 +101,40 @@ export default function SuppliersPage() {
         const line = index + 2;
         const nome = row["Nome"] || row["nome"];
         const type = row["Tipo Pessoa"] || row["tipopessoa"];
-        if (!nome) { errors.push(`Linha ${line}: Nome obrigatório.`); return; }
+        
+        if (!nome) {
+          errors.push(`Linha ${line}: Nome é obrigatório.`);
+          return;
+        }
 
         validData.push({
           id: `sup_imp_${Date.now()}_${index}`,
           name: String(nome),
-          personType: (type === "Pessoa Física" ? "Pessoa Física" : "Pessoa Jurídica") as PersonType,
-          cnpj: String(row["CPF_CNPJ"] || ""),
-          email: String(row["Email"] || ""),
-          phone: String(row["Telefone"] || ""),
-          category: String(row["Categoria"] || "Geral"),
-          pixKey: String(row["ChavePix"] || ""),
+          personType: (String(type).toLowerCase().includes("física") ? "Pessoa Física" : "Pessoa Jurídica") as PersonType,
+          cnpj: String(row["CPF_CNPJ"] || row["cpf_cnpj"] || ""),
+          email: String(row["Email"] || row["email"] || ""),
+          phone: String(row["Telefone"] || row["telefone"] || ""),
+          category: String(row["Categoria"] || row["categoria"] || "Geral"),
+          pixKey: String(row["ChavePix"] || row["chavepix"] || ""),
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
         });
       });
 
       if (errors.length > 0) {
-        toast({ variant: "destructive", title: "Erro na Importação", description: errors[0] });
+        toast({ 
+          variant: "destructive", 
+          title: "Erro na Importação", 
+          description: "Corrija os erros e tente novamente: " + errors.slice(0, 2).join(" | ") 
+        });
       } else {
         validData.forEach(s => {
           setDocumentNonBlocking(doc(db, "users", user.uid, "suppliers", s.id), s, { merge: true });
         });
-        toast({ title: "Importação Concluída", description: `${validData.length} fornecedores importados.` });
+        toast({ title: "Importação Concluída", description: `${validData.length} fornecedores importados com sucesso.` });
       }
     } catch (err: any) {
-      toast({ variant: "destructive", title: "Erro ao ler arquivo", description: err.message });
+      toast({ variant: "destructive", title: "Erro ao ler arquivo", description: "O formato do arquivo é inválido ou está corrompido." });
     } finally {
       setIsImporting(false);
       if (fileInputRef.current) fileInputRef.current.value = "";
@@ -139,14 +147,27 @@ export default function SuppliersPage() {
     const formData = new FormData(e.currentTarget as HTMLFormElement);
     const supplierId = editingSupplier ? editingSupplier.id : `sup_${Date.now()}`;
     const data = {
-      id: supplierId, name: formData.get("name") as string, personType: selectedPersonType,
-      cnpj: formData.get("cnpj") as string, email: formData.get("email") as string,
-      phone: formData.get("phone") as string, category: formData.get("category") as string,
-      pixKey: formData.get("pixKey") as string, updatedAt: new Date().toISOString(),
+      id: supplierId, 
+      name: formData.get("name") as string, 
+      personType: selectedPersonType,
+      cnpj: formData.get("cnpj") as string, 
+      email: formData.get("email") as string,
+      phone: formData.get("phone") as string, 
+      category: formData.get("category") as string,
+      pixKey: formData.get("pixKey") as string, 
+      updatedAt: new Date().toISOString(),
       createdAt: editingSupplier ? editingSupplier.createdAt : new Date().toISOString(),
     };
     setDocumentNonBlocking(doc(db, "users", user.uid, "suppliers", supplierId), data, { merge: true });
-    setIsDialogOpen(false); setEditingSupplier(null);
+    setIsDialogOpen(false); 
+    setEditingSupplier(null);
+    toast({ title: editingSupplier ? "Fornecedor atualizado" : "Fornecedor cadastrado" });
+  };
+
+  const openEdit = (supplier: Supplier) => {
+    setEditingSupplier(supplier);
+    setSelectedPersonType(supplier.personType);
+    setIsDialogOpen(true);
   };
 
   return (
@@ -154,7 +175,7 @@ export default function SuppliersPage() {
       <div className="flex justify-between items-end">
         <div>
           <h1 className="text-3xl font-bold">Fornecedores</h1>
-          <p className="text-muted-foreground">Gestão estratégica da base.</p>
+          <p className="text-muted-foreground">Gestão estratégica da base de parceiros.</p>
         </div>
         <div className="flex gap-2">
           <Button variant="outline" className="gap-2" onClick={downloadTemplate}><Download className="w-4 h-4" /> Baixar Modelo</Button>
@@ -170,7 +191,7 @@ export default function SuppliersPage() {
         <CardHeader className="pb-3">
           <div className="relative max-w-sm">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-            <Input placeholder="Buscar fornecedor..." className="pl-9" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
+            <Input placeholder="Buscar por nome ou CNPJ..." className="pl-9" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
           </div>
         </CardHeader>
         <CardContent>
@@ -193,8 +214,12 @@ export default function SuppliersPage() {
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild><Button variant="ghost" size="icon"><MoreHorizontal className="w-4 h-4" /></Button></DropdownMenuTrigger>
                       <DropdownMenuContent align="end">
-                        <DropdownMenuItem onClick={() => { setEditingSupplier(supplier); setSelectedPersonType(supplier.personType); setIsDialogOpen(true); }}>Editar</DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => deleteDocumentNonBlocking(doc(db, "users", user.uid, "suppliers", supplier.id))} className="text-destructive">Excluir</DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => openEdit(supplier)}>Editar</DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => {
+                          if (!db || !user) return;
+                          deleteDocumentNonBlocking(doc(db, "users", user.uid, "suppliers", supplier.id));
+                          toast({ title: "Fornecedor removido" });
+                        }} className="text-destructive">Excluir</DropdownMenuItem>
                       </DropdownMenuContent>
                     </DropdownMenu>
                   </TableCell>
@@ -217,6 +242,10 @@ export default function SuppliersPage() {
                 <div className="grid gap-2"><Label>Categoria</Label><Input name="category" defaultValue={editingSupplier?.category} /></div>
               </div>
               <div className="grid gap-2"><Label>Chave Pix</Label><Input name="pixKey" defaultValue={editingSupplier?.pixKey} /></div>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="grid gap-2"><Label>E-mail</Label><Input name="email" type="email" defaultValue={editingSupplier?.email} /></div>
+                <div className="grid gap-2"><Label>Telefone</Label><Input name="phone" defaultValue={editingSupplier?.phone} /></div>
+              </div>
             </div>
             <DialogFooter><Button type="submit" className="w-full">Salvar Fornecedor</Button></DialogFooter>
           </form>
