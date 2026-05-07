@@ -221,7 +221,7 @@ export default function SuppliersPage() {
                   <TableCell><Badge variant="outline" className="text-[10px]">{supplier.category || "Geral"}</Badge></TableCell>
                   <TableCell className="text-right">
                     <DropdownMenu>
-                      <DropdownMenuTrigger asChild><Button variant="ghost" size="icon"><MoreVertical className="w-4 h-4" /></Button></DropdownMenuTrigger>
+                      <DropdownMenuTrigger asChild><Button variant="ghost" size="icon"><MoreHorizontal className="w-4 h-4" /></Button></DropdownMenuTrigger>
                       <DropdownMenuContent align="end">
                         <DropdownMenuItem onClick={() => { setEditingSupplier(supplier); setSelectedPersonType(supplier.personType); setIsDialogOpen(true); }}>Editar</DropdownMenuItem>
                         <DropdownMenuItem onClick={() => deleteDocumentNonBlocking(doc(db, "users", user.uid, "suppliers", supplier.id))} className="text-destructive">Arquivar</DropdownMenuItem>
