@@ -17,10 +17,6 @@ import {
   ArrowUpCircle, 
   Plus,
   Loader2,
-  Trash2,
-  CheckCircle2,
-  Calendar,
-  Wallet,
   MoreHorizontal,
   AlertCircle,
   Download,
@@ -34,8 +30,7 @@ import {
   DialogContent, 
   DialogHeader, 
   DialogTitle, 
-  DialogFooter,
-  DialogTrigger
+  DialogFooter
 } from "@/components/ui/dialog";
 import { 
   DropdownMenu, 
@@ -74,7 +69,7 @@ export default function AccountsReceivablePage() {
     return collection(db, "users", user.uid, "accountCategories");
   }, [db, user]);
 
-  const { data: entries, isLoading: entriesLoading } = useCollection<AccountsReceivableEntry>(entriesQuery);
+  const { data: entries } = useCollection<AccountsReceivableEntry>(entriesQuery);
   const { data: categories } = useCollection<AccountCategory>(categoriesQuery);
 
   const leafCategories = useMemo(() => {
@@ -202,11 +197,6 @@ export default function AccountsReceivablePage() {
         </div>
       </div>
 
-      <div className="bg-muted/30 p-3 rounded-lg border border-dashed text-[10px] text-muted-foreground flex items-center gap-3">
-        <AlertCircle className="w-4 h-4" />
-        <span>Importação: Colunas <strong>Vencimento, Cliente, Categoria, Descricao, Valor</strong> são obrigatórias. Categorias devem existir no Plano de Contas.</span>
-      </div>
-
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <Card className="bg-accent/5"><CardHeader className="p-4 pb-2 text-[10px] font-bold text-accent uppercase">A Receber</CardHeader><CardContent className="p-4 pt-0 text-2xl font-bold text-accent">R$ {totalOpen.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</CardContent></Card>
         <Card className="bg-emerald-50"><CardHeader className="p-4 pb-2 text-[10px] font-bold text-emerald-700 uppercase">Recebido</CardHeader><CardContent className="p-4 pt-0 text-2xl font-bold text-emerald-800">R$ {totalPaid.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</CardContent></Card>
@@ -246,7 +236,7 @@ export default function AccountsReceivablePage() {
           <form onSubmit={handleSaveEntry}>
             <DialogHeader><DialogTitle>Novo Recebimento Manual</DialogTitle></DialogHeader>
             <div className="grid gap-4 py-4">
-              <div className="grid gap-2"><Label>Origem / Cliente*</Label><Input name="customerName" required /></div>
+              <div className="grid gap-2"><Label>Origem*</Label><Input name="customerName" required /></div>
               <div className="grid gap-2"><Label>Descrição*</Label><Input name="description" required /></div>
               <div className="grid grid-cols-2 gap-4">
                 <div className="grid gap-2"><Label>Valor*</Label><Input name="amount" type="number" step="0.01" required /></div>

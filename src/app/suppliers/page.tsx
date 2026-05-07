@@ -14,7 +14,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { Search, Plus, MoreVertical, Building2, Loader2, User, Edit2, Trash2, Upload, AlertCircle, Download, FileSpreadsheet, MoreHorizontal } from "lucide-react";
+import { Search, Plus, Building2, Loader2, User, Download, FileSpreadsheet, MoreHorizontal } from "lucide-react";
 import { 
   DropdownMenu, 
   DropdownMenuContent, 
@@ -30,13 +30,12 @@ import {
 } from "@/components/ui/select";
 import { useUser, useFirestore, useCollection, useMemoFirebase } from "@/firebase";
 import { collection, doc } from "firebase/firestore";
-import { setDocumentNonBlocking, updateDocumentNonBlocking, deleteDocumentNonBlocking } from "@/firebase/non-blocking-updates";
+import { setDocumentNonBlocking, deleteDocumentNonBlocking } from "@/firebase/non-blocking-updates";
 import { 
   Dialog, 
   DialogContent, 
   DialogHeader, 
   DialogTitle, 
-  DialogTrigger,
   DialogFooter
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
@@ -59,7 +58,7 @@ export default function SuppliersPage() {
     return collection(db, "users", user.uid, "suppliers");
   }, [db, user]);
 
-  const { data: suppliers, isLoading } = useCollection<Supplier>(suppliersQuery);
+  const { data: suppliers } = useCollection<Supplier>(suppliersQuery);
 
   const filteredSuppliers = suppliers?.filter(s => 
     s.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -70,13 +69,13 @@ export default function SuppliersPage() {
   const downloadTemplate = () => {
     const headers = ["Nome", "Tipo Pessoa", "CPF_CNPJ", "Email", "Telefone", "Categoria", "ChavePix"];
     const sampleData = [{
-      "Nome": "Peixaria Central",
+      "Nome": "Fornecedor Exemplo",
       "Tipo Pessoa": "Pessoa Jurídica",
-      "CPF_CNPJ": "12.345.678/0001-90",
-      "Email": "contato@peixariacentral.com",
-      "Telefone": "(11) 98888-8888",
+      "CPF_CNPJ": "00.000.000/0001-00",
+      "Email": "contato@exemplo.com",
+      "Telefone": "(11) 99999-9999",
       "Categoria": "Insumos",
-      "ChavePix": "12345678000190"
+      "ChavePix": "00000000000"
     }];
     const ws = XLSX.utils.json_to_sheet(sampleData, { header: headers });
     const wb = XLSX.utils.book_new();
@@ -178,16 +177,11 @@ export default function SuppliersPage() {
         </div>
       </div>
 
-      <div className="bg-muted/30 p-3 rounded-lg border border-dashed text-[10px] text-muted-foreground flex items-center gap-3">
-        <AlertCircle className="w-4 h-4" />
-        <span>Importante: Cadastre seus fornecedores aqui antes de importar o Contas a Pagar para garantir o vínculo correto.</span>
-      </div>
-
       <Card>
         <CardHeader className="pb-3">
           <div className="relative max-w-sm">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-            <Input placeholder="Buscar por nome, Pix ou documento..." className="pl-9 h-9" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
+            <Input placeholder="Buscar..." className="pl-9 h-9" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
           </div>
         </CardHeader>
         <CardContent>
@@ -214,7 +208,7 @@ export default function SuppliersPage() {
                       <DropdownMenuTrigger asChild><Button variant="ghost" size="icon"><MoreHorizontal className="w-4 h-4" /></Button></DropdownMenuTrigger>
                       <DropdownMenuContent align="end">
                         <DropdownMenuItem onClick={() => { setEditingSupplier(supplier); setSelectedPersonType(supplier.personType); setIsDialogOpen(true); }}>Editar</DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => deleteDocumentNonBlocking(doc(db, "users", user.uid, "suppliers", supplier.id))} className="text-destructive">Arquivar</DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => deleteDocumentNonBlocking(doc(db, "users", user.uid, "suppliers", supplier.id))} className="text-destructive">Excluir</DropdownMenuItem>
                       </DropdownMenuContent>
                     </DropdownMenu>
                   </TableCell>
@@ -230,7 +224,7 @@ export default function SuppliersPage() {
           <form onSubmit={handleSaveSupplier}>
             <DialogHeader><DialogTitle>{editingSupplier ? 'Editar' : 'Novo'} Fornecedor</DialogTitle></DialogHeader>
             <div className="grid gap-4 py-4">
-              <div className="grid gap-2"><Label>Nome / Razão Social*</Label><Input name="name" defaultValue={editingSupplier?.name} required /></div>
+              <div className="grid gap-2"><Label>Nome*</Label><Input name="name" defaultValue={editingSupplier?.name} required /></div>
               <div className="grid gap-2"><Label>Tipo</Label><Select value={selectedPersonType} onValueChange={(v: any) => setSelectedPersonType(v)}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="Pessoa Física">Pessoa Física</SelectItem><SelectItem value="Pessoa Jurídica">Pessoa Jurídica</SelectItem></SelectContent></Select></div>
               <div className="grid grid-cols-2 gap-4">
                 <div className="grid gap-2"><Label>CNPJ / CPF</Label><Input name="cnpj" defaultValue={editingSupplier?.cnpj} /></div>

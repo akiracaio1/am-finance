@@ -19,27 +19,22 @@ import {
   MoreHorizontal, 
   Plus, 
   Trash2, 
-  Wallet, 
   FilterX, 
-  Edit2,
   Loader2,
   AlertCircle,
   Download,
-  FileSpreadsheet,
-  Calendar,
-  Split
+  FileSpreadsheet
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useUser, useFirestore, useCollection, useMemoFirebase } from "@/firebase";
-import { collection, doc, addDoc, serverTimestamp } from "firebase/firestore";
+import { collection, doc } from "firebase/firestore";
 import { setDocumentNonBlocking, deleteDocumentNonBlocking, updateDocumentNonBlocking } from "@/firebase/non-blocking-updates";
 import { 
   Dialog, 
   DialogContent, 
   DialogHeader, 
   DialogTitle, 
-  DialogFooter,
-  DialogTrigger
+  DialogFooter
 } from "@/components/ui/dialog";
 import { 
   DropdownMenu, 
@@ -72,7 +67,6 @@ import {
   subMonths,
   endOfYear,
   isBefore,
-  isAfter,
   isSameDay
 } from "date-fns";
 import * as XLSX from 'xlsx';
@@ -84,7 +78,7 @@ export default function AccountsPayablePage() {
   const [editingEntry, setEditingEntry] = useState<AccountsPayableEntry | null>(null);
   const [isPaymentOpen, setIsPaymentOpen] = useState(false);
   const [entryToPay, setEntryToPay] = useState<AccountsPayableEntry | null>(null);
-  const [todayStr, setTodayStr] = useState(format(new Date(), "yyyy-MM-dd"));
+  const [todayStr] = useState(format(new Date(), "yyyy-MM-dd"));
   const [showFilters, setShowFilters] = useState(true);
   const [isImporting, setIsImporting] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -102,7 +96,7 @@ export default function AccountsPayablePage() {
   const [fine, setFine] = useState(0);
   const [discount, setDiscount] = useState(0);
 
-  // Form State (Controlled)
+  // Form State
   const [formType, setFormType] = useState<EntryType>("Confirmed");
   const [formDescription, setFormDescription] = useState("");
   const [formAmount, setFormAmount] = useState<number>(0);
@@ -173,28 +167,23 @@ export default function AccountsPayablePage() {
       }) || [];
   }, [entries, filterStatus, filterSupplierId, filterCategoryId, filterDueDateStart, filterDueDateEnd, todayStr]);
 
-  // Totais baseados nos filtros
   const totalOverdue = filteredEntries.filter(e => e.dynamicStatus === 'Overdue').reduce((acc, curr) => acc + curr.originalAmount, 0);
   const totalDueToday = filteredEntries.filter(e => e.dynamicStatus === 'DueToday').reduce((acc, curr) => acc + curr.originalAmount, 0);
   const totalOpen = filteredEntries.filter(e => e.dynamicStatus === 'Open').reduce((acc, curr) => acc + curr.originalAmount, 0);
   const totalPaid = filteredEntries.filter(e => e.dynamicStatus === 'Paid').reduce((acc, curr) => acc + calculateSettledValue(curr), 0);
 
-  // Logic to generate installments preview
   useEffect(() => {
     if (repetitionType === 'single') {
       setGeneratedInstallments([]);
       return;
     }
-
     const newInstallments = [];
     const baseDate = new Date(formDueDate + 'T12:00:00');
-    
     for (let i = 0; i < numRepetitions; i++) {
       const installmentDate = addMonths(baseDate, i);
       const installmentAmount = repetitionType === 'installments' 
         ? Number((formAmount / numRepetitions).toFixed(2)) 
         : formAmount;
-
       newInstallments.push({
         date: format(installmentDate, "yyyy-MM-dd"),
         amount: installmentAmount
@@ -208,7 +197,6 @@ export default function AccountsPayablePage() {
     const today = new Date();
     let start: Date | null = null;
     let end: Date | null = null;
-
     switch (preset) {
       case "today": start = today; end = today; break;
       case "thisWeek": start = startOfWeek(today, { weekStartsOn: 1 }); end = endOfWeek(today, { weekStartsOn: 1 }); break;
@@ -218,7 +206,6 @@ export default function AccountsPayablePage() {
       case "thisYear": start = startOfYear(today); end = endOfYear(today); break;
       default: return;
     }
-
     if (start && end) {
       setFilterDueDateStart(format(start, "yyyy-MM-dd"));
       setFilterDueDateEnd(format(end, "yyyy-MM-dd"));
@@ -234,14 +221,14 @@ export default function AccountsPayablePage() {
     const headers = ["Vencimento", "Fornecedor", "Categoria", "Descricao", "Valor", "Tipo", "Emissao", "FormaPagamento", "CentroCusto"];
     const sampleData = [{
       "Vencimento": "25/12/2024",
-      "Fornecedor": "Peixaria Central",
+      "Fornecedor": "Exemplo Fornecedor",
       "Categoria": "Materiais para Revenda",
-      "Descricao": "Compra Salmão",
+      "Descricao": "Compra de Exemplo",
       "Valor": 1500.00,
       "Tipo": "Confirmed",
       "Emissao": "20/12/2024",
       "FormaPagamento": "Pix",
-      "CentroCusto": "Cozinha"
+      "CentroCusto": "Geral"
     }];
     const ws = XLSX.utils.json_to_sheet(sampleData, { header: headers });
     const wb = XLSX.utils.book_new();
@@ -496,9 +483,6 @@ export default function AccountsPayablePage() {
                   </TableCell>
                   <TableCell className="text-right font-bold">
                     R$ {entry.originalAmount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-                    {entry.status === 'Paid' && (
-                      <div className="text-[10px] text-emerald-600 font-normal">Liquidado: R$ {calculateSettledValue(entry).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</div>
-                    )}
                   </TableCell>
                   <TableCell>
                     <DropdownMenu>
@@ -517,7 +501,6 @@ export default function AccountsPayablePage() {
         </CardContent>
       </Card>
 
-      {/* Modal de Novo/Editar */}
       <Dialog open={isNewEntryOpen} onOpenChange={setIsNewEntryOpen}>
         <DialogContent className="max-w-3xl">
           <DialogHeader><DialogTitle>{editingEntry ? 'Editar' : 'Novo'} Lançamento</DialogTitle></DialogHeader>
@@ -548,14 +531,14 @@ export default function AccountsPayablePage() {
 
               <TabsContent value="repetition" className="space-y-4 py-4">
                 <div className="grid grid-cols-2 gap-4">
-                  <div className="grid gap-2"><Label>Tipo de Repetição</Label><Select value={repetitionType} onValueChange={(v: any) => setRepetitionType(v)}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="single">Lançamento Único</SelectItem><SelectItem value="fixed">Fixo Mensal (Repetir valor)</SelectItem><SelectItem value="installments">Parcelado (Dividir valor total)</SelectItem></SelectContent></Select></div>
+                  <div className="grid gap-2"><Label>Tipo de Repetição</Label><Select value={repetitionType} onValueChange={(v: any) => setRepetitionType(v)}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="single">Lançamento Único</SelectItem><SelectItem value="fixed">Fixo Mensal</SelectItem><SelectItem value="installments">Parcelado</SelectItem></SelectContent></Select></div>
                   {repetitionType !== 'single' && (
                     <div className="grid gap-2"><Label>Nº de Meses / Parcelas</Label><Input type="number" min={1} max={60} value={numRepetitions} onChange={e => setNumRepetitions(Number(e.target.value))} /></div>
                   )}
                 </div>
                 {generatedInstallments.length > 0 && (
                   <div className="border rounded-md p-4 bg-muted/20">
-                    <Label className="text-xs font-bold uppercase mb-2 block">Prévia dos Lançamentos:</Label>
+                    <Label className="text-xs font-bold uppercase mb-2 block">Prévia:</Label>
                     <div className="max-h-40 overflow-y-auto space-y-2">
                       {generatedInstallments.map((inst, idx) => (
                         <div key={idx} className="flex justify-between items-center text-xs p-2 bg-background border rounded">
@@ -573,7 +556,6 @@ export default function AccountsPayablePage() {
         </DialogContent>
       </Dialog>
 
-      {/* Modal de Pagamento */}
       <Dialog open={isPaymentOpen} onOpenChange={setIsPaymentOpen}>
         <DialogContent className="max-w-md">
           {entryToPay && (
@@ -585,8 +567,8 @@ export default function AccountsPayablePage() {
               });
               setIsPaymentOpen(false); setEntryToPay(null);
             }}>
-              <DialogHeader><DialogTitle>Liquidação: {entryToPay.description}</DialogTitle></DialogHeader>
-              <div className="grid gap-4 py-4 text-sm">
+              <DialogHeader><DialogTitle>Liquidar: {entryToPay.description}</DialogTitle></DialogHeader>
+              <div className="grid gap-4 py-4">
                 <div className="grid grid-cols-3 gap-2">
                   <div className="grid gap-2"><Label className="text-[10px]">Juros (+)</Label><Input type="number" step="0.01" value={interest} onChange={e => setInterest(Number(e.target.value))} /></div>
                   <div className="grid gap-2"><Label className="text-[10px]">Multa (+)</Label><Input type="number" step="0.01" value={fine} onChange={e => setFine(Number(e.target.value))} /></div>
