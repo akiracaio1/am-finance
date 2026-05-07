@@ -92,12 +92,12 @@ export default function AccountsPayablePage() {
   const [filterDueDateEnd, setFilterDueDateEnd] = useState("");
   const [datePreset, setDatePreset] = useState("custom");
 
-  // Pagamento
+  // Pagamento (Liquidação)
   const [interest, setInterest] = useState(0);
   const [fine, setFine] = useState(0);
   const [discount, setDiscount] = useState(0);
 
-  // Form State (Controlled)
+  // Form State (Controlled para persistência entre abas)
   const [formType, setFormType] = useState<EntryType>("Confirmed");
   const [formDescription, setFormDescription] = useState("");
   const [formAmount, setFormAmount] = useState<number>(0);
@@ -587,3 +587,4 @@ export default function AccountsPayablePage() {
     </div>
   );
 }
+
