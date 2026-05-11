@@ -238,6 +238,7 @@ export default function AccountsPayablePage() {
     
     try {
       const dataBuffer = await file.arrayBuffer();
+      // Use standard object call to ensure Turbopack compatibility
       const workbook = XLSX.read(dataBuffer, { type: 'array' });
       const sheetName = workbook.SheetNames[0];
       const sheet = workbook.Sheets[sheetName];
