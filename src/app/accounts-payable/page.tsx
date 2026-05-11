@@ -70,7 +70,7 @@ import {
   isBefore,
   isSameDay
 } from "date-fns";
-import { read, utils, writeFile } from 'xlsx';
+import * as XLSX from 'xlsx';
 
 export default function AccountsPayablePage() {
   const { user } = useUser();
@@ -218,17 +218,17 @@ export default function AccountsPayablePage() {
       "Vencimento": "25/12/2024",
       "Fornecedor": "Exemplo Fornecedor",
       "Categoria": "Materiais para Revenda",
-      "Descricao": "Compra de Exemplo",
+      "Descricao": "Compra de Exemplo (Tipo pode ser Confirmed ou Provisão)",
       "Valor": 1500.00,
       "Tipo": "Confirmed",
       "Emissao": "20/12/2024",
       "FormaPagamento": "Pix",
       "CentroCusto": "Geral"
     }];
-    const ws = utils.json_to_sheet(sampleData, { header: headers });
-    const wb = utils.book_new();
-    utils.book_append_sheet(wb, ws, "Contas a Pagar");
-    writeFile(wb, "modelo_contas_pagar.xlsx");
+    const ws = XLSX.utils.json_to_sheet(sampleData, { header: headers });
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Contas a Pagar");
+    XLSX.writeFile(wb, "modelo_contas_pagar.xlsx");
   };
 
   const handleImportExcel = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -238,10 +238,10 @@ export default function AccountsPayablePage() {
     
     try {
       const dataBuffer = await file.arrayBuffer();
-      const workbook = read(dataBuffer, { type: 'array' });
+      const workbook = XLSX.read(dataBuffer, { type: 'array' });
       const sheetName = workbook.SheetNames[0];
       const sheet = workbook.Sheets[sheetName];
-      const rows = utils.sheet_to_json(sheet) as any[];
+      const rows = XLSX.utils.sheet_to_json(sheet) as any[];
 
       if (rows.length === 0) throw new Error("O arquivo Excel está vazio.");
 
@@ -255,6 +255,7 @@ export default function AccountsPayablePage() {
         const categoriaNome = row["Categoria"] || row["categoria"];
         const valor = row["Valor"] || row["valor"];
         const centroCustoNome = row["CentroCusto"] || row["centrocusto"];
+        const tipoRaw = String(row["Tipo"] || row["tipo"] || "").toLowerCase().trim();
 
         if (!vencimentoRaw || !fornecedorNome || !categoriaNome || !valor) {
           errors.push(`Linha ${line}: Campos obrigatórios faltando.`);
@@ -270,7 +271,7 @@ export default function AccountsPayablePage() {
 
         let formattedDueDate = "";
         if (typeof vencimentoRaw === 'number') {
-          formattedDueDate = format(utils.numdate(vencimentoRaw), "yyyy-MM-dd");
+          formattedDueDate = format(XLSX.utils.numdate(vencimentoRaw), "yyyy-MM-dd");
         } else {
           const dateStr = String(vencimentoRaw);
           if (dateStr.includes("/")) {
@@ -281,6 +282,8 @@ export default function AccountsPayablePage() {
           }
         }
 
+        const entryType: EntryType = (tipoRaw === 'provisão' || tipoRaw === 'provisao' || tipoRaw === 'provision') ? 'Provision' : 'Confirmed';
+
         batchData.push({
           id: `pay_imp_${Date.now()}_${index}`,
           supplierId: supplier.id,
@@ -290,7 +293,7 @@ export default function AccountsPayablePage() {
           originalAmount: Number(valor),
           dueDate: formattedDueDate,
           status: 'Open',
-          entryType: (String(row["Tipo"] || "").toLowerCase() === 'provision' ? 'Provision' : 'Confirmed') as EntryType,
+          entryType: entryType,
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
         });
@@ -388,7 +391,7 @@ export default function AccountsPayablePage() {
         </div>
       </div>
 
-      <Collapsible open={showFilters} onOpenChange={setShowFilters}>
+      <Collapsible header="" open={showFilters} onOpenChange={setShowFilters}>
         <CollapsibleContent className="space-y-4">
           <Card className="bg-muted/30 border-dashed">
             <CardContent className="pt-6">
