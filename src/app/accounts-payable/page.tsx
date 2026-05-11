@@ -24,6 +24,7 @@ import {
   Download,
   FileSpreadsheet,
   Pencil,
+  Search,
   Check
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -69,8 +70,7 @@ import {
   endOfYear,
   isBefore,
   isSameDay,
-  isValid,
-  parse
+  isValid
 } from "date-fns";
 import * as XLSX from 'xlsx';
 
@@ -87,6 +87,7 @@ export default function AccountsPayablePage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Filtros
+  const [searchTerm, setSearchTerm] = useState("");
   const [filterStatus, setFilterStatus] = useState("all");
   const [filterSupplierId, setFilterSupplierId] = useState("all");
   const [filterCategoryId, setFilterCategoryId] = useState("all");
@@ -202,9 +203,17 @@ export default function AccountsPayablePage() {
         const supplierMatch = filterSupplierId === 'all' || e.supplierId === filterSupplierId;
         const categoryMatch = filterCategoryId === 'all' || e.accountCategoryId === filterCategoryId;
         const dueDateMatch = (!filterDueDateStart || e.dueDate >= filterDueDateStart) && (!filterDueDateEnd || e.dueDate <= filterDueDateEnd);
-        return statusMatch && supplierMatch && categoryMatch && dueDateMatch;
+        
+        // Busca Global (Descrição, Fornecedor ou Categoria)
+        const sName = suppliers?.find(s => s.id === e.supplierId)?.name.toLowerCase() || "";
+        const cName = leafCategories.find(c => c.id === e.accountCategoryId)?.name.toLowerCase() || "";
+        const desc = e.description.toLowerCase();
+        const term = searchTerm.toLowerCase();
+        const searchMatch = !searchTerm || desc.includes(term) || sName.includes(term) || cName.includes(term);
+
+        return statusMatch && supplierMatch && categoryMatch && dueDateMatch && searchMatch;
       }) || [];
-  }, [entries, filterStatus, filterSupplierId, filterCategoryId, filterDueDateStart, filterDueDateEnd, todayStr]);
+  }, [entries, filterStatus, filterSupplierId, filterCategoryId, filterDueDateStart, filterDueDateEnd, searchTerm, suppliers, leafCategories, todayStr]);
 
   const totalOverdue = filteredEntries.filter(e => e.dynamicStatus === 'Overdue').reduce((acc, curr) => acc + curr.originalAmount, 0);
   const totalDueToday = filteredEntries.filter(e => e.dynamicStatus === 'DueToday').reduce((acc, curr) => acc + curr.originalAmount, 0);
@@ -277,7 +286,6 @@ export default function AccountsPayablePage() {
     
     try {
       const dataBuffer = await file.arrayBuffer();
-      // Leitura robusta com tratamento de datas
       const workbook = XLSX.read(dataBuffer, { 
         type: 'array',
         cellDates: true,
@@ -438,15 +446,79 @@ export default function AccountsPayablePage() {
         <CollapsibleContent className="space-y-4">
           <Card className="bg-muted/30 border-dashed">
             <CardContent className="pt-6">
-              <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
-                <div className="space-y-2"><Label>Status</Label><Select value={filterStatus} onValueChange={setFilterStatus}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">Todos</SelectItem><SelectItem value="DueToday">Hoje</SelectItem><SelectItem value="Overdue">Atrasado</SelectItem><SelectItem value="Open">Em Aberto</SelectItem><SelectItem value="Paid">Pago</SelectItem></SelectContent></Select></div>
-                <div className="space-y-2"><Label>Período Rápido</Label><Select value={datePreset} onValueChange={handleDatePresetChange}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="custom">Personalizado</SelectItem><SelectItem value="today">Hoje</SelectItem><SelectItem value="thisWeek">Esta Semana</SelectItem><SelectItem value="thisMonth">Este Mês</SelectItem><SelectItem value="lastMonth">Mês Passado</SelectItem></SelectContent></Select></div>
-                <div className="space-y-2 md:col-span-3">
+              <div className="grid grid-cols-1 md:grid-cols-4 lg:grid-cols-6 gap-4">
+                <div className="space-y-2 md:col-span-2">
+                  <Label>Busca Global</Label>
+                  <div className="relative">
+                    <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+                    <Input 
+                      placeholder="Fornecedor, descrição ou categoria..." 
+                      className="pl-9" 
+                      value={searchTerm}
+                      onChange={(e) => setSearchTerm(e.target.value)}
+                    />
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <Label>Status</Label>
+                  <Select value={filterStatus} onValueChange={setFilterStatus}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">Todos</SelectItem>
+                      <SelectItem value="DueToday">Hoje</SelectItem>
+                      <SelectItem value="Overdue">Atrasado</SelectItem>
+                      <SelectItem value="Open">Em Aberto</SelectItem>
+                      <SelectItem value="Paid">Pago</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label>Fornecedor</Label>
+                  <Select value={filterSupplierId} onValueChange={setFilterSupplierId}>
+                    <SelectTrigger><SelectValue placeholder="Todos" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">Todos</SelectItem>
+                      {suppliers?.map(s => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label>Categoria</Label>
+                  <Select value={filterCategoryId} onValueChange={setFilterCategoryId}>
+                    <SelectTrigger><SelectValue placeholder="Todas" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">Todas</SelectItem>
+                      {leafCategories.map(c => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label>Período Rápido</Label>
+                  <Select value={datePreset} onValueChange={handleDatePresetChange}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="custom">Personalizado</SelectItem>
+                      <SelectItem value="today">Hoje</SelectItem>
+                      <SelectItem value="thisWeek">Esta Semana</SelectItem>
+                      <SelectItem value="thisMonth">Este Mês</SelectItem>
+                      <SelectItem value="lastMonth">Mês Passado</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2 md:col-span-2 lg:col-span-3">
                   <Label>Intervalo Personalizado</Label>
                   <div className="flex gap-2">
                     <Input type="date" value={filterDueDateStart} onChange={e => setFilterDueDateStart(e.target.value)} />
                     <Input type="date" value={filterDueDateEnd} onChange={e => setFilterDueDateEnd(e.target.value)} />
-                    <Button variant="ghost" onClick={() => { setFilterStatus("all"); setFilterDueDateStart(""); setFilterDueDateEnd(""); setDatePreset("custom"); }}><FilterX className="w-4 h-4" /></Button>
+                    <Button variant="ghost" onClick={() => { 
+                      setFilterStatus("all"); 
+                      setFilterDueDateStart(""); 
+                      setFilterDueDateEnd(""); 
+                      setDatePreset("custom"); 
+                      setFilterSupplierId("all");
+                      setFilterCategoryId("all");
+                      setSearchTerm("");
+                    }}><FilterX className="w-4 h-4" /></Button>
                   </div>
                 </div>
               </div>
@@ -483,6 +555,7 @@ export default function AccountsPayablePage() {
                   <TableCell>
                     {entry.dynamicStatus === 'Paid' ? <Badge className="bg-emerald-100 text-emerald-700">Pago</Badge> : 
                      entry.dynamicStatus === 'Overdue' ? <Badge variant="destructive">Atrasado</Badge> : 
+                     entry.dynamicStatus === 'DueToday' ? <Badge className="bg-amber-100 text-amber-700 border-amber-200">Hoje</Badge> :
                      <Badge variant="outline">Aberto</Badge>}
                   </TableCell>
                   <TableCell className="text-right font-bold">R$ {entry.originalAmount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</TableCell>
