@@ -68,7 +68,9 @@ import {
   subMonths,
   endOfYear,
   isBefore,
-  isSameDay
+  isSameDay,
+  isValid,
+  parse
 } from "date-fns";
 import * as XLSX from 'xlsx';
 
@@ -142,6 +144,43 @@ export default function AccountsPayablePage() {
     return categories.filter(cat => !categories.some(child => child.parentCategoryId === cat.id))
       .sort((a, b) => a.code.localeCompare(b.code));
   }, [categories]);
+
+  const parseExcelDate = (raw: any): string => {
+    if (!raw) return "";
+    
+    // Se for um número serial do Excel
+    if (typeof raw === 'number') {
+      const date = XLSX.utils.numdate(raw);
+      return format(date, "yyyy-MM-dd");
+    }
+    
+    // Se já for um objeto Date
+    if (raw instanceof Date) {
+      return format(raw, "yyyy-MM-dd");
+    }
+    
+    const dateStr = String(raw).trim();
+    
+    // Formato Brasileiro: 25/12/2024 ou 25/12/24
+    if (dateStr.includes("/")) {
+      const parts = dateStr.split("/");
+      if (parts.length === 3) {
+        let [d, m, y] = parts;
+        const fullYear = y.length === 2 ? `20${y}` : y;
+        const fullMonth = m.padStart(2, '0');
+        const fullDay = d.padStart(2, '0');
+        const formatted = `${fullYear}-${fullMonth}-${fullDay}`;
+        const parsedDate = new Date(formatted + 'T12:00:00');
+        return isValid(parsedDate) ? formatted : "";
+      }
+    }
+    
+    // Formato ISO: 2024-12-25
+    const isoMatch = dateStr.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (isoMatch) return isoMatch[0];
+
+    return "";
+  };
 
   const getDynamicStatus = (entry: AccountsPayableEntry) => {
     if (entry.status === 'Paid') return 'Paid';
@@ -238,8 +277,12 @@ export default function AccountsPayablePage() {
     
     try {
       const dataBuffer = await file.arrayBuffer();
-      // Use standard object call to ensure Turbopack compatibility
-      const workbook = XLSX.read(dataBuffer, { type: 'array' });
+      // Leitura robusta com tratamento de datas
+      const workbook = XLSX.read(dataBuffer, { 
+        type: 'array',
+        cellDates: true,
+        dateNF: 'yyyy-mm-dd'
+      });
       const sheetName = workbook.SheetNames[0];
       const sheet = workbook.Sheets[sheetName];
       const rows = XLSX.utils.sheet_to_json(sheet) as any[];
@@ -256,6 +299,8 @@ export default function AccountsPayablePage() {
         const categoriaNome = row["Categoria"] || row["categoria"];
         const valor = row["Valor"] || row["valor"];
         const centroCustoNome = row["CentroCusto"] || row["centrocusto"];
+        const emissaoRaw = row["Emissao"] || row["emissao"];
+        const formaPagamento = row["FormaPagamento"] || row["formapagamento"] || "Pix";
         const tipoRaw = String(row["Tipo"] || row["tipo"] || "").toLowerCase().trim();
 
         if (!vencimentoRaw || !fornecedorNome || !categoriaNome || !valor) {
@@ -270,17 +315,12 @@ export default function AccountsPayablePage() {
         if (!supplier) { errors.push(`Linha ${line}: Fornecedor '${fornecedorNome}' não cadastrado.`); return; }
         if (!category) { errors.push(`Linha ${line}: Categoria '${categoriaNome}' não cadastrada (Item).`); return; }
 
-        let formattedDueDate = "";
-        if (typeof vencimentoRaw === 'number') {
-          formattedDueDate = format(XLSX.utils.numdate(vencimentoRaw), "yyyy-MM-dd");
-        } else {
-          const dateStr = String(vencimentoRaw);
-          if (dateStr.includes("/")) {
-            const [d, m, y] = dateStr.split("/");
-            formattedDueDate = `${y}-${m}-${d}`;
-          } else {
-            formattedDueDate = dateStr;
-          }
+        const formattedDueDate = parseExcelDate(vencimentoRaw);
+        const formattedIssueDate = parseExcelDate(emissaoRaw);
+
+        if (!formattedDueDate) {
+          errors.push(`Linha ${line}: Data de Vencimento inválida.`);
+          return;
         }
 
         const entryType: EntryType = (tipoRaw === 'provisão' || tipoRaw === 'provisao' || tipoRaw === 'provision') ? 'Provision' : 'Confirmed';
@@ -293,6 +333,8 @@ export default function AccountsPayablePage() {
           description: String(row["Descricao"] || "Importado via Excel"),
           originalAmount: Number(valor),
           dueDate: formattedDueDate,
+          issueDate: formattedIssueDate,
+          paymentMethod: String(formaPagamento),
           status: 'Open',
           entryType: entryType,
           createdAt: new Date().toISOString(),
