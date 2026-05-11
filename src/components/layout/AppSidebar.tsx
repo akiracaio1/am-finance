@@ -2,7 +2,7 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { 
   LayoutDashboard, 
   Users, 
@@ -15,9 +15,14 @@ import {
   HelpCircle,
   FileSearch,
   Wallet,
-  LayoutGrid
+  LayoutGrid,
+  LogOut
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useAuth } from "@/firebase";
+import { signOut } from "firebase/auth";
+import { Button } from "@/components/ui/button";
+import { toast } from "@/hooks/use-toast";
 
 const menuItems = [
   { name: "Painel", icon: LayoutDashboard, href: "/dashboard" },
@@ -34,6 +39,25 @@ const menuItems = [
 
 export function AppSidebar() {
   const pathname = usePathname();
+  const auth = useAuth();
+  const router = useRouter();
+
+  const handleLogout = async () => {
+    try {
+      await signOut(auth);
+      router.push("/login");
+      toast({
+        title: "Até logo!",
+        description: "Sua sessão foi encerrada com sucesso.",
+      });
+    } catch (error) {
+      toast({
+        variant: "destructive",
+        title: "Erro ao sair",
+        description: "Não foi possível encerrar sua sessão no momento.",
+      });
+    }
+  };
 
   return (
     <div className="w-64 bg-card border-r h-screen flex flex-col sticky top-0 shadow-sm transition-all">
@@ -64,7 +88,7 @@ export function AppSidebar() {
           </Link>
         ))}
       </nav>
-      <div className="p-4 border-t space-y-4">
+      <div className="p-4 border-t space-y-2">
         <Link
           href="/help"
           className={cn(
@@ -75,7 +99,17 @@ export function AppSidebar() {
           <HelpCircle className="w-4 h-4" />
           Central de Ajuda
         </Link>
-        <div className="flex items-center gap-3 bg-muted/50 p-3 rounded-lg">
+        
+        <Button 
+          variant="ghost" 
+          className="w-full justify-start gap-3 px-3 py-2 text-xs font-medium text-destructive hover:text-destructive hover:bg-destructive/10"
+          onClick={handleLogout}
+        >
+          <LogOut className="w-4 h-4" />
+          Sair do Sistema
+        </Button>
+
+        <div className="flex items-center gap-3 bg-muted/50 p-3 rounded-lg mt-2">
           <div className="w-8 h-8 rounded-full bg-accent flex items-center justify-center text-accent-foreground font-bold">
             AM
           </div>
