@@ -70,7 +70,7 @@ import {
   isBefore,
   isSameDay
 } from "date-fns";
-import * as XLSX from 'xlsx';
+import { read, utils, writeFile } from 'xlsx';
 
 export default function AccountsPayablePage() {
   const { user } = useUser();
@@ -225,10 +225,10 @@ export default function AccountsPayablePage() {
       "FormaPagamento": "Pix",
       "CentroCusto": "Geral"
     }];
-    const ws = XLSX.utils.json_to_sheet(sampleData, { header: headers });
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, "Contas a Pagar");
-    XLSX.writeFile(wb, "modelo_contas_pagar.xlsx");
+    const ws = utils.json_to_sheet(sampleData, { header: headers });
+    const wb = utils.book_new();
+    utils.book_append_sheet(wb, ws, "Contas a Pagar");
+    writeFile(wb, "modelo_contas_pagar.xlsx");
   };
 
   const handleImportExcel = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -238,10 +238,10 @@ export default function AccountsPayablePage() {
     
     try {
       const dataBuffer = await file.arrayBuffer();
-      const workbook = XLSX.read(dataBuffer, { type: 'array' });
+      const workbook = read(dataBuffer, { type: 'array' });
       const sheetName = workbook.SheetNames[0];
       const sheet = workbook.Sheets[sheetName];
-      const rows = XLSX.utils.sheet_to_json(sheet) as any[];
+      const rows = utils.sheet_to_json(sheet) as any[];
 
       if (rows.length === 0) throw new Error("O arquivo Excel está vazio.");
 
@@ -271,7 +271,7 @@ export default function AccountsPayablePage() {
 
         let formattedDueDate = "";
         if (typeof vencimentoRaw === 'number') {
-          formattedDueDate = format(XLSX.utils.numdate(vencimentoRaw), "yyyy-MM-dd");
+          formattedDueDate = format(utils.numdate(vencimentoRaw), "yyyy-MM-dd");
         } else {
           const dateStr = String(vencimentoRaw);
           if (dateStr.includes("/")) {
