@@ -13,7 +13,8 @@ import {
   Loader2,
   FolderPlus,
   Sparkles,
-  Trash2
+  Trash2,
+  Download
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
@@ -42,6 +43,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/hooks/use-toast";
+import { utils, writeFile } from 'xlsx';
 
 interface AccountCategory {
   id: string;
@@ -147,6 +149,61 @@ export default function ChartOfAccountsPage() {
     });
     setIsDeleteDialogOpen(false);
     setCategoryToDelete(null);
+  };
+
+  const handleExportExcel = () => {
+    if (!categories) return;
+
+    const exportData: any[] = [];
+    const roots = categories.filter(c => !c.parentCategoryId || c.parentCategoryId === "").sort((a, b) => a.code.localeCompare(b.code));
+
+    roots.forEach(root => {
+      const level1s = categories.filter(c => c.parentCategoryId === root.id).sort((a, b) => a.code.localeCompare(b.code));
+      
+      if (level1s.length === 0) {
+        exportData.push({
+          "Grupo Principal": root.name,
+          "Subgrupo": "",
+          "Subsubgrupo (Item)": "",
+          "Código": root.code,
+          "Tipo": root.type
+        });
+      }
+
+      level1s.forEach(l1 => {
+        const level2s = categories.filter(c => c.parentCategoryId === l1.id).sort((a, b) => a.code.localeCompare(b.code));
+        
+        if (level2s.length === 0) {
+          exportData.push({
+            "Grupo Principal": root.name,
+            "Subgrupo": l1.name,
+            "Subsubgrupo (Item)": "",
+            "Código": l1.code,
+            "Tipo": l1.type
+          });
+        }
+
+        level2s.forEach(l2 => {
+          exportData.push({
+            "Grupo Principal": root.name,
+            "Subgrupo": l1.name,
+            "Subsubgrupo (Item)": l2.name,
+            "Código": l2.code,
+            "Tipo": l2.type
+          });
+        });
+      });
+    });
+
+    const ws = utils.json_to_sheet(exportData);
+    const wb = utils.book_new();
+    utils.book_append_sheet(wb, ws, "Plano de Contas");
+    writeFile(wb, "plano_de_contas_am_finance.xlsx");
+    
+    toast({
+      title: "Exportação concluída",
+      description: "Seu plano de contas foi baixado em formato Excel.",
+    });
   };
 
   const handleProvisionDefaults = async () => {
@@ -274,7 +331,7 @@ export default function ChartOfAccountsPage() {
     );
   };
 
-  const roots = categories?.filter(x => !x.parentCategoryId) || [];
+  const roots = categories?.filter(x => !x.parentCategoryId || x.parentCategoryId === "") || [];
 
   return (
     <div className="space-y-6 animate-in fade-in duration-500 pb-10">
@@ -287,6 +344,9 @@ export default function ChartOfAccountsPage() {
           <p className="text-muted-foreground">A hierarquia estrutural das categorias do seu negócio.</p>
         </div>
         <div className="flex gap-3">
+          <Button variant="outline" className="gap-2" onClick={handleExportExcel} disabled={isLoading || roots.length === 0}>
+            <Download className="w-4 h-4" /> Exportar Excel
+          </Button>
           {roots.length === 0 && !isLoading && (
             <Button variant="outline" className="gap-2 border-primary text-primary hover:bg-primary/5" onClick={handleProvisionDefaults} disabled={isProvisioning}>
               {isProvisioning ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
@@ -329,7 +389,7 @@ export default function ChartOfAccountsPage() {
               </div>
             ) : (
               <div className="space-y-1">
-                {roots.map(root => renderItem(root.id))}
+                {roots.sort((a,b) => a.code.localeCompare(b.code)).map(root => renderItem(root.id))}
               </div>
             )}
           </CardContent>
