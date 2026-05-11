@@ -99,6 +99,7 @@ export default function AccountsPayablePage() {
   const [interest, setInterest] = useState(0);
   const [fine, setFine] = useState(0);
   const [discount, setDiscount] = useState(0);
+  const [paymentDate, setPaymentDate] = useState(todayStr);
 
   // Form State
   const [formType, setFormType] = useState<EntryType>("Confirmed");
@@ -424,6 +425,15 @@ export default function AccountsPayablePage() {
     setNumRepetitions(1); setIsNewEntryOpen(true);
   };
 
+  const handleOpenLiquidation = (entry: AccountsPayableEntry) => {
+    setEntryToPay(entry);
+    setInterest(0);
+    setFine(0);
+    setDiscount(0);
+    setPaymentDate(todayStr);
+    setIsPaymentOpen(true);
+  };
+
   return (
     <div className="space-y-6 pb-10">
       <div className="flex justify-between items-end">
@@ -563,7 +573,7 @@ export default function AccountsPayablePage() {
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild><Button variant="ghost" size="icon"><MoreHorizontal className="w-4 h-4" /></Button></DropdownMenuTrigger>
                       <DropdownMenuContent align="end">
-                        {entry.status !== 'Paid' && <DropdownMenuItem onClick={() => { setEntryToPay(entry); setIsPaymentOpen(true); }} className="text-emerald-600 font-bold">Liquidar</DropdownMenuItem>}
+                        {entry.status !== 'Paid' && <DropdownMenuItem onClick={() => handleOpenLiquidation(entry)} className="text-emerald-600 font-bold">Liquidar</DropdownMenuItem>}
                         <DropdownMenuItem onClick={() => openEdit(entry)} className="gap-2"><Pencil className="w-4 h-4" /> Editar</DropdownMenuItem>
                         <DropdownMenuItem onClick={() => deleteDocumentNonBlocking(doc(db, "users", user.uid, "accountsPayableEntries", entry.id))} className="text-destructive">Excluir</DropdownMenuItem>
                       </DropdownMenuContent>
@@ -622,9 +632,26 @@ export default function AccountsPayablePage() {
       <Dialog open={isPaymentOpen} onOpenChange={setIsPaymentOpen}>
         <DialogContent>
           {entryToPay && (
-            <form onSubmit={(e) => { e.preventDefault(); if (!db || !user) return; updateDocumentNonBlocking(doc(db, "users", user.uid, "accountsPayableEntries", entryToPay.id), { status: 'Paid', interest, fine, discount, paymentDate: todayStr, updatedAt: new Date().toISOString() }); setIsPaymentOpen(false); }}>
+            <form onSubmit={(e) => { 
+              e.preventDefault(); 
+              if (!db || !user) return; 
+              updateDocumentNonBlocking(doc(db, "users", user.uid, "accountsPayableEntries", entryToPay.id), { 
+                status: 'Paid', 
+                interest, 
+                fine, 
+                discount, 
+                paymentDate, 
+                updatedAt: new Date().toISOString() 
+              }); 
+              setIsPaymentOpen(false); 
+              toast({ title: "Conta liquidada com sucesso!" });
+            }}>
               <DialogHeader><DialogTitle>Liquidar: {entryToPay.description}</DialogTitle></DialogHeader>
               <div className="grid gap-4 py-4">
+                <div className="grid gap-2">
+                  <Label>Data de Pagamento</Label>
+                  <Input type="date" value={paymentDate} onChange={e => setPaymentDate(e.target.value)} required />
+                </div>
                 <div className="grid grid-cols-3 gap-2">
                   <div className="grid gap-2"><Label className="text-[10px]">Juros</Label><Input type="number" value={interest} onChange={e => setInterest(Number(e.target.value))} /></div>
                   <div className="grid gap-2"><Label className="text-[10px]">Multa</Label><Input type="number" value={fine} onChange={e => setFine(Number(e.target.value))} /></div>
@@ -632,7 +659,7 @@ export default function AccountsPayablePage() {
                 </div>
                 <div className="bg-primary/5 p-4 rounded text-center font-bold text-xl">Total: R$ {(entryToPay.originalAmount + interest + fine - discount).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</div>
               </div>
-              <DialogFooter><Button type="submit" className="w-full">Confirmar</Button></DialogFooter>
+              <DialogFooter><Button type="submit" className="w-full">Confirmar Pagamento</Button></DialogFooter>
             </form>
           )}
         </DialogContent>
