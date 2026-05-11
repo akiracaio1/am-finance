@@ -59,8 +59,6 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Collapsible, CollapsibleContent } from "@/components/ui/collapsible";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "@/hooks/use-toast";
 import { Supplier, AccountCategory, AccountsPayableEntry, EntryType, CostCenter } from "@/lib/types";
 import { 
@@ -265,24 +263,29 @@ export default function AccountsPayablePage() {
       const rows = XLSX.utils.sheet_to_json(sheet) as any[];
       if (rows.length === 0) throw new Error("O arquivo Excel está vazio.");
       const batchData: any[] = [];
-      rows.forEach((row, index) => {
+      rows.forEach((row: any, index: number) => {
         const vencimentoRaw = row["Vencimento"] || row["vencimento"];
         const fornecedorNome = row["Fornecedor"] || row["fornecedor"];
         const categoriaNome = row["Categoria"] || row["categoria"];
         const valor = row["Valor"] || row["valor"];
+        const emissaoRaw = row["Emissao"] || row["emissao"] || row["Emissão"] || row["emissão"];
+        const tipoRaw = row["Tipo"] || row["tipo"];
+
         const supplier = suppliers?.find(s => s.name.toLowerCase().trim() === String(fornecedorNome).toLowerCase().trim());
         const category = leafCategories.find(c => c.name.toLowerCase().trim() === String(categoriaNome).toLowerCase().trim());
+        
         if (supplier && category && vencimentoRaw && valor) {
+          const statusTipo: EntryType = String(tipoRaw || "").toLowerCase().includes("provis") ? 'Provision' : 'Confirmed';
           batchData.push({
             id: `pay_imp_${Date.now()}_${index}`,
             supplierId: supplier.id,
             accountCategoryId: category.id,
-            description: String(row["Descricao"] || "Importado"),
+            description: String(row["Descricao"] || row["Descrição"] || row["descrição"] || "Importado"),
             originalAmount: Number(valor),
             dueDate: parseExcelDate(vencimentoRaw),
-            issueDate: parseExcelDate(row["Emissao"] || row["emissao"]),
+            issueDate: parseExcelDate(emissaoRaw),
             status: 'Open',
-            entryType: (String(row["Tipo"] || "").toLowerCase().includes("provis") ? 'Provision' : 'Confirmed'),
+            entryType: statusTipo,
             createdAt: new Date().toISOString(),
             updatedAt: new Date().toISOString(),
           });
@@ -404,6 +407,7 @@ export default function AccountsPayablePage() {
                           key={s} 
                           checked={selectedStatuses.includes(s)}
                           onCheckedChange={() => toggleMultiSelect(selectedStatuses, setSelectedStatuses, s)}
+                          onSelect={(e) => e.preventDefault()} // Impede o fechamento do menu
                         >
                           {s === 'Open' ? 'Aberto' : s === 'Paid' ? 'Pago' : s === 'Overdue' ? 'Atrasado' : 'Hoje'}
                         </DropdownMenuCheckboxItem>
@@ -430,6 +434,7 @@ export default function AccountsPayablePage() {
                           key={s.id} 
                           checked={selectedSupplierIds.includes(s.id)}
                           onCheckedChange={() => toggleMultiSelect(selectedSupplierIds, setSelectedSupplierIds, s.id)}
+                          onSelect={(e) => e.preventDefault()} // Impede o fechamento do menu
                         >
                           {s.name}
                         </DropdownMenuCheckboxItem>
@@ -456,6 +461,7 @@ export default function AccountsPayablePage() {
                           key={c.id} 
                           checked={selectedCategoryIds.includes(c.id)}
                           onCheckedChange={() => toggleMultiSelect(selectedCategoryIds, setSelectedCategoryIds, c.id)}
+                          onSelect={(e) => e.preventDefault()} // Impede o fechamento do menu
                         >
                           {c.name}
                         </DropdownMenuCheckboxItem>
