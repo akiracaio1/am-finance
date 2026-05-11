@@ -25,7 +25,8 @@ import {
   FileSpreadsheet,
   Pencil,
   Search,
-  Check
+  Check,
+  ChevronDown
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useUser, useFirestore, useCollection, useMemoFirebase } from "@/firebase";
@@ -42,7 +43,10 @@ import {
   DropdownMenu, 
   DropdownMenuContent, 
   DropdownMenuItem, 
-  DropdownMenuTrigger 
+  DropdownMenuTrigger,
+  DropdownMenuCheckboxItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator
 } from "@/components/ui/dropdown-menu";
 import { 
   Select, 
@@ -55,6 +59,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Collapsible, CollapsibleContent } from "@/components/ui/collapsible";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "@/hooks/use-toast";
 import { Supplier, AccountCategory, AccountsPayableEntry, EntryType, CostCenter } from "@/lib/types";
 import { 
@@ -86,11 +92,13 @@ export default function AccountsPayablePage() {
   const [isImporting, setIsImporting] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Filtros
+  // Filtros Multi-seleção
   const [searchTerm, setSearchTerm] = useState("");
-  const [filterStatus, setFilterStatus] = useState("all");
-  const [filterSupplierId, setFilterSupplierId] = useState("all");
-  const [filterCategoryId, setFilterCategoryId] = useState("all");
+  const [selectedStatuses, setSelectedStatuses] = useState<string[]>([]);
+  const [selectedSupplierIds, setSelectedSupplierIds] = useState<string[]>([]);
+  const [selectedCategoryIds, setSelectedCategoryIds] = useState<string[]>([]);
+  
+  // Datas
   const [filterDueDateStart, setFilterDueDateStart] = useState("");
   const [filterDueDateEnd, setFilterDueDateEnd] = useState("");
   const [datePreset, setDatePreset] = useState("custom");
@@ -149,21 +157,12 @@ export default function AccountsPayablePage() {
 
   const parseExcelDate = (raw: any): string => {
     if (!raw) return "";
-    
-    // Se for um número serial do Excel
     if (typeof raw === 'number') {
       const date = XLSX.utils.numdate(raw);
       return format(date, "yyyy-MM-dd");
     }
-    
-    // Se já for um objeto Date
-    if (raw instanceof Date) {
-      return format(raw, "yyyy-MM-dd");
-    }
-    
+    if (raw instanceof Date) return format(raw, "yyyy-MM-dd");
     const dateStr = String(raw).trim();
-    
-    // Formato Brasileiro: 25/12/2024 ou 25/12/24
     if (dateStr.includes("/")) {
       const parts = dateStr.split("/");
       if (parts.length === 3) {
@@ -171,16 +170,11 @@ export default function AccountsPayablePage() {
         const fullYear = y.length === 2 ? `20${y}` : y;
         const fullMonth = m.padStart(2, '0');
         const fullDay = d.padStart(2, '0');
-        const formatted = `${fullYear}-${fullMonth}-${fullDay}`;
-        const parsedDate = new Date(formatted + 'T12:00:00');
-        return isValid(parsedDate) ? formatted : "";
+        return `${fullYear}-${fullMonth}-${fullDay}`;
       }
     }
-    
-    // Formato ISO: 2024-12-25
     const isoMatch = dateStr.match(/^(\d{4})-(\d{2})-(\d{2})/);
     if (isoMatch) return isoMatch[0];
-
     return "";
   };
 
@@ -200,12 +194,11 @@ export default function AccountsPayablePage() {
   const filteredEntries = useMemo(() => {
     return entries?.map(entry => ({ ...entry, dynamicStatus: getDynamicStatus(entry) }))
       .filter(e => {
-        const statusMatch = filterStatus === 'all' || e.dynamicStatus.toLowerCase() === filterStatus.toLowerCase();
-        const supplierMatch = filterSupplierId === 'all' || e.supplierId === filterSupplierId;
-        const categoryMatch = filterCategoryId === 'all' || e.accountCategoryId === filterCategoryId;
+        const statusMatch = selectedStatuses.length === 0 || selectedStatuses.includes(e.dynamicStatus);
+        const supplierMatch = selectedSupplierIds.length === 0 || selectedSupplierIds.includes(e.supplierId);
+        const categoryMatch = selectedCategoryIds.length === 0 || selectedCategoryIds.includes(e.accountCategoryId);
         const dueDateMatch = (!filterDueDateStart || e.dueDate >= filterDueDateStart) && (!filterDueDateEnd || e.dueDate <= filterDueDateEnd);
         
-        // Busca Global (Descrição, Fornecedor ou Categoria)
         const sName = suppliers?.find(s => s.id === e.supplierId)?.name.toLowerCase() || "";
         const cName = leafCategories.find(c => c.id === e.accountCategoryId)?.name.toLowerCase() || "";
         const desc = e.description.toLowerCase();
@@ -214,7 +207,7 @@ export default function AccountsPayablePage() {
 
         return statusMatch && supplierMatch && categoryMatch && dueDateMatch && searchMatch;
       }) || [];
-  }, [entries, filterStatus, filterSupplierId, filterCategoryId, filterDueDateStart, filterDueDateEnd, searchTerm, suppliers, leafCategories, todayStr]);
+  }, [entries, selectedStatuses, selectedSupplierIds, selectedCategoryIds, filterDueDateStart, filterDueDateEnd, searchTerm, suppliers, leafCategories, todayStr]);
 
   const totalOverdue = filteredEntries.filter(e => e.dynamicStatus === 'Overdue').reduce((acc, curr) => acc + curr.originalAmount, 0);
   const totalDueToday = filteredEntries.filter(e => e.dynamicStatus === 'DueToday').reduce((acc, curr) => acc + curr.originalAmount, 0);
@@ -250,7 +243,6 @@ export default function AccountsPayablePage() {
       case "today": start = today; end = today; break;
       case "thisWeek": start = startOfWeek(today, { weekStartsOn: 1 }); end = endOfWeek(today, { weekStartsOn: 1 }); break;
       case "thisMonth": start = startOfMonth(today); end = endOfMonth(today); break;
-      case "nextWeek": const nextWeek = addWeeks(today, 1); start = startOfWeek(nextWeek, { weekStartsOn: 1 }); end = endOfWeek(nextWeek, { weekStartsOn: 1 }); break;
       case "lastMonth": const lastMonth = subMonths(today, 1); start = startOfMonth(lastMonth); end = endOfMonth(lastMonth); break;
       case "thisYear": start = startOfYear(today); end = endOfYear(today); break;
       default: return;
@@ -261,106 +253,45 @@ export default function AccountsPayablePage() {
     }
   };
 
-  const downloadTemplate = () => {
-    const headers = ["Vencimento", "Fornecedor", "Categoria", "Descricao", "Valor", "Tipo", "Emissao", "FormaPagamento", "CentroCusto"];
-    const sampleData = [{
-      "Vencimento": "25/12/2024",
-      "Fornecedor": "Exemplo Fornecedor",
-      "Categoria": "Materiais para Revenda",
-      "Descricao": "Compra de Exemplo (Tipo pode ser Confirmed ou Provisão)",
-      "Valor": 1500.00,
-      "Tipo": "Confirmed",
-      "Emissao": "20/12/2024",
-      "FormaPagamento": "Pix",
-      "CentroCusto": "Geral"
-    }];
-    const ws = XLSX.utils.json_to_sheet(sampleData, { header: headers });
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, "Contas a Pagar");
-    XLSX.writeFile(wb, "modelo_contas_pagar.xlsx");
-  };
-
   const handleImportExcel = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file || !db || !user) return;
     setIsImporting(true);
-    
     try {
       const dataBuffer = await file.arrayBuffer();
-      const workbook = XLSX.read(dataBuffer, { 
-        type: 'array',
-        cellDates: true,
-        dateNF: 'yyyy-mm-dd'
-      });
+      const workbook = XLSX.read(dataBuffer, { type: 'array' });
       const sheetName = workbook.SheetNames[0];
       const sheet = workbook.Sheets[sheetName];
       const rows = XLSX.utils.sheet_to_json(sheet) as any[];
-
       if (rows.length === 0) throw new Error("O arquivo Excel está vazio.");
-
-      const errors: string[] = [];
       const batchData: any[] = [];
-
       rows.forEach((row, index) => {
-        const line = index + 2;
         const vencimentoRaw = row["Vencimento"] || row["vencimento"];
         const fornecedorNome = row["Fornecedor"] || row["fornecedor"];
         const categoriaNome = row["Categoria"] || row["categoria"];
         const valor = row["Valor"] || row["valor"];
-        const centroCustoNome = row["CentroCusto"] || row["centrocusto"];
-        const emissaoRaw = row["Emissao"] || row["emissao"];
-        const formaPagamento = row["FormaPagamento"] || row["formapagamento"] || "Pix";
-        const tipoRaw = String(row["Tipo"] || row["tipo"] || "").toLowerCase().trim();
-
-        if (!vencimentoRaw || !fornecedorNome || !categoriaNome || !valor) {
-          errors.push(`Linha ${line}: Campos obrigatórios faltando.`);
-          return;
-        }
-
         const supplier = suppliers?.find(s => s.name.toLowerCase().trim() === String(fornecedorNome).toLowerCase().trim());
         const category = leafCategories.find(c => c.name.toLowerCase().trim() === String(categoriaNome).toLowerCase().trim());
-        const costCenter = centers?.find(cc => cc.name.toLowerCase().trim() === String(centroCustoNome || "").toLowerCase().trim());
-
-        if (!supplier) { errors.push(`Linha ${line}: Fornecedor '${fornecedorNome}' não cadastrado.`); return; }
-        if (!category) { errors.push(`Linha ${line}: Categoria '${categoriaNome}' não cadastrada (Item).`); return; }
-
-        const formattedDueDate = parseExcelDate(vencimentoRaw);
-        const formattedIssueDate = parseExcelDate(emissaoRaw);
-
-        if (!formattedDueDate) {
-          errors.push(`Linha ${line}: Data de Vencimento inválida.`);
-          return;
+        if (supplier && category && vencimentoRaw && valor) {
+          batchData.push({
+            id: `pay_imp_${Date.now()}_${index}`,
+            supplierId: supplier.id,
+            accountCategoryId: category.id,
+            description: String(row["Descricao"] || "Importado"),
+            originalAmount: Number(valor),
+            dueDate: parseExcelDate(vencimentoRaw),
+            issueDate: parseExcelDate(row["Emissao"] || row["emissao"]),
+            status: 'Open',
+            entryType: (String(row["Tipo"] || "").toLowerCase().includes("provis") ? 'Provision' : 'Confirmed'),
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+          });
         }
-
-        const entryType: EntryType = (tipoRaw === 'provisão' || tipoRaw === 'provisao' || tipoRaw === 'provision') ? 'Provision' : 'Confirmed';
-
-        batchData.push({
-          id: `pay_imp_${Date.now()}_${index}`,
-          supplierId: supplier.id,
-          accountCategoryId: category.id,
-          costCenterId: costCenter ? costCenter.id : null,
-          description: String(row["Descricao"] || "Importado via Excel"),
-          originalAmount: Number(valor),
-          dueDate: formattedDueDate,
-          issueDate: formattedIssueDate,
-          paymentMethod: String(formaPagamento),
-          status: 'Open',
-          entryType: entryType,
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-        });
       });
-
-      if (errors.length > 0) {
-        toast({ variant: "destructive", title: "Erro na Importação", description: errors.slice(0, 2).join(" | ") });
-      } else {
-        batchData.forEach(d => {
-          setDocumentNonBlocking(doc(db, "users", user.uid, "accountsPayableEntries", d.id), d, { merge: true });
-        });
-        toast({ title: "Importação Concluída", description: `${batchData.length} lançamentos importados.` });
-      }
+      batchData.forEach(d => setDocumentNonBlocking(doc(db, "users", user.uid, "accountsPayableEntries", d.id), d, { merge: true }));
+      toast({ title: "Importação Concluída", description: `${batchData.length} lançamentos importados.` });
     } catch (err: any) {
-      toast({ variant: "destructive", title: "Erro ao ler arquivo", description: err.message });
+      toast({ variant: "destructive", title: "Erro na importação", description: err.message });
     } finally {
       setIsImporting(false);
       if (fileInputRef.current) fileInputRef.current.value = "";
@@ -397,7 +328,6 @@ export default function AccountsPayablePage() {
             createdAt: new Date().toISOString() 
           }, { merge: true });
         });
-        toast({ title: "Lançamentos gerados" });
       }
     }
     setIsNewEntryOpen(false); setEditingEntry(null);
@@ -418,20 +348,8 @@ export default function AccountsPayablePage() {
     setIsNewEntryOpen(true);
   };
 
-  const resetForm = () => {
-    setEditingEntry(null); setFormType("Confirmed"); setFormDescription(""); setFormAmount(0);
-    setFormDueDate(format(new Date(), "yyyy-MM-dd")); setFormIssueDate(""); setFormSupplierId("");
-    setFormCategoryId(""); setFormPaymentMethod("Pix"); setFormCostCenterId("none"); setRepetitionType("single");
-    setNumRepetitions(1); setIsNewEntryOpen(true);
-  };
-
-  const handleOpenLiquidation = (entry: AccountsPayableEntry) => {
-    setEntryToPay(entry);
-    setInterest(0);
-    setFine(0);
-    setDiscount(0);
-    setPaymentDate(todayStr);
-    setIsPaymentOpen(true);
+  const toggleMultiSelect = (state: string[], setState: (s: string[]) => void, value: string) => {
+    setState(state.includes(value) ? state.filter(v => v !== value) : [...state, value]);
   };
 
   return (
@@ -442,13 +360,16 @@ export default function AccountsPayablePage() {
           <p className="text-muted-foreground">Gestão financeira profissional.</p>
         </div>
         <div className="flex gap-2">
-          <Button variant="outline" className="gap-2" onClick={downloadTemplate}><Download className="w-4 h-4" /> Baixar Modelo</Button>
+          <Button variant="outline" className="gap-2" onClick={() => {
+            const ws = XLSX.utils.json_to_sheet([{"Vencimento": "25/12/2024", "Fornecedor": "Exemplo", "Categoria": "Aluguel", "Valor": 1500, "Tipo": "Confirmed", "Emissao": "20/12/2024"}]);
+            const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, "Modelo"); XLSX.writeFile(wb, "modelo_pagar.xlsx");
+          }}><Download className="w-4 h-4" /> Baixar Modelo</Button>
           <input type="file" accept=".xlsx, .xls" className="hidden" ref={fileInputRef} onChange={handleImportExcel} />
           <Button variant="outline" className="gap-2" onClick={() => fileInputRef.current?.click()} disabled={isImporting}>
             {isImporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileSpreadsheet className="w-4 h-4" />} Importar Excel
           </Button>
           <Button variant="outline" className="gap-2" onClick={() => setShowFilters(!showFilters)}><Filter className="w-4 h-4" /> Filtros</Button>
-          <Button className="gap-2 shadow-lg" onClick={resetForm}><Plus className="w-4 h-4" /> Novo Lançamento</Button>
+          <Button className="gap-2 shadow-lg" onClick={() => { setEditingEntry(null); setIsNewEntryOpen(true); }}><Plus className="w-4 h-4" /> Novo Lançamento</Button>
         </div>
       </div>
 
@@ -461,47 +382,88 @@ export default function AccountsPayablePage() {
                   <Label>Busca Global</Label>
                   <div className="relative">
                     <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-                    <Input 
-                      placeholder="Fornecedor, descrição ou categoria..." 
-                      className="pl-9" 
-                      value={searchTerm}
-                      onChange={(e) => setSearchTerm(e.target.value)}
-                    />
+                    <Input placeholder="Fornecedor, descrição ou categoria..." className="pl-9" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
                   </div>
                 </div>
+
+                {/* Multi-select Status */}
                 <div className="space-y-2">
                   <Label>Status</Label>
-                  <Select value={filterStatus} onValueChange={setFilterStatus}>
-                    <SelectTrigger><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">Todos</SelectItem>
-                      <SelectItem value="DueToday">Hoje</SelectItem>
-                      <SelectItem value="Overdue">Atrasado</SelectItem>
-                      <SelectItem value="Open">Em Aberto</SelectItem>
-                      <SelectItem value="Paid">Pago</SelectItem>
-                    </SelectContent>
-                  </Select>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button variant="outline" className="w-full justify-between">
+                        {selectedStatuses.length === 0 ? "Todos" : `${selectedStatuses.length} selecionados`}
+                        <ChevronDown className="w-4 h-4 opacity-50" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent className="w-56">
+                      <DropdownMenuLabel>Filtrar Status</DropdownMenuLabel>
+                      <DropdownMenuSeparator />
+                      {['Open', 'Paid', 'Overdue', 'DueToday'].map(s => (
+                        <DropdownMenuCheckboxItem 
+                          key={s} 
+                          checked={selectedStatuses.includes(s)}
+                          onCheckedChange={() => toggleMultiSelect(selectedStatuses, setSelectedStatuses, s)}
+                        >
+                          {s === 'Open' ? 'Aberto' : s === 'Paid' ? 'Pago' : s === 'Overdue' ? 'Atrasado' : 'Hoje'}
+                        </DropdownMenuCheckboxItem>
+                      ))}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
                 </div>
+
+                {/* Multi-select Fornecedor */}
                 <div className="space-y-2">
                   <Label>Fornecedor</Label>
-                  <Select value={filterSupplierId} onValueChange={setFilterSupplierId}>
-                    <SelectTrigger><SelectValue placeholder="Todos" /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">Todos</SelectItem>
-                      {suppliers?.map(s => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}
-                    </SelectContent>
-                  </Select>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button variant="outline" className="w-full justify-between">
+                        {selectedSupplierIds.length === 0 ? "Todos" : `${selectedSupplierIds.length} selecionados`}
+                        <ChevronDown className="w-4 h-4 opacity-50" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent className="w-56 max-h-[300px] overflow-y-auto">
+                      <DropdownMenuLabel>Filtrar Fornecedores</DropdownMenuLabel>
+                      <DropdownMenuSeparator />
+                      {suppliers?.map(s => (
+                        <DropdownMenuCheckboxItem 
+                          key={s.id} 
+                          checked={selectedSupplierIds.includes(s.id)}
+                          onCheckedChange={() => toggleMultiSelect(selectedSupplierIds, setSelectedSupplierIds, s.id)}
+                        >
+                          {s.name}
+                        </DropdownMenuCheckboxItem>
+                      ))}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
                 </div>
+
+                {/* Multi-select Categoria */}
                 <div className="space-y-2">
                   <Label>Categoria</Label>
-                  <Select value={filterCategoryId} onValueChange={setFilterCategoryId}>
-                    <SelectTrigger><SelectValue placeholder="Todas" /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">Todas</SelectItem>
-                      {leafCategories.map(c => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}
-                    </SelectContent>
-                  </Select>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button variant="outline" className="w-full justify-between">
+                        {selectedCategoryIds.length === 0 ? "Todas" : `${selectedCategoryIds.length} selecionadas`}
+                        <ChevronDown className="w-4 h-4 opacity-50" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent className="w-56 max-h-[300px] overflow-y-auto">
+                      <DropdownMenuLabel>Filtrar Categorias</DropdownMenuLabel>
+                      <DropdownMenuSeparator />
+                      {leafCategories.map(c => (
+                        <DropdownMenuCheckboxItem 
+                          key={c.id} 
+                          checked={selectedCategoryIds.includes(c.id)}
+                          onCheckedChange={() => toggleMultiSelect(selectedCategoryIds, setSelectedCategoryIds, c.id)}
+                        >
+                          {c.name}
+                        </DropdownMenuCheckboxItem>
+                      ))}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
                 </div>
+
                 <div className="space-y-2">
                   <Label>Período Rápido</Label>
                   <Select value={datePreset} onValueChange={handleDatePresetChange}>
@@ -511,23 +473,18 @@ export default function AccountsPayablePage() {
                       <SelectItem value="today">Hoje</SelectItem>
                       <SelectItem value="thisWeek">Esta Semana</SelectItem>
                       <SelectItem value="thisMonth">Este Mês</SelectItem>
-                      <SelectItem value="lastMonth">Mês Passado</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
+
                 <div className="space-y-2 md:col-span-2 lg:col-span-3">
-                  <Label>Intervalo Personalizado</Label>
+                  <Label>Intervalo de Datas</Label>
                   <div className="flex gap-2">
                     <Input type="date" value={filterDueDateStart} onChange={e => setFilterDueDateStart(e.target.value)} />
                     <Input type="date" value={filterDueDateEnd} onChange={e => setFilterDueDateEnd(e.target.value)} />
                     <Button variant="ghost" onClick={() => { 
-                      setFilterStatus("all"); 
-                      setFilterDueDateStart(""); 
-                      setFilterDueDateEnd(""); 
-                      setDatePreset("custom"); 
-                      setFilterSupplierId("all");
-                      setFilterCategoryId("all");
-                      setSearchTerm("");
+                      setSelectedStatuses([]); setSelectedSupplierIds([]); setSelectedCategoryIds([]);
+                      setFilterDueDateStart(""); setFilterDueDateEnd(""); setDatePreset("custom"); setSearchTerm("");
                     }}><FilterX className="w-4 h-4" /></Button>
                   </div>
                 </div>
@@ -550,7 +507,7 @@ export default function AccountsPayablePage() {
             <TableHeader><TableRow><TableHead>Vencimento</TableHead><TableHead>Fornecedor</TableHead><TableHead>Descrição</TableHead><TableHead>Status</TableHead><TableHead className="text-right">Valor</TableHead><TableHead className="w-[50px]"></TableHead></TableRow></TableHeader>
             <TableBody>
               {filteredEntries.sort((a,b) => a.dueDate.localeCompare(b.dueDate)).map((entry) => (
-                <TableRow key={entry.id} className={cn(entry.entryType === 'Provision' && "bg-muted/20 border-l-4 border-l-muted-foreground")}>
+                <TableRow key={entry.id}>
                   <TableCell className="text-xs">
                     {format(new Date(entry.dueDate + 'T12:00:00'), "dd/MM/yy")}
                     {entry.entryType === 'Provision' && <Badge variant="secondary" className="block text-[8px] mt-1">PROVISÃO</Badge>}
@@ -565,7 +522,7 @@ export default function AccountsPayablePage() {
                   <TableCell>
                     {entry.dynamicStatus === 'Paid' ? <Badge className="bg-emerald-100 text-emerald-700">Pago</Badge> : 
                      entry.dynamicStatus === 'Overdue' ? <Badge variant="destructive">Atrasado</Badge> : 
-                     entry.dynamicStatus === 'DueToday' ? <Badge className="bg-amber-100 text-amber-700 border-amber-200">Hoje</Badge> :
+                     entry.dynamicStatus === 'DueToday' ? <Badge className="bg-amber-100 text-amber-700">Hoje</Badge> :
                      <Badge variant="outline">Aberto</Badge>}
                   </TableCell>
                   <TableCell className="text-right font-bold">R$ {entry.originalAmount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</TableCell>
@@ -573,7 +530,7 @@ export default function AccountsPayablePage() {
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild><Button variant="ghost" size="icon"><MoreHorizontal className="w-4 h-4" /></Button></DropdownMenuTrigger>
                       <DropdownMenuContent align="end">
-                        {entry.status !== 'Paid' && <DropdownMenuItem onClick={() => handleOpenLiquidation(entry)} className="text-emerald-600 font-bold">Liquidar</DropdownMenuItem>}
+                        {entry.status !== 'Paid' && <DropdownMenuItem onClick={() => { setEntryToPay(entry); setIsPaymentOpen(true); }} className="text-emerald-600 font-bold">Liquidar</DropdownMenuItem>}
                         <DropdownMenuItem onClick={() => openEdit(entry)} className="gap-2"><Pencil className="w-4 h-4" /> Editar</DropdownMenuItem>
                         <DropdownMenuItem onClick={() => deleteDocumentNonBlocking(doc(db, "users", user.uid, "accountsPayableEntries", entry.id))} className="text-destructive">Excluir</DropdownMenuItem>
                       </DropdownMenuContent>
@@ -608,7 +565,7 @@ export default function AccountsPayablePage() {
                 </div>
                 <div className="grid grid-cols-3 gap-4">
                   <div className="grid gap-2"><Label>Fornecedor*</Label><Select value={formSupplierId} onValueChange={setFormSupplierId} required><SelectTrigger><SelectValue placeholder="Selecione..." /></SelectTrigger><SelectContent>{suppliers?.map(s => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}</SelectContent></Select></div>
-                  <div className="grid gap-2"><Label>Categoria*</Label><Select value={formCategoryId} onValueChange={setFormCategoryId} required><SelectTrigger><SelectValue placeholder="Selecione..." /></SelectTrigger><SelectContent>{leafCategories.map(c => <SelectItem key={c.id} value={c.id}>{c.code} - {c.name}</SelectItem>)}</SelectContent></Select></div>
+                  <div className="grid gap-2"><Label>Categoria*</Label><Select value={formCategoryId} onValueChange={setFormCategoryId} required><SelectTrigger><SelectValue placeholder="Selecione..." /></SelectTrigger><SelectContent>{leafCategories.map(c => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}</SelectContent></Select></div>
                   <div className="grid gap-2"><Label>Centro de Custo</Label><Select value={formCostCenterId} onValueChange={setFormCostCenterId}><SelectTrigger><SelectValue placeholder="Opcional..." /></SelectTrigger><SelectContent><SelectItem value="none">Nenhum</SelectItem>{centers?.map(c => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}</SelectContent></Select></div>
                 </div>
               </TabsContent>
@@ -635,23 +592,13 @@ export default function AccountsPayablePage() {
             <form onSubmit={(e) => { 
               e.preventDefault(); 
               if (!db || !user) return; 
-              updateDocumentNonBlocking(doc(db, "users", user.uid, "accountsPayableEntries", entryToPay.id), { 
-                status: 'Paid', 
-                interest, 
-                fine, 
-                discount, 
-                paymentDate, 
-                updatedAt: new Date().toISOString() 
-              }); 
+              updateDocumentNonBlocking(doc(db, "users", user.uid, "accountsPayableEntries", entryToPay.id), { status: 'Paid', interest, fine, discount, paymentDate, updatedAt: new Date().toISOString() }); 
               setIsPaymentOpen(false); 
-              toast({ title: "Conta liquidada com sucesso!" });
+              toast({ title: "Conta liquidada!" });
             }}>
               <DialogHeader><DialogTitle>Liquidar: {entryToPay.description}</DialogTitle></DialogHeader>
               <div className="grid gap-4 py-4">
-                <div className="grid gap-2">
-                  <Label>Data de Pagamento</Label>
-                  <Input type="date" value={paymentDate} onChange={e => setPaymentDate(e.target.value)} required />
-                </div>
+                <div className="grid gap-2"><Label>Data de Pagamento</Label><Input type="date" value={paymentDate} onChange={e => setPaymentDate(e.target.value)} required /></div>
                 <div className="grid grid-cols-3 gap-2">
                   <div className="grid gap-2"><Label className="text-[10px]">Juros</Label><Input type="number" value={interest} onChange={e => setInterest(Number(e.target.value))} /></div>
                   <div className="grid gap-2"><Label className="text-[10px]">Multa</Label><Input type="number" value={fine} onChange={e => setFine(Number(e.target.value))} /></div>
