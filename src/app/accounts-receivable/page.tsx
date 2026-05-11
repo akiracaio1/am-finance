@@ -49,7 +49,7 @@ import { Label } from "@/components/ui/label";
 import { toast } from "@/hooks/use-toast";
 import { AccountsReceivableEntry, AccountCategory } from "@/lib/types";
 import { format } from "date-fns";
-import { read, utils, writeFile } from 'xlsx';
+import * as XLSX from 'xlsx';
 
 export default function AccountsReceivablePage() {
   const { user } = useUser();
@@ -73,7 +73,6 @@ export default function AccountsReceivablePage() {
 
   const leafCategories = useMemo(() => {
     if (!categories) return [];
-    // Apenas categorias que não são pais de ninguém (itens folha)
     return categories.filter(cat => !categories.some(child => child.parentCategoryId === cat.id));
   }, [categories]);
 
@@ -86,10 +85,10 @@ export default function AccountsReceivablePage() {
       "Descricao": "Repasse Semanal",
       "Valor": 8400.00
     }];
-    const ws = utils.json_to_sheet(sampleData, { header: headers });
-    const wb = utils.book_new();
-    utils.book_append_sheet(wb, ws, "Contas a Receber");
-    writeFile(wb, "modelo_contas_receber.xlsx");
+    const ws = XLSX.utils.json_to_sheet(sampleData, { header: headers });
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Contas a Receber");
+    XLSX.writeFile(wb, "modelo_contas_receber.xlsx");
   };
 
   const handleImportExcel = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -99,10 +98,10 @@ export default function AccountsReceivablePage() {
     
     try {
       const dataBuffer = await file.arrayBuffer();
-      const workbook = read(dataBuffer, { type: 'array' });
+      const workbook = XLSX.read(dataBuffer, { type: 'array' });
       const sheetName = workbook.SheetNames[0];
       const sheet = workbook.Sheets[sheetName];
-      const rows = utils.sheet_to_json(sheet) as any[];
+      const rows = XLSX.utils.sheet_to_json(sheet) as any[];
 
       const errors: string[] = [];
       const validData: any[] = [];
@@ -127,7 +126,7 @@ export default function AccountsReceivablePage() {
 
         let formattedDueDate = "";
         if (typeof vencimentoRaw === 'number') {
-          formattedDueDate = format(utils.numdate(vencimentoRaw), "yyyy-MM-dd");
+          formattedDueDate = format(XLSX.utils.numdate(vencimentoRaw), "yyyy-MM-dd");
         } else {
           const dateStr = String(vencimentoRaw);
           if (dateStr.includes("/")) {
