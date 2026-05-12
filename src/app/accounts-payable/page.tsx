@@ -30,7 +30,8 @@ import {
   Calendar,
   Copy,
   ChevronLeft,
-  ChevronRight
+  ChevronRight,
+  UserPlus
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useUser, useFirestore, useCollection, useMemoFirebase } from "@/firebase";
@@ -64,7 +65,7 @@ import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Collapsible, CollapsibleContent } from "@/components/ui/collapsible";
 import { toast } from "@/hooks/use-toast";
-import { Supplier, AccountCategory, AccountsPayableEntry, EntryType, CostCenter } from "@/lib/types";
+import { Supplier, AccountCategory, AccountsPayableEntry, EntryType, CostCenter, PersonType } from "@/lib/types";
 import { 
   format, 
   startOfWeek, 
@@ -94,6 +95,11 @@ export default function AccountsPayablePage() {
   const [showFilters, setShowFilters] = useState(true);
   const [isImporting, setIsImporting] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Estado para novo fornecedor rápido
+  const [isQuickSupplierOpen, setIsQuickSupplierOpen] = useState(false);
+  const [quickSupplierName, setQuickSupplierName] = useState("");
+  const [quickSupplierType, setQuickSupplierType] = useState<PersonType>("Pessoa Jurídica");
 
   // Paginação
   const [currentPage, setCurrentPage] = useState(1);
@@ -316,6 +322,26 @@ export default function AccountsPayablePage() {
     setIsNewEntryOpen(false); setEditingEntry(null);
   };
 
+  const handleQuickSupplierSave = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!db || !user || !quickSupplierName) return;
+
+    const supplierId = `sup_${Date.now()}`;
+    const newSupplier: Supplier = {
+      id: supplierId,
+      name: quickSupplierName,
+      personType: quickSupplierType,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+
+    setDocumentNonBlocking(doc(db, "users", user.uid, "suppliers", supplierId), newSupplier, { merge: true });
+    setFormSupplierId(supplierId);
+    setQuickSupplierName("");
+    setIsQuickSupplierOpen(false);
+    toast({ title: "Fornecedor cadastrado com sucesso!" });
+  };
+
   const openEdit = (entry: AccountsPayableEntry) => {
     setEditingEntry(entry);
     setFormType(entry.entryType);
@@ -332,11 +358,11 @@ export default function AccountsPayablePage() {
   };
 
   const handleDuplicate = (entry: AccountsPayableEntry) => {
-    setEditingEntry(null); // Garantir que é um novo
+    setEditingEntry(null);
     setFormType(entry.entryType);
     setFormDescription(`${entry.description} (Cópia)`);
     setFormAmount(entry.originalAmount);
-    setFormDueDate(todayStr); // Resetar para hoje para segurança
+    setFormDueDate(todayStr);
     setFormIssueDate(todayStr);
     setFormSupplierId(entry.supplierId);
     setFormCategoryId(entry.accountCategoryId);
@@ -649,7 +675,18 @@ export default function AccountsPayablePage() {
                   <div className="grid gap-2"><Label>Pagamento</Label><Select value={formPaymentMethod} onValueChange={setFormPaymentMethod}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="Pix">Pix</SelectItem><SelectItem value="Boleto">Boleto</SelectItem><SelectItem value="Cartão">Cartão</SelectItem></SelectContent></Select></div>
                 </div>
                 <div className="grid grid-cols-3 gap-4">
-                  <div className="grid gap-2"><Label>Fornecedor*</Label><Select value={formSupplierId} onValueChange={setFormSupplierId} required><SelectTrigger><SelectValue placeholder="Selecione..." /></SelectTrigger><SelectContent>{sortedSuppliers.map(s => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}</SelectContent></Select></div>
+                  <div className="grid gap-2">
+                    <Label>Fornecedor*</Label>
+                    <div className="flex gap-2">
+                      <Select value={formSupplierId} onValueChange={setFormSupplierId} required>
+                        <SelectTrigger className="flex-1"><SelectValue placeholder="Selecione..." /></SelectTrigger>
+                        <SelectContent>{sortedSuppliers.map(s => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}</SelectContent>
+                      </Select>
+                      <Button type="button" variant="outline" size="icon" onClick={() => setIsQuickSupplierOpen(true)} title="Cadastrar novo fornecedor">
+                        <UserPlus className="w-4 h-4" />
+                      </Button>
+                    </div>
+                  </div>
                   <div className="grid gap-2"><Label>Categoria*</Label><Select value={formCategoryId} onValueChange={setFormCategoryId} required><SelectTrigger><SelectValue placeholder="Selecione..." /></SelectTrigger><SelectContent>{leafCategories.map(c => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}</SelectContent></Select></div>
                   <div className="grid gap-2"><Label>Centro de Custo</Label><Select value={formCostCenterId} onValueChange={setFormCostCenterId}><SelectTrigger><SelectValue placeholder="Opcional..." /></SelectTrigger><SelectContent><SelectItem value="none">Nenhum</SelectItem>{centers?.map(c => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}</SelectContent></Select></div>
                 </div>
@@ -743,6 +780,34 @@ export default function AccountsPayablePage() {
               </DialogFooter>
             </form>
           </Tabs>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={isQuickSupplierOpen} onOpenChange={setIsQuickSupplierOpen}>
+        <DialogContent>
+          <form onSubmit={handleQuickSupplierSave}>
+            <DialogHeader><DialogTitle>Cadastro Rápido de Fornecedor</DialogTitle></DialogHeader>
+            <div className="grid gap-4 py-4">
+              <div className="grid gap-2">
+                <Label>Nome do Fornecedor*</Label>
+                <Input value={quickSupplierName} onChange={e => setQuickSupplierName(e.target.value)} required />
+              </div>
+              <div className="grid gap-2">
+                <Label>Tipo de Pessoa</Label>
+                <Select value={quickSupplierType} onValueChange={(v: any) => setQuickSupplierType(v)}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="Pessoa Física">Pessoa Física</SelectItem>
+                    <SelectItem value="Pessoa Jurídica">Pessoa Jurídica</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <DialogFooter>
+              <Button type="button" variant="ghost" onClick={() => setIsQuickSupplierOpen(false)}>Cancelar</Button>
+              <Button type="submit">Cadastrar e Selecionar</Button>
+            </DialogFooter>
+          </form>
         </DialogContent>
       </Dialog>
 
