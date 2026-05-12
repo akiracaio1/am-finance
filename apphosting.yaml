@@ -1,9 +1,6 @@
 
-# Settings to manage and configure a Firebase App Hosting backend.
-# https://firebase.google.com/docs/app-hosting/configure
-
+# Configurações para o Firebase App Hosting (Otimizado para Next.js)
 runConfig:
-  # O AM Finance é otimizado para rodar em instâncias escaláveis.
   maxInstances: 5
   minInstances: 0
   memory: 512MiB
@@ -12,3 +9,8 @@ runConfig:
 env:
   - variable: NODE_ENV
     value: production
+  - variable: NEXT_PUBLIC_FIREBASE_PROJECT_ID
+    value: "studio-1144915914-4c438"
+
+# Define a região do deploy
+location: us-central1
