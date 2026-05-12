@@ -3,6 +3,7 @@ export type TransactionStatus = 'Open' | 'Paid' | 'Overdue' | 'DueToday' | 'canc
 export type AccountType = 'payable' | 'receivable';
 export type PersonType = 'Pessoa Física' | 'Pessoa Jurídica';
 export type EntryType = 'Provision' | 'Confirmed';
+export type BankAccountType = 'Corrente' | 'Poupança' | 'Investimento' | 'Caixinha';
 
 export interface Supplier {
   id: string;
@@ -74,9 +75,29 @@ export interface AccountsReceivableEntry {
 
 export interface BankAccount {
   id: string;
-  bankName: string;
-  accountNumber: string;
-  balance: number;
+  name: string;
+  bank: string;
+  type: BankAccountType;
+  initialBalance: number;
+  openingDate: string;
+  createdAt: string;
+}
+
+export interface BankTransaction {
+  id: string;
+  date: string;
+  amount: number;
+  description: string;
+  type: 'CREDIT' | 'DEBIT';
+  reconciled: boolean;
+  reconciledEntryId: string | null;
+  fitId?: string;
+  bankAccountId: string;
+  ignored?: boolean;
+}
+
+export interface NoMovementDay {
+  date: string;
 }
 
 export interface FinancialEntry {
@@ -91,12 +112,4 @@ export interface FinancialEntry {
   category: string;
   interest?: number;
   fine?: number;
-}
-
-export interface BankStatementItem {
-  id: string;
-  date: string;
-  amount: number;
-  description: string;
-  matchedEntryId?: string;
 }

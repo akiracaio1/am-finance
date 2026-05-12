@@ -97,6 +97,37 @@
         "updatedAt": { "type": "string", "format": "date-time" }
       },
       "required": ["id", "customerName", "accountCategoryId", "description", "amount", "dueDate", "status", "createdAt", "updatedAt"]
+    },
+    "BankAccount": {
+      "title": "BankAccount",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "bank": { "type": "string" },
+        "type": { "type": "string", "enum": ["Corrente", "Poupança", "Investimento", "Caixinha"] },
+        "initialBalance": { "type": "number" },
+        "openingDate": { "type": "string", "format": "date" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "name", "bank", "type", "initialBalance", "openingDate"]
+    },
+    "BankTransaction": {
+      "title": "BankTransaction",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "date": { "type": "string", "format": "date" },
+        "amount": { "type": "number" },
+        "description": { "type": "string" },
+        "type": { "type": "string", "enum": ["CREDIT", "DEBIT"] },
+        "reconciled": { "type": "boolean" },
+        "reconciledEntryId": { "type": "string" },
+        "fitId": { "type": "string" },
+        "bankAccountId": { "type": "string" },
+        "ignored": { "type": "boolean" }
+      },
+      "required": ["id", "date", "amount", "description", "type", "reconciled"]
     }
   },
   "auth": {
@@ -142,6 +173,30 @@
           "entityName": "AccountsReceivableEntry",
           "schema": { "$ref": "#/backend/entities/AccountsReceivableEntry" },
           "description": "Stores accounts receivable entries."
+        }
+      },
+      {
+        "path": "/users/{userId}/bankAccounts/{bankAccountId}",
+        "definition": {
+          "entityName": "BankAccount",
+          "schema": { "$ref": "#/backend/entities/BankAccount" },
+          "description": "Bank account metadata."
+        }
+      },
+      {
+        "path": "/users/{userId}/bankAccounts/{bankAccountId}/bankTransactions/{transactionId}",
+        "definition": {
+          "entityName": "BankTransaction",
+          "schema": { "$ref": "#/backend/entities/BankTransaction" },
+          "description": "Bank transactions imported from OFX."
+        }
+      },
+      {
+        "path": "/users/{userId}/bankAccounts/{bankAccountId}/noMovementDays/{date}",
+        "definition": {
+          "entityName": "NoMovementDay",
+          "schema": { "type": "object", "properties": { "date": { "type": "string" } } },
+          "description": "Days explicitly marked as having no movement."
         }
       }
     ]
