@@ -2,45 +2,31 @@
 
 Este é um sistema de gestão financeira profissional construído com Next.js 15, Firebase e Genkit (IA).
 
-## 🚀 Como publicar o site (Deploy)
+## 🚀 Como publicar o site (Deploy) - Passo a Passo Final
 
-Siga estes passos exatos no terminal do editor para enviar seu código para o GitHub:
+### 1. Enviar para o GitHub
+Se ainda não fez, rode estes comandos no terminal:
+```bash
+git init
+git add .
+git commit -m "primeiro deploy am-finance"
+git remote add origin https://github.com/akiracaio1/am-finance.git
+git branch -M main
+git push -u origin main
+```
 
-1. **Inicializar o Git**:
-   ```bash
-   git init
-   ```
+### 2. Configurar no Firebase Console
+Vá em [App Hosting](https://console.firebase.google.com/project/_/apphosting) e preencha assim:
 
-2. **Preparar os arquivos**:
-   ```bash
-   git add .
-   ```
+- **Região**: `us-central1 (Iowa)`
+- **Repositório**: Selecione `am-finance`
+- **Ramificação ativa**: Escolha `main`
+- **Diretório raiz**: Deixe `/`
+- **Nome do Back-end**: `am-finance-prod`
+- **App Web**: Selecione o seu app da lista (ID: studio-1144...)
 
-3. **Criar o primeiro registro**:
-   ```bash
-   git commit -m "primeiro deploy am-finance"
-   ```
-
-4. **Vincular ao seu repositório**:
-   ```bash
-   git remote add origin https://github.com/akiracaio1/am-finance.git
-   ```
-
-5. **Renomear a branch principal**:
-   ```bash
-   git branch -M main
-   ```
-
-6. **Enviar o código**:
-   ```bash
-   git push -u origin main
-   ```
-
-## 🌐 Próximo Passo: Firebase Console
-- Após o "push" acima, vá em [App Hosting](https://console.firebase.google.com/project/_/apphosting).
-- Clique em "Começar" ou "Adicionar Back-end".
-- Selecione o repositório `am-finance` que agora estará com o código.
-- Siga as instruções de região (`us-central1`) e o Firebase gerará sua URL pública.
+### 3. Aguarde o link
+Após clicar em "Finalizar", o Firebase levará cerca de 3 a 5 minutos para processar tudo. Quando terminar, ele exibirá o seu **Domínio do App Hosting**. Esse é o seu link oficial!
 
 ## 🛠 Tecnologias
 - **Frontend**: Next.js 15 (App Router), Tailwind CSS, ShadCN UI.
