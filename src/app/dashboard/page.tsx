@@ -44,7 +44,15 @@ export default function DashboardPage() {
   const payables = MOCK_ENTRIES.filter(e => e.type === 'payable' && e.status !== 'paid').reduce((acc, curr) => acc + curr.amount, 0);
   const overdueCount = MOCK_ENTRIES.filter(e => e.status === 'overdue').length;
 
-  if (!mounted) return null;
+  // Crucial para evitar erros de hidratação com Recharts
+  if (!mounted) return (
+    <div className="space-y-8 p-4">
+      <div className="h-20 bg-muted animate-pulse rounded-lg" />
+      <div className="grid gap-4 md:grid-cols-4">
+        {[1,2,3,4].map(i => <div key={i} className="h-32 bg-muted animate-pulse rounded-lg" />)}
+      </div>
+    </div>
+  );
 
   return (
     <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-700">
