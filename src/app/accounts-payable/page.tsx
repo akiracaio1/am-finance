@@ -97,18 +97,15 @@ export default function AccountsPayablePage() {
     setTodayStr(format(new Date(), "yyyy-MM-dd"));
   }, []);
 
-  // Filtros Multi-seleção
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedStatuses, setSelectedStatuses] = useState<string[]>([]);
   const [selectedSupplierIds, setSelectedSupplierIds] = useState<string[]>([]);
   const [selectedCategoryIds, setSelectedCategoryIds] = useState<string[]>([]);
   
-  // Datas
   const [filterDueDateStart, setFilterDueDateStart] = useState("");
   const [filterDueDateEnd, setFilterDueDateEnd] = useState("");
   const [datePreset, setDatePreset] = useState("custom");
 
-  // Liquidação
   const [interest, setInterest] = useState(0);
   const [fine, setFine] = useState(0);
   const [discount, setDiscount] = useState(0);
@@ -118,7 +115,6 @@ export default function AccountsPayablePage() {
     if (todayStr) setPaymentDate(todayStr);
   }, [todayStr]);
 
-  // Form State
   const [formType, setFormType] = useState<EntryType>("Confirmed");
   const [formDescription, setFormDescription] = useState("");
   const [formAmount, setFormAmount] = useState<number>(0);
@@ -133,7 +129,6 @@ export default function AccountsPayablePage() {
     if (todayStr && !formDueDate) setFormDueDate(todayStr);
   }, [todayStr, formDueDate]);
 
-  // Repetição/Parcelamento
   const [repetitionType, setRepetitionType] = useState<"single" | "fixed" | "installments">("single");
   const [recurrenceInterval, setRecurrenceInterval] = useState<"weekly" | "biweekly" | "monthly" | "yearly">("monthly");
   const [numRepetitions, setNumRepetitions] = useState(1);
@@ -208,7 +203,6 @@ export default function AccountsPayablePage() {
   const totalOpen = filteredEntries.filter(e => e.dynamicStatus === 'Open').reduce((acc, curr) => acc + curr.originalAmount, 0);
   const totalPaid = filteredEntries.filter(e => e.dynamicStatus === 'Paid').reduce((acc, curr) => acc + calculateSettledValue(curr), 0);
 
-  // Geração automática inicial de parcelas
   useEffect(() => {
     if (repetitionType === 'single' || !formDueDate) {
       setGeneratedInstallments([]);
@@ -245,14 +239,6 @@ export default function AccountsPayablePage() {
     );
   }
 
-  const updateGeneratedInstallment = (index: number, field: 'date' | 'amount', value: any) => {
-    setGeneratedInstallments(prev => {
-      const copy = [...prev];
-      copy[index] = { ...copy[index], [field]: value };
-      return copy;
-    });
-  };
-
   const handleDatePresetChange = (preset: string) => {
     setDatePreset(preset);
     const today = new Date();
@@ -276,7 +262,17 @@ export default function AccountsPayablePage() {
     e.preventDefault();
     if (!db || !user) return;
     
-    // Filtra dados para evitar campos undefined que quebram o Firestore
+    // Filtro rigoroso de campos para evitar 'undefined' que quebra o Firestore
+    const prepareData = (data: any) => {
+      const clean: any = {};
+      Object.keys(data).forEach(key => {
+        if (data[key] !== undefined && data[key] !== null) {
+          clean[key] = data[key];
+        }
+      });
+      return clean;
+    };
+
     const baseData: any = {
       supplierId: formSupplierId, 
       accountCategoryId: formCategoryId, 
@@ -290,12 +286,14 @@ export default function AccountsPayablePage() {
     if (formCostCenterId !== "none") baseData.costCenterId = formCostCenterId;
 
     if (editingEntry) {
-      updateDocumentNonBlocking(doc(db, "users", user.uid, "accountsPayableEntries", editingEntry.id), { ...baseData, originalAmount: formAmount, dueDate: formDueDate });
+      const updateData = prepareData({ ...baseData, originalAmount: formAmount, dueDate: formDueDate });
+      updateDocumentNonBlocking(doc(db, "users", user.uid, "accountsPayableEntries", editingEntry.id), updateData);
       toast({ title: "Lançamento atualizado" });
     } else {
       if (repetitionType === 'single') {
         const id = `pay_${Date.now()}`;
-        setDocumentNonBlocking(doc(db, "users", user.uid, "accountsPayableEntries", id), { ...baseData, id, status: 'Open', originalAmount: formAmount, dueDate: formDueDate, createdAt: new Date().toISOString() }, { merge: true });
+        const finalData = prepareData({ ...baseData, id, status: 'Open', originalAmount: formAmount, dueDate: formDueDate, createdAt: new Date().toISOString() });
+        setDocumentNonBlocking(doc(db, "users", user.uid, "accountsPayableEntries", id), finalData, { merge: true });
       } else {
         generatedInstallments.forEach((inst, idx) => {
           const id = `pay_${Date.now()}_${idx}`;
@@ -312,7 +310,8 @@ export default function AccountsPayablePage() {
             entryData.installmentInfo = `${idx + 1}/${numRepetitions}`;
           }
 
-          setDocumentNonBlocking(doc(db, "users", user.uid, "accountsPayableEntries", id), entryData, { merge: true });
+          const finalEntryData = prepareData(entryData);
+          setDocumentNonBlocking(doc(db, "users", user.uid, "accountsPayableEntries", id), finalEntryData, { merge: true });
         });
       }
     }
@@ -611,7 +610,11 @@ export default function AccountsPayablePage() {
                                   type="date" 
                                   className="h-8 text-xs" 
                                   value={inst.date} 
-                                  onChange={e => updateGeneratedInstallment(i, 'date', e.target.value)} 
+                                  onChange={e => {
+                                    const copy = [...generatedInstallments];
+                                    copy[i].date = e.target.value;
+                                    setGeneratedInstallments(copy);
+                                  }} 
                                 />
                               </TableCell>
                               <TableCell>
@@ -620,7 +623,11 @@ export default function AccountsPayablePage() {
                                   step="0.01" 
                                   className="h-8 text-xs text-right" 
                                   value={inst.amount} 
-                                  onChange={e => updateGeneratedInstallment(i, 'amount', Number(e.target.value))} 
+                                  onChange={e => {
+                                    const copy = [...generatedInstallments];
+                                    copy[i].amount = Number(e.target.value);
+                                    setGeneratedInstallments(copy);
+                                  }} 
                                 />
                               </TableCell>
                             </TableRow>

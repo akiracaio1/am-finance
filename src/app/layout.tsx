@@ -22,7 +22,6 @@ export default function RootLayout({
   const router = useRouter();
   const [loading, setLoading] = useState(true);
 
-  // 1. Efeito de montagem inicial (Garante que o código rode apenas no cliente)
   useEffect(() => {
     setMounted(true);
     const data = initializeFirebase();
@@ -30,9 +29,16 @@ export default function RootLayout({
 
     const unsubscribe = onAuthStateChanged(data.auth, (user) => {
       const isAuthPage = pathname === "/login" || pathname === "/register" || pathname === "/forgot-password";
+      
+      // Se não houver usuário e não estiver em uma página de auth, vai para login
       if (!user && !isAuthPage) {
         router.push("/login");
+      } 
+      // Se estiver logado e tentar acessar a raiz ou login, vai para dashboard
+      else if (user && (pathname === "/" || isAuthPage)) {
+        router.push("/dashboard");
       }
+      
       setLoading(false);
     });
 
@@ -40,6 +46,19 @@ export default function RootLayout({
   }, [pathname, router]);
 
   const isAuthPage = pathname === "/login" || pathname === "/register" || pathname === "/forgot-password";
+
+  // Prevenção de Hydration Mismatch: renderiza apenas o básico no servidor
+  if (!mounted) {
+    return (
+      <html lang="pt-BR">
+        <body className="bg-background">
+          <div className="flex items-center justify-center min-h-screen">
+            <div className="text-primary font-bold">Iniciando AM Finance...</div>
+          </div>
+        </body>
+      </html>
+    );
+  }
 
   return (
     <html lang="pt-BR" suppressHydrationWarning>
@@ -50,27 +69,20 @@ export default function RootLayout({
         <title>AM Finance - Controle financeiro inteligente</title>
       </head>
       <body className="font-body antialiased bg-background" suppressHydrationWarning>
-        {/* Renderização condicional segura para evitar Hydration Mismatch */}
-        {!mounted || !firebaseData ? (
-          <div className="flex items-center justify-center min-h-screen">
-            <div className="animate-pulse text-xl font-bold text-primary">Carregando AM Finance...</div>
+        <FirebaseClientProvider>
+          <div className="flex min-h-screen">
+            {!isAuthPage && <AppSidebar />}
+            <main className={cn("flex-1 overflow-auto", !isAuthPage ? "p-8" : "")}>
+              {loading && !isAuthPage ? (
+                <div className="flex items-center justify-center h-full">
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+                </div>
+              ) : children}
+            </main>
           </div>
-        ) : (
-          <FirebaseClientProvider>
-            <div className="flex min-h-screen">
-              {!isAuthPage && <AppSidebar />}
-              <main className={cn("flex-1 overflow-auto", !isAuthPage ? "p-8" : "")}>
-                {loading && !isAuthPage ? (
-                  <div className="flex items-center justify-center h-full">
-                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
-                  </div>
-                ) : children}
-              </main>
-            </div>
-            <FirebaseErrorListener />
-            <Toaster />
-          </FirebaseClientProvider>
-        )}
+          <FirebaseErrorListener />
+          <Toaster />
+        </FirebaseClientProvider>
       </body>
     </html>
   );
