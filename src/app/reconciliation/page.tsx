@@ -33,7 +33,9 @@ import {
   CircleOff,
   SearchIcon,
   UserPlus,
-  FileText
+  FileText,
+  Filter,
+  RotateCcw
 } from "lucide-react";
 import { useUser, useFirestore, useCollection, useMemoFirebase } from "@/firebase";
 import { collection, doc, query, where } from "firebase/firestore";
@@ -83,6 +85,13 @@ export default function ReconciliationPage() {
   
   const [ofxPreview, setOfxPreview] = useState<OFXTransaction[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Estados dos Filtros do Modal
+  const [matchSearchTerm, setMatchSearchTerm] = useState("");
+  const [matchDateStart, setMatchDateStart] = useState("");
+  const [matchDateEnd, setMatchDateEnd] = useState("");
+  const [matchMinValue, setMatchMinValue] = useState<string>("");
+  const [matchMaxValue, setMatchMaxValue] = useState<string>("");
 
   // Form states for detailed creation
   const [formDescription, setFormDescription] = useState("");
@@ -141,7 +150,6 @@ export default function ReconciliationPage() {
     return categories.filter(cat => !categories.some(child => child.parentCategoryId === cat.id));
   }, [categories]);
 
-  // Selecionar conta automaticamente se houver apenas uma
   useEffect(() => {
     if (accounts?.length === 1 && !selectedAccountId) {
       setSelectedAccountId(accounts[0].id);
@@ -150,21 +158,19 @@ export default function ReconciliationPage() {
 
   const selectedAccount = useMemo(() => accounts?.find(a => a.id === selectedAccountId), [accounts, selectedAccountId]);
 
-  // Filtrar dados do dia selecionado
   const dailyTransactions = useMemo(() => {
     return allTransactions?.filter(t => t.date === selectedDate) || [];
   }, [allTransactions, selectedDate]);
 
   const dailySystemEntries = useMemo(() => {
-    const payables = allPayables?.filter(p => p.dueDate === selectedDate) || [];
-    const receivables = allReceivables?.filter(r => r.dueDate === selectedDate) || [];
+    const payables = allPayables?.filter(p => p.paymentDate === selectedDate && p.bankAccountId === selectedAccountId) || [];
+    const receivables = allReceivables?.filter(r => r.paymentDate === selectedDate && r.bankAccountId === selectedAccountId) || [];
     return [
       ...payables.map(p => ({ ...p, type: 'DEBIT' as const, isPayable: true })),
       ...receivables.map(r => ({ ...r, type: 'CREDIT' as const, isPayable: false }))
     ];
-  }, [allPayables, allReceivables, selectedDate]);
+  }, [allPayables, allReceivables, selectedDate, selectedAccountId]);
 
-  // Sugestões para conciliação (Todos os itens abertos do sistema)
   const openSystemEntries = useMemo(() => {
     const payables = allPayables?.filter(p => p.status !== 'Paid') || [];
     const receivables = allReceivables?.filter(r => r.status !== 'Paid') || [];
@@ -174,7 +180,50 @@ export default function ReconciliationPage() {
     ];
   }, [allPayables, allReceivables]);
 
-  // Identificar dias pendentes (A partir de 01/05/2026)
+  // Aplicação dos filtros do Modal
+  const filteredOpenEntries = useMemo(() => {
+    if (!matchingTransaction) return [];
+    return openSystemEntries.filter(e => {
+      // Filtro de Tipo (Sempre obrigatório)
+      if (e.type !== matchingTransaction.type) return false;
+
+      // Filtro de Texto (Busca na descrição ou nomes)
+      if (matchSearchTerm) {
+        const term = matchSearchTerm.toLowerCase();
+        const desc = e.description.toLowerCase();
+        const customer = (e as any).customerName?.toLowerCase() || "";
+        const supplier = suppliers?.find(s => s.id === (e as any).supplierId)?.name.toLowerCase() || "";
+        if (!desc.includes(term) && !customer.includes(term) && !supplier.includes(term)) return false;
+      }
+
+      // Filtro de Datas
+      if (matchDateStart && e.dueDate < matchDateStart) return false;
+      if (matchDateEnd && e.dueDate > matchDateEnd) return false;
+
+      // Filtro de Valores
+      const val = e.amount || (e as any).originalAmount || 0;
+      if (matchMinValue && val < Number(matchMinValue)) return false;
+      if (matchMaxValue && val > Number(matchMaxValue)) return false;
+
+      return true;
+    }).sort((a, b) => {
+      // Prioridade 1: Mesmo valor exato
+      const aVal = a.amount || (a as any).originalAmount || 0;
+      const bVal = b.amount || (b as any).originalAmount || 0;
+      const targetVal = Math.abs(matchingTransaction.amount);
+      const aMatchVal = Math.abs(aVal - targetVal) < 0.01;
+      const bMatchVal = Math.abs(bVal - targetVal) < 0.01;
+      if (aMatchVal && !bMatchVal) return -1;
+      if (!aMatchVal && bMatchVal) return 1;
+
+      // Prioridade 2: Mesma data
+      if (a.dueDate === matchingTransaction.date && b.dueDate !== matchingTransaction.date) return -1;
+      if (a.dueDate !== matchingTransaction.date && b.dueDate === matchingTransaction.date) return 1;
+
+      return a.dueDate.localeCompare(b.dueDate);
+    });
+  }, [openSystemEntries, matchingTransaction, matchSearchTerm, matchDateStart, matchDateEnd, matchMinValue, matchMaxValue, suppliers]);
+
   const pendingDays = useMemo(() => {
     if (!selectedAccount || !allTransactions || !noMovementDays) return [];
     
@@ -195,13 +244,12 @@ export default function ReconciliationPage() {
     }).map(day => format(day, "yyyy-MM-dd")).reverse();
   }, [selectedAccount, allTransactions, noMovementDays]);
 
-  // Totais e Diferenças
   const summary = useMemo(() => {
     const statementIn = dailyTransactions.filter(t => t.type === 'CREDIT' && !t.ignored).reduce((acc, t) => acc + t.amount, 0);
     const statementOut = Math.abs(dailyTransactions.filter(t => t.type === 'DEBIT' && !t.ignored).reduce((acc, t) => acc + t.amount, 0));
     
-    const systemIn = dailySystemEntries.filter(e => e.type === 'CREDIT' && e.status === 'Paid').reduce((acc, e) => acc + (e.amount || (e as any).originalAmount || 0), 0);
-    const systemOut = dailySystemEntries.filter(e => e.type === 'DEBIT' && e.status === 'Paid').reduce((acc, e) => acc + (e.amount || (e as any).originalAmount || 0), 0);
+    const systemIn = dailySystemEntries.filter(e => e.type === 'CREDIT').reduce((acc, e) => acc + (e.amount || (e as any).originalAmount || 0), 0);
+    const systemOut = dailySystemEntries.filter(e => e.type === 'DEBIT').reduce((acc, e) => acc + (e.amount || (e as any).originalAmount || 0), 0);
 
     return {
       statementIn,
@@ -214,11 +262,9 @@ export default function ReconciliationPage() {
     };
   }, [dailyTransactions, dailySystemEntries]);
 
-  // OFX Import Handlers
   const handleOFXFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-
     const text = await file.text();
     const transactions = parseOFX(text);
     setOfxPreview(transactions);
@@ -228,7 +274,6 @@ export default function ReconciliationPage() {
 
   const confirmImport = () => {
     if (!db || !user || !selectedAccountId) return;
-
     ofxPreview.forEach(t => {
       const transactionId = `txn_${t.fitId}_${selectedAccountId}`;
       const data: BankTransaction = {
@@ -244,12 +289,10 @@ export default function ReconciliationPage() {
       };
       setDocumentNonBlocking(doc(db, "users", user.uid, "bankAccounts", selectedAccountId, "bankTransactions", transactionId), data, { merge: true });
     });
-
     setIsImportModalOpen(false);
     toast({ title: "Importação concluída", description: `${ofxPreview.length} transações processadas.` });
   };
 
-  // Conciliation Actions
   const handleIgnore = (txn: BankTransaction) => {
     if (!db || !user || !selectedAccountId) return;
     updateDocumentNonBlocking(doc(db, "users", user.uid, "bankAccounts", selectedAccountId, "bankTransactions", txn.id), { 
@@ -257,21 +300,47 @@ export default function ReconciliationPage() {
     });
   };
 
+  const handleUndoReconciliation = (txn: BankTransaction) => {
+    if (!db || !user || !selectedAccountId || !txn.reconciledEntryId) return;
+
+    const entryId = txn.reconciledEntryId;
+    const isPayable = txn.type === 'DEBIT';
+    const col = isPayable ? "accountsPayableEntries" : "accountsReceivableEntries";
+
+    // 1. Atualizar transação bancária
+    updateDocumentNonBlocking(doc(db, "users", user.uid, "bankAccounts", selectedAccountId, "bankTransactions", txn.id), {
+      reconciled: false,
+      reconciledEntryId: null
+    });
+
+    // 2. Atualizar lançamento no sistema
+    updateDocumentNonBlocking(doc(db, "users", user.uid, col, entryId), {
+      status: 'Open',
+      paymentDate: null,
+      bankAccountId: null
+    });
+
+    toast({ title: "Conciliação desfeita", description: "O lançamento voltou ao status 'Em Aberto'." });
+  };
+
   const openMatchSearch = (txn: BankTransaction) => {
     setMatchingTransaction(txn);
+    setMatchSearchTerm("");
+    setMatchDateStart("");
+    setMatchDateEnd("");
+    setMatchMinValue("");
+    setMatchMaxValue("");
     setIsMatchModalOpen(true);
   };
 
   const confirmMatch = (entryId: string) => {
     if (!db || !user || !selectedAccountId || !matchingTransaction) return;
 
-    // Atualizar transação bancária
     updateDocumentNonBlocking(doc(db, "users", user.uid, "bankAccounts", selectedAccountId, "bankTransactions", matchingTransaction.id), {
       reconciled: true,
       reconciledEntryId: entryId
     });
 
-    // Atualizar lançamento no sistema
     const isPayable = matchingTransaction.type === 'DEBIT';
     const collectionName = isPayable ? "accountsPayableEntries" : "accountsReceivableEntries";
     updateDocumentNonBlocking(doc(db, "users", user.uid, collectionName, entryId), {
@@ -401,7 +470,6 @@ export default function ReconciliationPage() {
                   </div>
                   <Button type="submit" className="w-full">Adicionar Conta</Button>
                 </form>
-                
                 <div className="max-h-[200px] overflow-y-auto space-y-2">
                   {accounts?.map(acc => (
                     <div key={acc.id} className="flex justify-between items-center p-2 border rounded">
@@ -434,12 +502,12 @@ export default function ReconciliationPage() {
               <h4 className="text-sm font-bold text-amber-900">Pendências Detectadas</h4>
               <p className="text-xs text-amber-700">Os seguintes dias não possuem OFX importado nem marcação de movimento (desde 01/05/2026):</p>
               <div className="flex flex-wrap gap-2 mt-2">
-                {pendingDays.slice(0, 10).map(date => (
+                {pendingDays.slice(0, 15).map(date => (
                   <Badge key={date} variant="secondary" className="cursor-pointer hover:bg-amber-200" onClick={() => setSelectedDate(date)}>
                     {format(parseISO(date), "dd/MM")}
                   </Badge>
                 ))}
-                {pendingDays.length > 10 && <span className="text-[10px] text-muted-foreground self-center">... e mais {pendingDays.length - 10} dias</span>}
+                {pendingDays.length > 15 && <span className="text-[10px] text-muted-foreground self-center">... e mais {pendingDays.length - 15} dias</span>}
               </div>
             </div>
           </CardContent>
@@ -448,15 +516,12 @@ export default function ReconciliationPage() {
 
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
         <Card className="lg:col-span-1">
-          <CardHeader>
-            <CardTitle className="text-sm">Seletor de Data</CardTitle>
-          </CardHeader>
+          <CardHeader><CardTitle className="text-sm">Seletor de Data</CardTitle></CardHeader>
           <CardContent className="space-y-4">
             <div className="space-y-2">
               <Label>Dia para conciliação</Label>
               <Input type="date" value={selectedDate} onChange={e => setSelectedDate(e.target.value)} className="w-full" />
             </div>
-            
             <div className="pt-4 border-t space-y-3">
               <div className="flex justify-between items-center">
                 <span className="text-xs font-medium">Status do Dia</span>
@@ -508,16 +573,12 @@ export default function ReconciliationPage() {
 
           <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
             <Card>
-              <CardHeader className="p-4 border-b bg-muted/20">
-                <CardTitle className="text-xs uppercase flex items-center gap-2">
-                  <Upload className="w-3 h-3" /> Extrato Bancário (OFX)
-                </CardTitle>
-              </CardHeader>
+              <CardHeader className="p-4 border-b bg-muted/20"><CardTitle className="text-xs uppercase flex items-center gap-2"><Upload className="w-3 h-3" /> Extrato Bancário (OFX)</CardTitle></CardHeader>
               <CardContent className="p-0">
                 <Table>
                   <TableBody>
                     {dailyTransactions.length === 0 ? (
-                      <TableRow><TableCell className="text-center py-10 text-muted-foreground italic text-xs">Sem transações de extrato para este dia.</TableCell></TableRow>
+                      <TableRow><TableCell className="text-center py-10 text-muted-foreground italic text-xs">Sem transações para este dia.</TableCell></TableRow>
                     ) : (
                       dailyTransactions.map(txn => (
                         <TableRow key={txn.id} className={cn(txn.reconciled ? "bg-emerald-50/50" : txn.ignored ? "opacity-40" : "")}>
@@ -537,7 +598,10 @@ export default function ReconciliationPage() {
                                 <Button size="icon" variant="ghost" className="h-7 w-7 text-destructive" onClick={() => handleIgnore(txn)} title="Ignorar"><CircleOff className="w-3 h-3" /></Button>
                               </div>
                             ) : txn.reconciled ? (
-                              <Badge className="bg-emerald-100 text-emerald-700 text-[9px]">OK</Badge>
+                              <div className="flex justify-end items-center gap-2">
+                                <Badge className="bg-emerald-100 text-emerald-700 text-[9px]">OK</Badge>
+                                <Button size="icon" variant="ghost" className="h-6 w-6 text-muted-foreground hover:text-destructive" onClick={() => handleUndoReconciliation(txn)} title="Desfazer Conciliação"><X className="w-3 h-3" /></Button>
+                              </div>
                             ) : (
                               <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => handleIgnore(txn)}><RefreshCw className="w-3 h-3" /></Button>
                             )}
@@ -551,18 +615,14 @@ export default function ReconciliationPage() {
             </Card>
 
             <Card>
-              <CardHeader className="p-4 border-b bg-muted/20">
-                <CardTitle className="text-xs uppercase flex items-center gap-2">
-                  <Settings className="w-3 h-3" /> Lançamentos Pagos Hoje
-                </CardTitle>
-              </CardHeader>
+              <CardHeader className="p-4 border-b bg-muted/20"><CardTitle className="text-xs uppercase flex items-center gap-2"><Settings className="w-3 h-3" /> Conciliados no Dia</CardTitle></CardHeader>
               <CardContent className="p-0">
                 <Table>
                   <TableBody>
-                    {dailySystemEntries.filter(e => e.status === 'Paid').length === 0 ? (
-                      <TableRow><TableCell className="text-center py-10 text-muted-foreground italic text-xs">Sem baixas registradas nesta data.</TableCell></TableRow>
+                    {dailySystemEntries.length === 0 ? (
+                      <TableRow><TableCell className="text-center py-10 text-muted-foreground italic text-xs">Sem baixas conciliadas nesta data.</TableCell></TableRow>
                     ) : (
-                      dailySystemEntries.filter(e => e.status === 'Paid').map(entry => (
+                      dailySystemEntries.map(entry => (
                         <TableRow key={entry.id} className="bg-emerald-50/50">
                           <TableCell className="p-3">
                             <div className="flex flex-col">
@@ -576,7 +636,7 @@ export default function ReconciliationPage() {
                             R$ {(entry.amount || (entry as any).originalAmount || 0).toLocaleString('pt-BR')}
                           </TableCell>
                           <TableCell className="p-3 text-right">
-                            <Badge variant="outline" className="text-[9px] border-emerald-200 text-emerald-700">Baixado</Badge>
+                            <Badge variant="outline" className="text-[9px] border-emerald-200 text-emerald-700">OK</Badge>
                           </TableCell>
                         </TableRow>
                       ))
@@ -589,77 +649,95 @@ export default function ReconciliationPage() {
         </div>
       </div>
 
-      <Dialog open={isImportModalOpen} onOpenChange={setIsImportModalOpen}>
-        <DialogContent className="max-w-3xl">
-          <DialogHeader><DialogTitle>Prévia da Importação</DialogTitle></DialogHeader>
-          <div className="max-h-[400px] overflow-y-auto">
-            <Table>
-              <TableHeader><TableRow><TableHead>Data</TableHead><TableHead>Descrição</TableHead><TableHead className="text-right">Valor</TableHead></TableRow></TableHeader>
-              <TableBody>
-                {ofxPreview.map((t, i) => (
-                  <TableRow key={i}>
-                    <TableCell className="text-xs">{format(parseISO(t.date), "dd/MM/yy")}</TableCell>
-                    <TableCell className="text-xs font-medium">{t.memo}</TableCell>
-                    <TableCell className={cn("text-xs text-right font-bold", t.type === 'CREDIT' ? "text-emerald-600" : "text-destructive")}>
-                      R$ {t.amount.toLocaleString('pt-BR')}
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </div>
-          <DialogFooter>
-            <Button variant="ghost" onClick={() => setIsImportModalOpen(false)}>Cancelar</Button>
-            <Button onClick={confirmImport}>Confirmar Importação de {ofxPreview.length} Itens</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
+      {/* Modal de Busca para Conciliação com Filtros */}
       <Dialog open={isMatchModalOpen} onOpenChange={setIsMatchModalOpen}>
-        <DialogContent className="max-w-2xl">
-          <DialogHeader>
-            <DialogTitle>Conciliar: {matchingTransaction?.description}</DialogTitle>
-            <DialogDescription>
-              Valor: R$ {Math.abs(matchingTransaction?.amount || 0).toLocaleString('pt-BR')} | 
-              Data Extrato: {matchingTransaction ? format(parseISO(matchingTransaction.date), "dd/MM/yyyy") : ''}
-            </DialogDescription>
-          </DialogHeader>
+        <DialogContent className="max-w-4xl max-h-[90vh] flex flex-col p-0 overflow-hidden">
+          <div className="p-6 border-b bg-muted/20">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <ArrowRightLeft className="w-5 h-5 text-primary" />
+                Conciliar: {matchingTransaction?.description}
+              </DialogTitle>
+              <DialogDescription className="font-bold text-primary">
+                Valor do Extrato: R$ {Math.abs(matchingTransaction?.amount || 0).toLocaleString('pt-BR')} | 
+                Data: {matchingTransaction ? format(parseISO(matchingTransaction.date), "dd/MM/yy") : ''}
+              </DialogDescription>
+            </DialogHeader>
+
+            {/* Sessão de Filtros */}
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-3 mt-6 p-4 bg-background border rounded-lg shadow-sm">
+              <div className="space-y-1.5 md:col-span-2">
+                <Label className="text-[10px] uppercase font-bold text-muted-foreground">Busca Rápida</Label>
+                <div className="relative">
+                  <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
+                  <Input placeholder="Descrição, fornecedor..." className="pl-8 h-9" value={matchSearchTerm} onChange={e => setMatchSearchTerm(e.target.value)} />
+                </div>
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-[10px] uppercase font-bold text-muted-foreground">Valor Mín.</Label>
+                <Input type="number" placeholder="R$ 0,00" className="h-9" value={matchMinValue} onChange={e => setMatchMinValue(e.target.value)} />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-[10px] uppercase font-bold text-muted-foreground">Valor Máx.</Label>
+                <Input type="number" placeholder="R$ 0,00" className="h-9" value={matchMaxValue} onChange={e => setMatchMaxValue(e.target.value)} />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-[10px] uppercase font-bold text-muted-foreground">Início Venc.</Label>
+                <Input type="date" className="h-9" value={matchDateStart} onChange={e => setMatchDateStart(e.target.value)} />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-[10px] uppercase font-bold text-muted-foreground">Fim Venc.</Label>
+                <Input type="date" className="h-9" value={matchDateEnd} onChange={e => setMatchDateEnd(e.target.value)} />
+              </div>
+              <div className="flex items-end md:col-span-2 gap-2">
+                <Button variant="ghost" className="h-9 gap-2 text-xs" onClick={() => {
+                  setMatchSearchTerm(""); setMatchDateStart(""); setMatchDateEnd(""); setMatchMinValue(""); setMatchMaxValue("");
+                }}><RotateCcw className="w-3 h-3" /> Limpar Filtros</Button>
+              </div>
+            </div>
+          </div>
           
-          <div className="space-y-4 py-4">
-            <h4 className="text-xs font-bold uppercase text-muted-foreground border-b pb-2">Itens em Aberto no Sistema</h4>
-            <div className="max-h-[300px] overflow-y-auto space-y-2">
-              {openSystemEntries
-                .filter(e => e.type === matchingTransaction?.type)
-                .sort((a, b) => {
-                   // Priorizar mesma data e valor
-                   const aSameVal = Math.abs((a.amount || (a as any).originalAmount) - Math.abs(matchingTransaction?.amount || 0)) < 0.01;
-                   const bSameVal = Math.abs((b.amount || (b as any).originalAmount) - Math.abs(matchingTransaction?.amount || 0)) < 0.01;
-                   if (aSameVal && !bSameVal) return -1;
-                   if (!aSameVal && bSameVal) return 1;
-                   return a.dueDate.localeCompare(b.dueDate);
-                })
-                .map(entry => (
-                  <div key={entry.id} className="flex items-center justify-between p-3 border rounded-lg hover:bg-muted/50 cursor-pointer group" onClick={() => confirmMatch(entry.id)}>
+          <div className="flex-1 overflow-y-auto p-6 space-y-4">
+            <h4 className="text-xs font-bold uppercase text-muted-foreground flex items-center gap-2">
+              <Filter className="w-3 h-3" /> Itens Disponíveis ({filteredOpenEntries.length})
+            </h4>
+            <div className="grid gap-2">
+              {filteredOpenEntries.map(entry => {
+                const entryVal = entry.amount || (entry as any).originalAmount || 0;
+                const isExactMatch = Math.abs(entryVal - Math.abs(matchingTransaction?.amount || 0)) < 0.01;
+                
+                return (
+                  <div key={entry.id} className={cn(
+                    "flex items-center justify-between p-3 border rounded-lg hover:border-primary/50 hover:bg-primary/5 cursor-pointer group transition-all",
+                    isExactMatch ? "bg-emerald-50/30 border-emerald-200" : ""
+                  )} onClick={() => confirmMatch(entry.id)}>
                     <div className="flex flex-col">
                       <div className="flex items-center gap-2">
                         <span className="text-sm font-bold">{entry.description}</span>
+                        {isExactMatch && <Badge className="bg-emerald-100 text-emerald-700 text-[8px] h-4">Valor Exato</Badge>}
                         {entry.dueDate === matchingTransaction?.date && <Badge className="bg-primary/10 text-primary text-[8px] h-4">Mesmo Dia</Badge>}
                       </div>
                       <span className="text-[10px] text-muted-foreground">Vencimento: {format(parseISO(entry.dueDate), "dd/MM/yy")} | {entry.type === 'CREDIT' ? 'Receber' : 'Pagar'}</span>
                     </div>
                     <div className="text-right">
-                      <p className="text-sm font-bold">R$ {(entry.amount || (entry as any).originalAmount || 0).toLocaleString('pt-BR')}</p>
+                      <p className={cn("text-sm font-bold", isExactMatch ? "text-emerald-700" : "")}>R$ {entryVal.toLocaleString('pt-BR')}</p>
                       <p className="text-[10px] text-primary opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-end gap-1">Clique para vincular <ArrowRightLeft className="w-3 h-3" /></p>
                     </div>
                   </div>
-                ))}
+                );
+              })}
               
-              {openSystemEntries.filter(e => e.type === matchingTransaction?.type).length === 0 && (
-                <p className="text-center py-4 text-xs text-muted-foreground">Nenhum lançamento em aberto encontrado para este tipo.</p>
+              {filteredOpenEntries.length === 0 && (
+                <div className="text-center py-10 border border-dashed rounded-lg">
+                  <p className="text-sm text-muted-foreground">Nenhum lançamento em aberto encontrado para os filtros aplicados.</p>
+                </div>
               )}
-              
-              <div className="pt-6 border-t">
-                <p className="text-xs text-center text-muted-foreground mb-4">Se não encontrou o lançamento, crie um novo:</p>
+            </div>
+          </div>
+
+          <div className="p-6 border-t bg-muted/10 space-y-4">
+             <div className="flex flex-col gap-2">
+                <p className="text-xs text-center text-muted-foreground">Não encontrou o lançamento? Crie um agora:</p>
                 <div className="flex gap-2">
                   <Button className="flex-1 gap-2" variant="outline" onClick={() => {
                     if (!db || !user || !matchingTransaction) return;
@@ -678,14 +756,8 @@ export default function ReconciliationPage() {
                       updatedAt: new Date().toISOString(),
                       accountCategoryId: "none"
                     };
-                    
-                    if (isPayable) {
-                      data.supplierId = "none";
-                      data.entryType = "Confirmed";
-                    } else {
-                      data.customerName = "Venda Rápida";
-                    }
-
+                    if (isPayable) { data.supplierId = "none"; data.entryType = "Confirmed"; } 
+                    else { data.customerName = "Venda Rápida"; }
                     setDocumentNonBlocking(doc(db, "users", user.uid, col, id), data, { merge: true });
                     confirmMatch(id);
                   }}>
@@ -695,8 +767,7 @@ export default function ReconciliationPage() {
                     <FileText className="w-4 h-4" /> Lançamento Detalhado
                   </Button>
                 </div>
-              </div>
-            </div>
+             </div>
           </div>
         </DialogContent>
       </Dialog>
@@ -727,9 +798,7 @@ export default function ReconciliationPage() {
                 <Label>Categoria*</Label>
                 <Select value={formCategoryId} onValueChange={setFormCategoryId} required>
                   <SelectTrigger><SelectValue placeholder="Selecione..." /></SelectTrigger>
-                  <SelectContent>
-                    {leafCategories.map(c => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}
-                  </SelectContent>
+                  <SelectContent>{leafCategories.map(c => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}</SelectContent>
                 </Select>
               </div>
               {matchingTransaction?.type === 'DEBIT' ? (
@@ -754,6 +823,32 @@ export default function ReconciliationPage() {
               <Button type="submit">Salvar e Conciliar</Button>
             </DialogFooter>
           </form>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={isImportModalOpen} onOpenChange={setIsImportModalOpen}>
+        <DialogContent className="max-w-3xl">
+          <DialogHeader><DialogTitle>Prévia da Importação</DialogTitle></DialogHeader>
+          <div className="max-h-[400px] overflow-y-auto">
+            <Table>
+              <TableHeader><TableRow><TableHead>Data</TableHead><TableHead>Descrição</TableHead><TableHead className="text-right">Valor</TableHead></TableRow></TableHeader>
+              <TableBody>
+                {ofxPreview.map((t, i) => (
+                  <TableRow key={i}>
+                    <TableCell className="text-xs">{format(parseISO(t.date), "dd/MM/yy")}</TableCell>
+                    <TableCell className="text-xs font-medium">{t.memo}</TableCell>
+                    <TableCell className={cn("text-xs text-right font-bold", t.type === 'CREDIT' ? "text-emerald-600" : "text-destructive")}>
+                      R$ {t.amount.toLocaleString('pt-BR')}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setIsImportModalOpen(false)}>Cancelar</Button>
+            <Button onClick={confirmImport}>Confirmar Importação de {ofxPreview.length} Itens</Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>
