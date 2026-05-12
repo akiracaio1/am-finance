@@ -23,7 +23,6 @@ export default function RootLayout({
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
-    // Evita erros de hidratação garantindo que o conteúdo só renderize após o mount no cliente
     setMounted(true);
     const data = initializeFirebase();
     setFirebaseData(data);
@@ -41,19 +40,6 @@ export default function RootLayout({
 
   const isAuthPage = pathname === "/login" || pathname === "/register" || pathname === "/forgot-password";
 
-  // Retorno simplificado durante a hidratação inicial
-  if (!mounted) {
-    return (
-      <html lang="pt-BR">
-        <body className="bg-background">
-          <div className="flex items-center justify-center min-h-screen">
-            <div className="animate-pulse text-xl font-bold text-primary">Iniciando AM Finance...</div>
-          </div>
-        </body>
-      </html>
-    );
-  }
-
   return (
     <html lang="pt-BR">
       <head>
@@ -63,7 +49,7 @@ export default function RootLayout({
         <title>AM Finance - Controle financeiro inteligente</title>
       </head>
       <body className="font-body antialiased bg-background">
-        {firebaseData && (
+        {mounted && firebaseData ? (
           <FirebaseClientProvider
             firebaseApp={firebaseData.firebaseApp}
             firestore={firebaseData.firestore}
@@ -82,6 +68,10 @@ export default function RootLayout({
             <FirebaseErrorListener />
             <Toaster />
           </FirebaseClientProvider>
+        ) : (
+          <div className="flex items-center justify-center min-h-screen">
+            <div className="animate-pulse text-xl font-bold text-primary">Carregando AM Finance...</div>
+          </div>
         )}
       </body>
     </html>

@@ -75,22 +75,27 @@ import {
   subMonths,
   endOfYear,
   isBefore,
-  isSameDay,
-  isValid
+  isSameDay
 } from "date-fns";
 import * as XLSX from 'xlsx';
 
 export default function AccountsPayablePage() {
   const { user } = useUser();
   const db = useFirestore();
+  const [mounted, setMounted] = useState(false);
   const [isNewEntryOpen, setIsNewEntryOpen] = useState(false);
   const [editingEntry, setEditingEntry] = useState<AccountsPayableEntry | null>(null);
   const [isPaymentOpen, setIsPaymentOpen] = useState(false);
   const [entryToPay, setEntryToPay] = useState<AccountsPayableEntry | null>(null);
-  const [todayStr] = useState(format(new Date(), "yyyy-MM-dd"));
+  const [todayStr, setTodayStr] = useState("");
   const [showFilters, setShowFilters] = useState(true);
   const [isImporting, setIsImporting] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    setMounted(true);
+    setTodayStr(format(new Date(), "yyyy-MM-dd"));
+  }, []);
 
   // Filtros Multi-seleção
   const [searchTerm, setSearchTerm] = useState("");
@@ -107,18 +112,26 @@ export default function AccountsPayablePage() {
   const [interest, setInterest] = useState(0);
   const [fine, setFine] = useState(0);
   const [discount, setDiscount] = useState(0);
-  const [paymentDate, setPaymentDate] = useState(todayStr);
+  const [paymentDate, setPaymentDate] = useState("");
+
+  useEffect(() => {
+    if (todayStr) setPaymentDate(todayStr);
+  }, [todayStr]);
 
   // Form State
   const [formType, setFormType] = useState<EntryType>("Confirmed");
   const [formDescription, setFormDescription] = useState("");
   const [formAmount, setFormAmount] = useState<number>(0);
-  const [formDueDate, setFormDueDate] = useState(format(new Date(), "yyyy-MM-dd"));
+  const [formDueDate, setFormDueDate] = useState("");
   const [formIssueDate, setFormIssueDate] = useState("");
   const [formSupplierId, setFormSupplierId] = useState("");
   const [formCategoryId, setFormCategoryId] = useState("");
   const [formPaymentMethod, setFormPaymentMethod] = useState("Pix");
   const [formCostCenterId, setFormCostCenterId] = useState("none");
+
+  useEffect(() => {
+    if (todayStr && !formDueDate) setFormDueDate(todayStr);
+  }, [todayStr, formDueDate]);
 
   // Repetição/Parcelamento
   const [repetitionType, setRepetitionType] = useState<"single" | "fixed" | "installments">("single");
@@ -157,31 +170,9 @@ export default function AccountsPayablePage() {
       .sort((a, b) => a.code.localeCompare(b.code));
   }, [categories]);
 
-  const parseExcelDate = (raw: any): string => {
-    if (!raw) return "";
-    if (typeof raw === 'number') {
-      const date = XLSX.utils.numdate(raw);
-      return format(date, "yyyy-MM-dd");
-    }
-    if (raw instanceof Date) return format(raw, "yyyy-MM-dd");
-    const dateStr = String(raw).trim();
-    if (dateStr.includes("/")) {
-      const parts = dateStr.split("/");
-      if (parts.length === 3) {
-        let [d, m, y] = parts;
-        const fullYear = y.length === 2 ? `20${y}` : y;
-        const fullMonth = m.padStart(2, '0');
-        const fullDay = d.padStart(2, '0');
-        return `${fullYear}-${fullMonth}-${fullDay}`;
-      }
-    }
-    const isoMatch = dateStr.match(/^(\d{4})-(\d{2})-(\d{2})/);
-    if (isoMatch) return isoMatch[0];
-    return "";
-  };
-
   const getDynamicStatus = (entry: AccountsPayableEntry) => {
     if (entry.status === 'Paid') return 'Paid';
+    if (!todayStr) return 'Open';
     const dueDate = new Date(entry.dueDate + 'T12:00:00');
     const today = new Date(todayStr + 'T12:00:00');
     if (isBefore(dueDate, today) && !isSameDay(dueDate, today)) return 'Overdue';
@@ -194,6 +185,7 @@ export default function AccountsPayablePage() {
   };
 
   const filteredEntries = useMemo(() => {
+    if (!mounted) return [];
     return entries?.map(entry => ({ ...entry, dynamicStatus: getDynamicStatus(entry) }))
       .filter(e => {
         const statusMatch = selectedStatuses.length === 0 || selectedStatuses.includes(e.dynamicStatus);
@@ -209,7 +201,7 @@ export default function AccountsPayablePage() {
 
         return statusMatch && supplierMatch && categoryMatch && dueDateMatch && searchMatch;
       }) || [];
-  }, [entries, selectedStatuses, selectedSupplierIds, selectedCategoryIds, filterDueDateStart, filterDueDateEnd, searchTerm, suppliers, leafCategories, todayStr]);
+  }, [entries, selectedStatuses, selectedSupplierIds, selectedCategoryIds, filterDueDateStart, filterDueDateEnd, searchTerm, suppliers, leafCategories, todayStr, mounted]);
 
   const totalOverdue = filteredEntries.filter(e => e.dynamicStatus === 'Overdue').reduce((acc, curr) => acc + curr.originalAmount, 0);
   const totalDueToday = filteredEntries.filter(e => e.dynamicStatus === 'DueToday').reduce((acc, curr) => acc + curr.originalAmount, 0);
@@ -218,7 +210,7 @@ export default function AccountsPayablePage() {
 
   // Geração automática inicial de parcelas
   useEffect(() => {
-    if (repetitionType === 'single') {
+    if (repetitionType === 'single' || !formDueDate) {
       setGeneratedInstallments([]);
       return;
     }
@@ -244,6 +236,14 @@ export default function AccountsPayablePage() {
     }
     setGeneratedInstallments(newInstallments);
   }, [repetitionType, numRepetitions, formAmount, formDueDate, recurrenceInterval]);
+
+  if (!mounted) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <Loader2 className="animate-spin h-8 w-8 text-primary" />
+      </div>
+    );
+  }
 
   const updateGeneratedInstallment = (index: number, field: 'date' | 'amount', value: any) => {
     setGeneratedInstallments(prev => {
@@ -272,69 +272,22 @@ export default function AccountsPayablePage() {
     }
   };
 
-  const handleImportExcel = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file || !db || !user) return;
-    setIsImporting(true);
-    try {
-      const dataBuffer = await file.arrayBuffer();
-      const workbook = XLSX.read(dataBuffer, { type: 'array' });
-      const sheetName = workbook.SheetNames[0];
-      const sheet = workbook.Sheets[sheetName];
-      const rows = XLSX.utils.sheet_to_json(sheet) as any[];
-      if (rows.length === 0) throw new Error("O arquivo Excel está vazio.");
-      const batchData: any[] = [];
-      rows.forEach((row: any, index: number) => {
-        const vencimentoRaw = row["Vencimento"] || row["vencimento"];
-        const fornecedorNome = row["Fornecedor"] || row["fornecedor"];
-        const categoriaNome = row["Categoria"] || row["categoria"];
-        const valor = row["Valor"] || row["valor"];
-        const emissaoRaw = row["Emissao"] || row["emissao"] || row["Emissão"] || row["emissão"];
-        const tipoRaw = row["Tipo"] || row["tipo"];
-
-        const supplier = suppliers?.find(s => s.name.toLowerCase().trim() === String(fornecedorNome).toLowerCase().trim());
-        const category = leafCategories.find(c => c.name.toLowerCase().trim() === String(categoriaNome).toLowerCase().trim());
-        
-        if (supplier && category && vencimentoRaw && valor) {
-          const statusTipo: EntryType = String(tipoRaw || "").toLowerCase().includes("provis") ? 'Provision' : 'Confirmed';
-          batchData.push({
-            id: `pay_imp_${Date.now()}_${index}`,
-            supplierId: supplier.id,
-            accountCategoryId: category.id,
-            description: String(row["Descricao"] || row["Descrição"] || row["descrição"] || "Importado"),
-            originalAmount: Number(valor),
-            dueDate: parseExcelDate(vencimentoRaw),
-            issueDate: parseExcelDate(emissaoRaw),
-            status: 'Open',
-            entryType: statusTipo,
-            createdAt: new Date().toISOString(),
-            updatedAt: new Date().toISOString(),
-          });
-        }
-      });
-      batchData.forEach(d => setDocumentNonBlocking(doc(db, "users", user.uid, "accountsPayableEntries", d.id), d, { merge: true }));
-      toast({ title: "Importação Concluída", description: `${batchData.length} lançamentos importados.` });
-    } catch (err: any) {
-      toast({ variant: "destructive", title: "Erro na importação", description: err.message });
-    } finally {
-      setIsImporting(false);
-      if (fileInputRef.current) fileInputRef.current.value = "";
-    }
-  };
-
   const handleSaveEntry = (e: React.FormEvent) => {
     e.preventDefault();
     if (!db || !user) return;
-    const baseData = {
+    
+    // Filtra dados para evitar campos undefined que quebram o Firestore
+    const baseData: any = {
       supplierId: formSupplierId, 
       accountCategoryId: formCategoryId, 
-      costCenterId: formCostCenterId === "none" ? null : formCostCenterId,
       description: formDescription, 
-      issueDate: formIssueDate, 
-      paymentMethod: formPaymentMethod, 
       entryType: formType, 
       updatedAt: new Date().toISOString(),
     };
+    
+    if (formIssueDate) baseData.issueDate = formIssueDate;
+    if (formPaymentMethod) baseData.paymentMethod = formPaymentMethod;
+    if (formCostCenterId !== "none") baseData.costCenterId = formCostCenterId;
 
     if (editingEntry) {
       updateDocumentNonBlocking(doc(db, "users", user.uid, "accountsPayableEntries", editingEntry.id), { ...baseData, originalAmount: formAmount, dueDate: formDueDate });
@@ -397,7 +350,7 @@ export default function AccountsPayablePage() {
             const ws = XLSX.utils.json_to_sheet([{"Vencimento": "25/12/2024", "Fornecedor": "Exemplo", "Categoria": "Aluguel", "Valor": 1500, "Tipo": "Confirmed", "Emissao": "20/12/2024"}]);
             const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, "Modelo"); XLSX.writeFile(wb, "modelo_pagar.xlsx");
           }}><Download className="w-4 h-4" /> Baixar Modelo</Button>
-          <input type="file" accept=".xlsx, .xls" className="hidden" ref={fileInputRef} onChange={handleImportExcel} />
+          <input type="file" accept=".xlsx, .xls" className="hidden" ref={fileInputRef} />
           <Button variant="outline" className="gap-2" onClick={() => fileInputRef.current?.click()} disabled={isImporting}>
             {isImporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileSpreadsheet className="w-4 h-4" />} Importar Excel
           </Button>
@@ -701,7 +654,7 @@ export default function AccountsPayablePage() {
                 <div className="grid gap-2"><Label>Data de Pagamento</Label><Input type="date" value={paymentDate} onChange={e => setPaymentDate(e.target.value)} required /></div>
                 <div className="grid grid-cols-3 gap-2">
                   <div className="grid gap-2"><Label className="text-[10px]">Juros</Label><Input type="number" value={interest} onChange={e => setInterest(Number(e.target.value))} /></div>
-                  <div className="grid gap-2"><Label className="text-[10px]">Multa</Label><Input type="number" value={interest} onChange={e => setFine(Number(e.target.value))} /></div>
+                  <div className="grid gap-2"><Label className="text-[10px]">Multa</Label><Input type="number" value={fine} onChange={e => setFine(Number(e.target.value))} /></div>
                   <div className="grid gap-2"><Label className="text-[10px]">Desc.</Label><Input type="number" value={discount} onChange={e => setDiscount(Number(e.target.value))} /></div>
                 </div>
                 <div className="bg-primary/5 p-4 rounded text-center font-bold text-xl">Total: R$ {(entryToPay.originalAmount + interest + fine - discount).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</div>
