@@ -2,36 +2,40 @@
 
 Este é um sistema de gestão financeira profissional construído com Next.js 15, Firebase e Genkit (IA).
 
-## 🚀 Como publicar o site (Deploy) - Passo a Passo Final
+## 🚀 Seu Sistema está indo para a Web!
 
-### 1. Enviar para o GitHub
-No terminal do Studio, rode estes comandos:
-```bash
-git init
-git add .
-git commit -m "primeiro deploy am-finance"
-git remote add origin https://github.com/akiracaio1/am-finance.git
-git branch -M main
-git push -u origin main
-```
+Conforme o progresso no Firebase Console, seu site estará disponível em breve.
 
-### 2. Configurar no Firebase Console
-Vá em [App Hosting](https://console.firebase.google.com/project/_/apphosting) e preencha:
+### 🔗 Link Oficial do seu Sistema:
+**[Acesse aqui o AM Finance](https://am-finance-backend--studio-1144915914-4c438.us-central1.hosted.app)**
 
-- **Passo 1 (Região)**: Escolha `us-central1 (Iowa)`
-- **Passo 2 (Repositório)**: Selecione `am-finance` e a ramificação `main`.
-- **Passo 3 (Configurações)**: Deixe o diretório raiz como `/`.
-- **Passo 4 (Configurar Back-end)**: 
-  - ID: `am-finance-backend`
-  - **Variáveis de Ambiente**: Clique em "Adicionar chave". 
-    - Chave: `GEMINI_API_KEY` 
-    - Valor: Sua chave do Gemini (obtida no Google AI Studio).
-- **Passo 5 (Associar App)**: Selecione o seu app Web da lista.
+---
 
-### 3. Aguarde o link
-Após clicar em "Finalizar", o Firebase levará cerca de 3 a 5 minutos. O link oficial aparecerá na tela do App Hosting!
+## 🛠 Como manter o site atualizado (Fluxo de Trabalho)
+
+Agora que o vínculo com o GitHub e o App Hosting está feito, o processo de atualização é automático:
+
+1. **Faça as alterações** aqui no Firebase Studio.
+2. **Envie para o GitHub** usando o terminal:
+   ```bash
+   git add .
+   git commit -m "descrição da sua melhoria"
+   git push origin main
+   ```
+3. **Pronto!** O Firebase detectará o novo código e atualizará o site sozinho em cerca de 3 minutos.
+
+## 🔐 Configurações Importantes
+
+### Inteligência Artificial (IA)
+Para que a IA funcione no site publicado, certifique-se de que a variável `GEMINI_API_KEY` foi configurada no painel do App Hosting (aba "Configurações" do seu back-end no Firebase Console).
+
+### Segurança
+Os dados são protegidos por regras do Firestore que garantem que cada usuário veja apenas os dados de sua própria empresa.
+
+---
 
 ## 🛠 Tecnologias
-- **IA**: Genkit com Google Gemini (Requer `GEMINI_API_KEY`).
-- **Frontend**: Next.js 15, Tailwind, ShadCN.
+- **IA**: Genkit com Google Gemini.
+- **Frontend**: Next.js 15, Tailwind, ShadCN UI.
 - **Backend**: Firebase Auth & Firestore.
+- **Hospedagem**: Firebase App Hosting (Google Cloud).
