@@ -159,6 +159,11 @@ export default function AccountsPayablePage() {
   const { data: categories } = useCollection<AccountCategory>(categoriesQuery);
   const { data: centers } = useCollection<CostCenter>(centersQuery);
 
+  const sortedSuppliers = useMemo(() => {
+    if (!suppliers) return [];
+    return [...suppliers].sort((a, b) => a.name.localeCompare(b.name));
+  }, [suppliers]);
+
   const leafCategories = useMemo(() => {
     if (!categories) return [];
     return categories.filter(cat => !categories.some(child => child.parentCategoryId === cat.id))
@@ -409,7 +414,7 @@ export default function AccountsPayablePage() {
                     <DropdownMenuContent className="w-56 max-h-[300px] overflow-y-auto">
                       <DropdownMenuLabel>Filtrar Fornecedores</DropdownMenuLabel>
                       <DropdownMenuSeparator />
-                      {suppliers?.map(s => (
+                      {sortedSuppliers.map(s => (
                         <DropdownMenuCheckboxItem 
                           key={s.id} 
                           checked={selectedSupplierIds.includes(s.id)}
@@ -549,7 +554,7 @@ export default function AccountsPayablePage() {
                   <div className="grid gap-2"><Label>Pagamento</Label><Select value={formPaymentMethod} onValueChange={setFormPaymentMethod}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="Pix">Pix</SelectItem><SelectItem value="Boleto">Boleto</SelectItem><SelectItem value="Cartão">Cartão</SelectItem></SelectContent></Select></div>
                 </div>
                 <div className="grid grid-cols-3 gap-4">
-                  <div className="grid gap-2"><Label>Fornecedor*</Label><Select value={formSupplierId} onValueChange={setFormSupplierId} required><SelectTrigger><SelectValue placeholder="Selecione..." /></SelectTrigger><SelectContent>{suppliers?.map(s => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}</SelectContent></Select></div>
+                  <div className="grid gap-2"><Label>Fornecedor*</Label><Select value={formSupplierId} onValueChange={setFormSupplierId} required><SelectTrigger><SelectValue placeholder="Selecione..." /></SelectTrigger><SelectContent>{sortedSuppliers.map(s => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}</SelectContent></Select></div>
                   <div className="grid gap-2"><Label>Categoria*</Label><Select value={formCategoryId} onValueChange={setFormCategoryId} required><SelectTrigger><SelectValue placeholder="Selecione..." /></SelectTrigger><SelectContent>{leafCategories.map(c => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}</SelectContent></Select></div>
                   <div className="grid gap-2"><Label>Centro de Custo</Label><Select value={formCostCenterId} onValueChange={setFormCostCenterId}><SelectTrigger><SelectValue placeholder="Opcional..." /></SelectTrigger><SelectContent><SelectItem value="none">Nenhum</SelectItem>{centers?.map(c => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}</SelectContent></Select></div>
                 </div>

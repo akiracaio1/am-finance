@@ -60,10 +60,12 @@ export default function SuppliersPage() {
 
   const { data: suppliers } = useCollection<Supplier>(suppliersQuery);
 
-  const filteredSuppliers = suppliers?.filter(s => 
-    s.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    s.cnpj?.includes(searchTerm)
-  ) || [];
+  const filteredSuppliers = (suppliers || [])
+    .filter(s => 
+      s.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      s.cnpj?.includes(searchTerm)
+    )
+    .sort((a, b) => a.name.localeCompare(b.name));
 
   const downloadTemplate = () => {
     const headers = ["Nome", "Tipo Pessoa", "CPF_CNPJ", "Email", "Telefone", "Categoria", "ChavePix"];
