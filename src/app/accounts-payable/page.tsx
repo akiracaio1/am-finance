@@ -26,7 +26,8 @@ import {
   Pencil,
   Search,
   Check,
-  ChevronDown
+  ChevronDown,
+  Calendar
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useUser, useFirestore, useCollection, useMemoFirebase } from "@/firebase";
@@ -69,6 +70,7 @@ import {
   startOfMonth, 
   endOfMonth, 
   addMonths,
+  addYears,
   startOfYear,
   subMonths,
   endOfYear,
@@ -118,7 +120,9 @@ export default function AccountsPayablePage() {
   const [formPaymentMethod, setFormPaymentMethod] = useState("Pix");
   const [formCostCenterId, setFormCostCenterId] = useState("none");
 
+  // Repetição/Parcelamento
   const [repetitionType, setRepetitionType] = useState<"single" | "fixed" | "installments">("single");
+  const [recurrenceInterval, setRecurrenceInterval] = useState<"weekly" | "biweekly" | "monthly" | "yearly">("monthly");
   const [numRepetitions, setNumRepetitions] = useState(1);
   const [generatedInstallments, setGeneratedInstallments] = useState<{date: string, amount: number}[]>([]);
 
@@ -212,6 +216,7 @@ export default function AccountsPayablePage() {
   const totalOpen = filteredEntries.filter(e => e.dynamicStatus === 'Open').reduce((acc, curr) => acc + curr.originalAmount, 0);
   const totalPaid = filteredEntries.filter(e => e.dynamicStatus === 'Paid').reduce((acc, curr) => acc + calculateSettledValue(curr), 0);
 
+  // Geração automática inicial de parcelas
   useEffect(() => {
     if (repetitionType === 'single') {
       setGeneratedInstallments([]);
@@ -220,7 +225,15 @@ export default function AccountsPayablePage() {
     const newInstallments = [];
     const baseDate = new Date(formDueDate + 'T12:00:00');
     for (let i = 0; i < numRepetitions; i++) {
-      const installmentDate = addMonths(baseDate, i);
+      let installmentDate: Date;
+      switch (recurrenceInterval) {
+        case 'weekly': installmentDate = addWeeks(baseDate, i); break;
+        case 'biweekly': installmentDate = addWeeks(baseDate, i * 2); break;
+        case 'yearly': installmentDate = addYears(baseDate, i); break;
+        case 'monthly':
+        default: installmentDate = addMonths(baseDate, i); break;
+      }
+
       const installmentAmount = repetitionType === 'installments' 
         ? Number((formAmount / numRepetitions).toFixed(2)) 
         : formAmount;
@@ -230,7 +243,15 @@ export default function AccountsPayablePage() {
       });
     }
     setGeneratedInstallments(newInstallments);
-  }, [repetitionType, numRepetitions, formAmount, formDueDate]);
+  }, [repetitionType, numRepetitions, formAmount, formDueDate, recurrenceInterval]);
+
+  const updateGeneratedInstallment = (index: number, field: 'date' | 'amount', value: any) => {
+    setGeneratedInstallments(prev => {
+      const copy = [...prev];
+      copy[index] = { ...copy[index], [field]: value };
+      return copy;
+    });
+  };
 
   const handleDatePresetChange = (preset: string) => {
     setDatePreset(preset);
@@ -389,7 +410,6 @@ export default function AccountsPayablePage() {
                   </div>
                 </div>
 
-                {/* Multi-select Status */}
                 <div className="space-y-2">
                   <Label>Status</Label>
                   <DropdownMenu>
@@ -407,7 +427,7 @@ export default function AccountsPayablePage() {
                           key={s} 
                           checked={selectedStatuses.includes(s)}
                           onCheckedChange={() => toggleMultiSelect(selectedStatuses, setSelectedStatuses, s)}
-                          onSelect={(e) => e.preventDefault()} // Impede o fechamento do menu
+                          onSelect={(e) => e.preventDefault()}
                         >
                           {s === 'Open' ? 'Aberto' : s === 'Paid' ? 'Pago' : s === 'Overdue' ? 'Atrasado' : 'Hoje'}
                         </DropdownMenuCheckboxItem>
@@ -416,7 +436,6 @@ export default function AccountsPayablePage() {
                   </DropdownMenu>
                 </div>
 
-                {/* Multi-select Fornecedor */}
                 <div className="space-y-2">
                   <Label>Fornecedor</Label>
                   <DropdownMenu>
@@ -434,7 +453,7 @@ export default function AccountsPayablePage() {
                           key={s.id} 
                           checked={selectedSupplierIds.includes(s.id)}
                           onCheckedChange={() => toggleMultiSelect(selectedSupplierIds, setSelectedSupplierIds, s.id)}
-                          onSelect={(e) => e.preventDefault()} // Impede o fechamento do menu
+                          onSelect={(e) => e.preventDefault()}
                         >
                           {s.name}
                         </DropdownMenuCheckboxItem>
@@ -443,7 +462,6 @@ export default function AccountsPayablePage() {
                   </DropdownMenu>
                 </div>
 
-                {/* Multi-select Categoria */}
                 <div className="space-y-2">
                   <Label>Categoria</Label>
                   <DropdownMenu>
@@ -461,7 +479,7 @@ export default function AccountsPayablePage() {
                           key={c.id} 
                           checked={selectedCategoryIds.includes(c.id)}
                           onCheckedChange={() => toggleMultiSelect(selectedCategoryIds, setSelectedCategoryIds, c.id)}
-                          onSelect={(e) => e.preventDefault()} // Impede o fechamento do menu
+                          onSelect={(e) => e.preventDefault()}
                         >
                           {c.name}
                         </DropdownMenuCheckboxItem>
@@ -550,7 +568,7 @@ export default function AccountsPayablePage() {
       </Card>
 
       <Dialog open={isNewEntryOpen} onOpenChange={setIsNewEntryOpen}>
-        <DialogContent className="max-w-3xl">
+        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
           <DialogHeader><DialogTitle>{editingEntry ? 'Editar' : 'Novo'} Lançamento</DialogTitle></DialogHeader>
           <Tabs defaultValue="main">
             <TabsList className="grid w-full grid-cols-2">
@@ -576,17 +594,84 @@ export default function AccountsPayablePage() {
                 </div>
               </TabsContent>
               <TabsContent value="repetition" className="space-y-4 py-4">
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="grid gap-2"><Label>Repetição</Label><Select value={repetitionType} onValueChange={(v: any) => setRepetitionType(v)}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="single">Único</SelectItem><SelectItem value="fixed">Fixo Mensal</SelectItem><SelectItem value="installments">Parcelado</SelectItem></SelectContent></Select></div>
-                  {repetitionType !== 'single' && <div className="grid gap-2"><Label>Nº de Meses</Label><Input type="number" min={1} value={numRepetitions} onChange={e => setNumRepetitions(Number(e.target.value))} /></div>}
+                <div className="grid grid-cols-3 gap-4">
+                  <div className="grid gap-2">
+                    <Label>Modo</Label>
+                    <Select value={repetitionType} onValueChange={(v: any) => setRepetitionType(v)}>
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="single">Único</SelectItem>
+                        <SelectItem value="fixed">Fixo (Repete valor)</SelectItem>
+                        <SelectItem value="installments">Parcelado (Divide valor)</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  {repetitionType !== 'single' && (
+                    <>
+                      <div className="grid gap-2">
+                        <Label>Frequência</Label>
+                        <Select value={recurrenceInterval} onValueChange={(v: any) => setRecurrenceInterval(v)}>
+                          <SelectTrigger><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="weekly">Semanal</SelectItem>
+                            <SelectItem value="biweekly">Quinzenal</SelectItem>
+                            <SelectItem value="monthly">Mensal</SelectItem>
+                            <SelectItem value="yearly">Anual</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="grid gap-2">
+                        <Label>Nº de Repetições</Label>
+                        <Input type="number" min={1} value={numRepetitions} onChange={e => setNumRepetitions(Number(e.target.value))} />
+                      </div>
+                    </>
+                  )}
                 </div>
+
                 {generatedInstallments.length > 0 && (
-                  <div className="max-h-32 overflow-y-auto border p-2 rounded bg-muted/20 space-y-1">
-                    {generatedInstallments.map((inst, i) => <div key={i} className="flex justify-between text-xs"><span>{i+1}ª: {inst.date}</span><span className="font-bold">R$ {inst.amount}</span></div>)}
+                  <div className="space-y-3 mt-4">
+                    <Label className="text-primary font-bold">Ajuste de Parcelas (Opcional)</Label>
+                    <div className="border rounded-lg overflow-hidden bg-muted/20">
+                      <Table>
+                        <TableHeader className="bg-muted">
+                          <TableRow>
+                            <TableHead className="w-16">Parc.</TableHead>
+                            <TableHead>Vencimento</TableHead>
+                            <TableHead className="text-right">Valor (R$)</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {generatedInstallments.map((inst, i) => (
+                            <TableRow key={i}>
+                              <TableCell className="font-bold text-xs">{i + 1}ª</TableCell>
+                              <TableCell>
+                                <Input 
+                                  type="date" 
+                                  className="h-8 text-xs" 
+                                  value={inst.date} 
+                                  onChange={e => updateGeneratedInstallment(i, 'date', e.target.value)} 
+                                />
+                              </TableCell>
+                              <TableCell>
+                                <Input 
+                                  type="number" 
+                                  step="0.01" 
+                                  className="h-8 text-xs text-right" 
+                                  value={inst.amount} 
+                                  onChange={e => updateGeneratedInstallment(i, 'amount', Number(e.target.value))} 
+                                />
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </div>
                   </div>
                 )}
               </TabsContent>
-              <DialogFooter><Button type="submit" className="w-full">Salvar</Button></DialogFooter>
+              <DialogFooter className="mt-6">
+                <Button type="submit" className="w-full">Salvar Lançamentos</Button>
+              </DialogFooter>
             </form>
           </Tabs>
         </DialogContent>
