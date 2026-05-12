@@ -346,11 +346,20 @@ export default function AccountsPayablePage() {
       } else {
         generatedInstallments.forEach((inst, idx) => {
           const id = `pay_${Date.now()}_${idx}`;
-          setDocumentNonBlocking(doc(db, "users", user.uid, "accountsPayableEntries", id), { 
-            ...baseData, id, status: 'Open', originalAmount: inst.amount, dueDate: inst.date, 
-            installmentInfo: repetitionType === 'installments' ? `${idx + 1}/${numRepetitions}` : undefined,
+          const entryData: any = { 
+            ...baseData, 
+            id, 
+            status: 'Open', 
+            originalAmount: inst.amount, 
+            dueDate: inst.date, 
             createdAt: new Date().toISOString() 
-          }, { merge: true });
+          };
+          
+          if (repetitionType === 'installments') {
+            entryData.installmentInfo = `${idx + 1}/${numRepetitions}`;
+          }
+
+          setDocumentNonBlocking(doc(db, "users", user.uid, "accountsPayableEntries", id), entryData, { merge: true });
         });
       }
     }
@@ -692,7 +701,7 @@ export default function AccountsPayablePage() {
                 <div className="grid gap-2"><Label>Data de Pagamento</Label><Input type="date" value={paymentDate} onChange={e => setPaymentDate(e.target.value)} required /></div>
                 <div className="grid grid-cols-3 gap-2">
                   <div className="grid gap-2"><Label className="text-[10px]">Juros</Label><Input type="number" value={interest} onChange={e => setInterest(Number(e.target.value))} /></div>
-                  <div className="grid gap-2"><Label className="text-[10px]">Multa</Label><Input type="number" value={fine} onChange={e => setFine(Number(e.target.value))} /></div>
+                  <div className="grid gap-2"><Label className="text-[10px]">Multa</Label><Input type="number" value={interest} onChange={e => setFine(Number(e.target.value))} /></div>
                   <div className="grid gap-2"><Label className="text-[10px]">Desc.</Label><Input type="number" value={discount} onChange={e => setDiscount(Number(e.target.value))} /></div>
                 </div>
                 <div className="bg-primary/5 p-4 rounded text-center font-bold text-xl">Total: R$ {(entryToPay.originalAmount + interest + fine - discount).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</div>
