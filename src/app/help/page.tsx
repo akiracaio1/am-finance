@@ -15,7 +15,8 @@ import {
   Info,
   HelpCircle,
   Zap,
-  Globe
+  Globe,
+  ShieldCheck
 } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { cn } from "@/lib/utils";
@@ -47,11 +48,11 @@ const modules = [
     title: "Contas a Pagar",
     icon: ArrowDownCircle,
     color: "text-destructive",
-    description: "Gestão detalhada de saídas. Controle tudo o que sai do seu caixa de forma organizada.",
+    description: "Gestão detalhada de saídas. Controle tudo o que sai do seu caixa de forma organizada com filtros inteligentes e multi-seleção.",
     instructions: [
-      "Filtre por status para focar no que está 'Atrasado'.",
-      "Diferencie 'Aberto' de 'Pago' para manter o fluxo de caixa atualizado.",
-      "Acompanhe o 'Total em Atraso' no topo para priorizar pagamentos."
+      "Use os filtros múltiplos para ver 'Atrasado' e 'Hoje' ao mesmo tempo.",
+      "Importe planilhas Excel (formatos Serial, Brasileiro ou ISO).",
+      "Liquide contas informando a data exata do pagamento."
     ]
   },
   {
@@ -61,8 +62,8 @@ const modules = [
     description: "Controle de entradas. Importante para conferir se os repasses de vendas estão entrando conforme o esperado.",
     instructions: [
       "Analise os canais de venda para ver qual é mais lucrativo.",
-      "Importe CSVs de faturamento para automação.",
-      "Monitore o 'Ticket Médio' para entender o comportamento do cliente."
+      "Importe arquivos Excel de faturamento para automação.",
+      "Acompanhe o 'Ticket Médio' para entender o faturamento."
     ]
   },
   {
@@ -73,18 +74,7 @@ const modules = [
     instructions: [
       "Importe seu arquivo OFX do banco.",
       "O sistema sugere correspondências automáticas baseadas em valor e data.",
-      "Apenas confirme ('Confirmar') se o registro bancário bate com sua conta a pagar/receber."
-    ]
-  },
-  {
-    title: "Planejamento Diário",
-    icon: CalendarClock,
-    color: "text-primary",
-    description: "Sua 'bola de cristal'. Simula como estará seu saldo nos próximos 7 dias com base no que já está agendado para entrar e sair.",
-    instructions: [
-      "Veja se algum dia o saldo ficará negativo (vermelho).",
-      "Simule despesas futuras para ver o impacto no caixa antes de comprar.",
-      "Ajuda na decisão de qual dia é melhor para pagar grandes fornecedores."
+      "Apenas confirme se o registro bancário bate com sua conta."
     ]
   },
   {
@@ -95,18 +85,7 @@ const modules = [
     instructions: [
       "Gere o DRE mensal para ver sua margem líquida.",
       "Use o botão 'Analisar com IA' para descobrir riscos ocultos.",
-      "Aplique as recomendações da IA para otimizar seus custos."
-    ]
-  },
-  {
-    title: "Plano de Contas",
-    icon: BookOpen,
-    color: "text-primary",
-    description: "A árvore de organização. Define as categorias de onde o dinheiro vem e para onde vai.",
-    instructions: [
-      "Mantenha a hierarquia limpa.",
-      "Categorias bem definidas permitem saber exatamente onde você gasta mais.",
-      "Não mude com frequência para não perder histórico comparativo."
+      "Exporte o Plano de Contas estruturado para Excel."
     ]
   }
 ];
@@ -114,12 +93,17 @@ const modules = [
 export default function HelpPage() {
   return (
     <div className="space-y-6 animate-in fade-in duration-700 pb-12">
-      <div>
-        <h1 className="text-3xl font-bold flex items-center gap-3">
-          <HelpCircle className="text-primary w-8 h-8" />
-          Central de Instruções
-        </h1>
-        <p className="text-muted-foreground">Guia detalhado para dominar a gestão financeira com o AM Finance.</p>
+      <div className="flex justify-between items-start">
+        <div>
+          <h1 className="text-3xl font-bold flex items-center gap-3">
+            <HelpCircle className="text-primary w-8 h-8" />
+            Central de Instruções
+          </h1>
+          <p className="text-muted-foreground">Guia detalhado para dominar a gestão financeira com o AM Finance.</p>
+        </div>
+        <Badge variant="outline" className="gap-1 border-primary text-primary">
+          <Globe className="w-3 h-3" /> Sistema Web Ativo
+        </Badge>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -127,33 +111,33 @@ export default function HelpPage() {
           <Info className="h-4 w-4" />
           <AlertTitle>Dica de Ouro</AlertTitle>
           <AlertDescription>
-            O sistema foi desenhado para ser alimentado diariamente. Quanto mais precisos forem os lançamentos em "Contas a Pagar", melhor será a análise da nossa IA nos Relatórios.
+            O sistema foi desenhado para ser alimentado diariamente. Com os novos filtros de multi-seleção e a importação de Excel corrigida, você ganha velocidade na gestão.
           </AlertDescription>
         </Alert>
 
         <Alert className="bg-accent/5 border-accent/20">
-          <Zap className="h-4 w-4 text-accent" />
-          <AlertTitle>Inteligência AM</AlertTitle>
+          <ShieldCheck className="h-4 w-4 text-accent" />
+          <AlertTitle>Acesso Seguro na Web</AlertTitle>
           <AlertDescription>
-            Use o módulo de Diagnóstico para comparar suas planilhas antigas e garantir que o AM Finance cubra todas as suas necessidades específicas.
+            Sua empresa está protegida. O acesso é restrito via login e senha, com os dados criptografados e hospedados na infraestrutura Google Cloud.
           </AlertDescription>
         </Alert>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         {modules.map((mod) => (
-          <Card key={mod.title} className="hover:shadow-md transition-data">
+          <Card key={mod.title} className="hover:shadow-md transition-data flex flex-col">
             <CardHeader className="flex flex-row items-center gap-3">
               <div className={cn("p-2 rounded-lg bg-muted", mod.color)}>
                 <mod.icon className="w-5 h-5" />
               </div>
               <CardTitle className="text-lg">{mod.title}</CardTitle>
             </CardHeader>
-            <CardContent className="space-y-4">
+            <CardContent className="space-y-4 flex-1">
               <p className="text-sm text-muted-foreground leading-relaxed">
                 {mod.description}
               </p>
-              <div className="bg-muted/30 p-3 rounded-md">
+              <div className="bg-muted/30 p-3 rounded-md mt-auto">
                 <h4 className="text-xs font-bold uppercase mb-2 flex items-center gap-1">
                   <Sparkles className="w-3 h-3 text-accent" /> Como usar:
                 </h4>
@@ -174,21 +158,27 @@ export default function HelpPage() {
             <Globe className="w-6 h-6 text-accent" />
           </div>
           <div>
-            <CardTitle>AM Finance na Web</CardTitle>
-            <p className="text-slate-400 text-sm">Acesse seus dados de qualquer dispositivo.</p>
+            <CardTitle>AM Finance: Sua Empresa na Web</CardTitle>
+            <p className="text-slate-400 text-sm">Disponível em qualquer dispositivo, em qualquer lugar.</p>
           </div>
         </CardHeader>
         <CardContent className="space-y-4 text-sm text-slate-300">
           <p>
-            O AM Finance é uma plataforma cloud-native. Após o deploy, você poderá gerenciar múltiplas empresas
-            com segurança e performance otimizada.
+            O AM Finance é uma aplicação <strong>Cloud-Native</strong>. Isso significa que ele não precisa ser instalado. 
+            Você pode acessar o endereço do seu sistema de um computador no escritório ou de um celular em casa.
           </p>
-          <ul className="list-disc list-inside space-y-2">
-            <li>Acesso via celular, tablet ou computador.</li>
-            <li>Segurança garantida pelo Google Cloud.</li>
-            <li>Suporte a multi-tenancy (múltiplas empresas por conta).</li>
-            <li>Sincronização em tempo real.</li>
-          </ul>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+            <ul className="list-disc list-inside space-y-2">
+              <li>Sincronização em tempo real</li>
+              <li>Backups automáticos no Google Cloud</li>
+              <li>Acesso via Celular, Tablet ou PC</li>
+            </ul>
+            <ul className="list-disc list-inside space-y-2">
+              <li>Segurança via Firebase Auth</li>
+              <li>Relatórios de IA processados na nuvem</li>
+              <li>Importação de Excel Multi-formato</li>
+            </ul>
+          </div>
         </CardContent>
       </Card>
     </div>

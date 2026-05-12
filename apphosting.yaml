@@ -1,7 +1,14 @@
+
 # Settings to manage and configure a Firebase App Hosting backend.
 # https://firebase.google.com/docs/app-hosting/configure
 
 runConfig:
-  # Increase this value if you'd like to automatically spin up
-  # more instances in response to increased traffic.
-  maxInstances: 1
+  # O AM Finance é otimizado para rodar em instâncias escaláveis.
+  maxInstances: 5
+  minInstances: 0
+  memory: 512MiB
+  cpu: 1
+
+env:
+  - variable: NODE_ENV
+    value: production
