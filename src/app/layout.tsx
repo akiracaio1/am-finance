@@ -16,12 +16,13 @@ export default function RootLayout({
 }: {
   children: React.ReactNode;
 }) {
+  const [mounted, setMounted] = useState(false);
   const [firebaseData, setFirebaseData] = useState<any>(null);
   const pathname = usePathname();
   const router = useRouter();
   const [loading, setLoading] = useState(true);
-  const [mounted, setMounted] = useState(false);
 
+  // 1. Efeito de montagem inicial (Garante que o código rode apenas no cliente)
   useEffect(() => {
     setMounted(true);
     const data = initializeFirebase();
@@ -41,20 +42,21 @@ export default function RootLayout({
   const isAuthPage = pathname === "/login" || pathname === "/register" || pathname === "/forgot-password";
 
   return (
-    <html lang="pt-BR">
+    <html lang="pt-BR" suppressHydrationWarning>
       <head>
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
         <link href="https://fonts.googleapis.com/css2?family=PT+Sans:ital,wght@0,400;0,700;1,400;1,700&display=swap" rel="stylesheet" />
         <title>AM Finance - Controle financeiro inteligente</title>
       </head>
-      <body className="font-body antialiased bg-background">
-        {mounted && firebaseData ? (
-          <FirebaseClientProvider
-            firebaseApp={firebaseData.firebaseApp}
-            firestore={firebaseData.firestore}
-            auth={firebaseData.auth}
-          >
+      <body className="font-body antialiased bg-background" suppressHydrationWarning>
+        {/* Renderização condicional segura para evitar Hydration Mismatch */}
+        {!mounted || !firebaseData ? (
+          <div className="flex items-center justify-center min-h-screen">
+            <div className="animate-pulse text-xl font-bold text-primary">Carregando AM Finance...</div>
+          </div>
+        ) : (
+          <FirebaseClientProvider>
             <div className="flex min-h-screen">
               {!isAuthPage && <AppSidebar />}
               <main className={cn("flex-1 overflow-auto", !isAuthPage ? "p-8" : "")}>
@@ -68,10 +70,6 @@ export default function RootLayout({
             <FirebaseErrorListener />
             <Toaster />
           </FirebaseClientProvider>
-        ) : (
-          <div className="flex items-center justify-center min-h-screen">
-            <div className="animate-pulse text-xl font-bold text-primary">Carregando AM Finance...</div>
-          </div>
         )}
       </body>
     </html>
