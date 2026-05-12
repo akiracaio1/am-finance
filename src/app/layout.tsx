@@ -38,16 +38,6 @@ export default function RootLayout({
     return () => unsubscribe();
   }, [pathname, router]);
 
-  if (!mounted || (loading && pathname !== "/login" && pathname !== "/register" && pathname !== "/forgot-password")) {
-    return (
-      <html lang="pt-BR">
-        <body className="flex items-center justify-center min-h-screen bg-background">
-          <div className="animate-pulse text-2xl font-bold text-primary">Carregando AM Finance...</div>
-        </body>
-      </html>
-    );
-  }
-
   const isAuthPage = pathname === "/login" || pathname === "/register" || pathname === "/forgot-password";
 
   return (
@@ -59,7 +49,11 @@ export default function RootLayout({
         <title>AM Finance - Controle financeiro inteligente</title>
       </head>
       <body className="font-body antialiased bg-background">
-        {firebaseData && (
+        {!mounted ? (
+          <div className="flex items-center justify-center min-h-screen bg-background">
+            <div className="animate-pulse text-2xl font-bold text-primary">Carregando AM Finance...</div>
+          </div>
+        ) : firebaseData && (
           <FirebaseClientProvider
             firebaseApp={firebaseData.firebaseApp}
             firestore={firebaseData.firestore}

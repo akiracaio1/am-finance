@@ -44,6 +44,8 @@ export default function DashboardPage() {
   const payables = MOCK_ENTRIES.filter(e => e.type === 'payable' && e.status !== 'paid').reduce((acc, curr) => acc + curr.amount, 0);
   const overdueCount = MOCK_ENTRIES.filter(e => e.status === 'overdue').length;
 
+  if (!mounted) return null;
+
   return (
     <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-700">
       <div className="flex justify-between items-center">
@@ -145,7 +147,7 @@ export default function DashboardPage() {
                   <div className="space-y-1">
                     <p className="text-sm font-medium leading-none">{entry.description}</p>
                     <p className="text-xs text-muted-foreground">
-                      {mounted ? new Date(entry.dueDate).toLocaleDateString('pt-BR') : '...'}
+                      {new Date(entry.dueDate).toLocaleDateString('pt-BR')}
                     </p>
                   </div>
                   <div className="ml-auto font-medium">
