@@ -79,7 +79,8 @@ import {
   subMonths,
   endOfYear,
   isBefore,
-  isSameDay
+  isSameDay,
+  parseISO
 } from "date-fns";
 import * as XLSX from 'xlsx';
 
@@ -596,10 +597,24 @@ export default function AccountsPayablePage() {
                     </div>
                   </TableCell>
                   <TableCell>
-                    {entry.dynamicStatus === 'Paid' ? <Badge className="bg-emerald-100 text-emerald-700">Pago</Badge> : 
-                     entry.dynamicStatus === 'Overdue' ? <Badge variant="destructive">Atrasado</Badge> : 
-                     entry.dynamicStatus === 'DueToday' ? <Badge className="bg-amber-100 text-amber-700">Hoje</Badge> :
-                     <Badge variant="outline">Aberto</Badge>}
+                    <div className="flex flex-col gap-1">
+                      {entry.dynamicStatus === 'Paid' ? (
+                        <>
+                          <Badge className="bg-emerald-100 text-emerald-700">Pago</Badge>
+                          {entry.paymentDate && (
+                            <span className="text-[9px] text-emerald-600 font-bold">
+                              Em {format(parseISO(entry.paymentDate), "dd/MM/yy")}
+                            </span>
+                          )}
+                        </>
+                      ) : entry.dynamicStatus === 'Overdue' ? (
+                        <Badge variant="destructive">Atrasado</Badge>
+                      ) : entry.dynamicStatus === 'DueToday' ? (
+                        <Badge className="bg-amber-100 text-amber-700">Hoje</Badge>
+                      ) : (
+                        <Badge variant="outline">Aberto</Badge>
+                      )}
+                    </div>
                   </TableCell>
                   <TableCell className="text-right font-bold">R$ {entry.originalAmount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</TableCell>
                   <TableCell>
