@@ -1,4 +1,3 @@
-
 # Configurações para o Firebase App Hosting (Otimizado para Next.js)
 runConfig:
   maxInstances: 5
