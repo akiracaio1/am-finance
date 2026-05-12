@@ -357,7 +357,7 @@ export default function ReconciliationPage() {
           <CardContent className="pt-6 flex gap-4 items-start">
             <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-1" />
             <div className="space-y-1">
-              h4 className="text-sm font-bold text-amber-900">Pendências Detectadas</h4>
+              <h4 className="text-sm font-bold text-amber-900">Pendências Detectadas</h4>
               <p className="text-xs text-amber-700">Os seguintes dias não possuem OFX importado nem marcação de movimento:</p>
               <div className="flex flex-wrap gap-2 mt-2">
                 {pendingDays.map(date => (
