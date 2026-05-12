@@ -228,6 +228,7 @@ export default function ReconciliationPage() {
     if (!selectedAccount || !allTransactions || !noMovementDays) return [];
     
     const today = new Date();
+    // Regra: A partir de 01/05/2026
     const alertStart = new Date("2026-05-01T12:00:00");
     const accountStart = parseISO(selectedAccount.openingDate);
     const start = max([alertStart, accountStart]);
