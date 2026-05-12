@@ -27,7 +27,10 @@ import {
   Search,
   Check,
   ChevronDown,
-  Calendar
+  Calendar,
+  Copy,
+  ChevronLeft,
+  ChevronRight
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useUser, useFirestore, useCollection, useMemoFirebase } from "@/firebase";
@@ -91,6 +94,10 @@ export default function AccountsPayablePage() {
   const [showFilters, setShowFilters] = useState(true);
   const [isImporting, setIsImporting] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Paginação
+  const [currentPage, setCurrentPage] = useState(1);
+  const pageSize = 50;
 
   useEffect(() => {
     setMounted(true);
@@ -184,7 +191,7 @@ export default function AccountsPayablePage() {
     return (entry.originalAmount || 0) + (entry.interest || 0) + (entry.fine || 0) - (entry.discount || 0);
   };
 
-  const filteredEntries = useMemo(() => {
+  const allFilteredEntries = useMemo(() => {
     if (!mounted) return [];
     return entries?.map(entry => ({ ...entry, dynamicStatus: getDynamicStatus(entry) }))
       .filter(e => {
@@ -200,13 +207,18 @@ export default function AccountsPayablePage() {
         const searchMatch = !searchTerm || desc.includes(term) || sName.includes(term) || cName.includes(term);
 
         return statusMatch && supplierMatch && categoryMatch && dueDateMatch && searchMatch;
-      }) || [];
+      }).sort((a,b) => a.dueDate.localeCompare(b.dueDate)) || [];
   }, [entries, selectedStatuses, selectedSupplierIds, selectedCategoryIds, filterDueDateStart, filterDueDateEnd, searchTerm, suppliers, leafCategories, todayStr, mounted]);
 
-  const totalOverdue = filteredEntries.filter(e => e.dynamicStatus === 'Overdue').reduce((acc, curr) => acc + curr.originalAmount, 0);
-  const totalDueToday = filteredEntries.filter(e => e.dynamicStatus === 'DueToday').reduce((acc, curr) => acc + curr.originalAmount, 0);
-  const totalOpen = filteredEntries.filter(e => e.dynamicStatus === 'Open').reduce((acc, curr) => acc + curr.originalAmount, 0);
-  const totalPaid = filteredEntries.filter(e => e.dynamicStatus === 'Paid').reduce((acc, curr) => acc + calculateSettledValue(curr), 0);
+  const totalPages = Math.ceil(allFilteredEntries.length / pageSize);
+  const currentEntries = useMemo(() => {
+    return allFilteredEntries.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+  }, [allFilteredEntries, currentPage]);
+
+  const totalOverdue = allFilteredEntries.filter(e => e.dynamicStatus === 'Overdue').reduce((acc, curr) => acc + curr.originalAmount, 0);
+  const totalDueToday = allFilteredEntries.filter(e => e.dynamicStatus === 'DueToday').reduce((acc, curr) => acc + curr.originalAmount, 0);
+  const totalOpen = allFilteredEntries.filter(e => e.dynamicStatus === 'Open').reduce((acc, curr) => acc + curr.originalAmount, 0);
+  const totalPaid = allFilteredEntries.filter(e => e.dynamicStatus === 'Paid').reduce((acc, curr) => acc + calculateSettledValue(curr), 0);
 
   useEffect(() => {
     if (repetitionType === 'single' || !formDueDate) {
@@ -236,38 +248,19 @@ export default function AccountsPayablePage() {
     setGeneratedInstallments(newInstallments);
   }, [repetitionType, numRepetitions, formAmount, formDueDate, recurrenceInterval]);
 
-  if (!mounted) {
-    return (
-      <div className="flex items-center justify-center min-h-[400px]">
-        <Loader2 className="animate-spin h-8 w-8 text-primary" />
-      </div>
-    );
-  }
-
-  const handleDatePresetChange = (preset: string) => {
-    setDatePreset(preset);
-    const today = new Date();
-    let start: Date | null = null;
-    let end: Date | null = null;
-    switch (preset) {
-      case "today": start = today; end = today; break;
-      case "thisWeek": start = startOfWeek(today, { weekStartsOn: 1 }); end = endOfWeek(today, { weekStartsOn: 1 }); break;
-      case "thisMonth": start = startOfMonth(today); end = endOfMonth(today); break;
-      case "lastMonth": const lastMonth = subMonths(today, 1); start = startOfMonth(lastMonth); end = endOfMonth(lastMonth); break;
-      case "thisYear": start = startOfYear(today); end = endOfYear(today); break;
-      default: return;
+  const toggleStatusFilter = (status: string) => {
+    if (selectedStatuses.includes(status) && selectedStatuses.length === 1) {
+      setSelectedStatuses([]);
+    } else {
+      setSelectedStatuses([status]);
     }
-    if (start && end) {
-      setFilterDueDateStart(format(start, "yyyy-MM-dd"));
-      setFilterDueDateEnd(format(end, "yyyy-MM-dd"));
-    }
+    setCurrentPage(1);
   };
 
   const handleSaveEntry = (e: React.FormEvent) => {
     e.preventDefault();
     if (!db || !user) return;
     
-    // Filtro rigoroso de campos para evitar 'undefined' que quebra o Firestore
     const prepareData = (data: any) => {
       const clean: any = {};
       Object.keys(data).forEach(key => {
@@ -338,9 +331,34 @@ export default function AccountsPayablePage() {
     setIsNewEntryOpen(true);
   };
 
+  const handleDuplicate = (entry: AccountsPayableEntry) => {
+    setEditingEntry(null); // Garantir que é um novo
+    setFormType(entry.entryType);
+    setFormDescription(`${entry.description} (Cópia)`);
+    setFormAmount(entry.originalAmount);
+    setFormDueDate(todayStr); // Resetar para hoje para segurança
+    setFormIssueDate(todayStr);
+    setFormSupplierId(entry.supplierId);
+    setFormCategoryId(entry.accountCategoryId);
+    setFormPaymentMethod(entry.paymentMethod || "Pix");
+    setFormCostCenterId(entry.costCenterId || "none");
+    setRepetitionType("single");
+    setIsNewEntryOpen(true);
+    toast({ title: "Lançamento duplicado", description: "Revise os dados e salve." });
+  };
+
   const toggleMultiSelect = (state: string[], setState: (s: string[]) => void, value: string) => {
     setState(state.includes(value) ? state.filter(v => v !== value) : [...state, value]);
+    setCurrentPage(1);
   };
+
+  if (!mounted) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <Loader2 className="animate-spin h-8 w-8 text-primary" />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6 pb-10">
@@ -456,7 +474,24 @@ export default function AccountsPayablePage() {
 
                 <div className="space-y-2">
                   <Label>Período Rápido</Label>
-                  <Select value={datePreset} onValueChange={handleDatePresetChange}>
+                  <Select value={datePreset} onValueChange={(preset) => {
+                    setDatePreset(preset);
+                    const today = new Date();
+                    let start: Date | null = null;
+                    let end: Date | null = null;
+                    switch (preset) {
+                      case "today": start = today; end = today; break;
+                      case "thisWeek": start = startOfWeek(today, { weekStartsOn: 1 }); end = endOfWeek(today, { weekStartsOn: 1 }); break;
+                      case "thisMonth": start = startOfMonth(today); end = endOfMonth(today); break;
+                      case "lastMonth": const lastMonth = subMonths(today, 1); start = startOfMonth(lastMonth); end = endOfMonth(lastMonth); break;
+                      case "thisYear": start = startOfYear(today); end = endOfYear(today); break;
+                    }
+                    if (start && end) {
+                      setFilterDueDateStart(format(start, "yyyy-MM-dd"));
+                      setFilterDueDateEnd(format(end, "yyyy-MM-dd"));
+                    }
+                    setCurrentPage(1);
+                  }}>
                     <SelectTrigger><SelectValue /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value="custom">Personalizado</SelectItem>
@@ -470,11 +505,12 @@ export default function AccountsPayablePage() {
                 <div className="space-y-2 md:col-span-2 lg:col-span-3">
                   <Label>Intervalo de Datas</Label>
                   <div className="flex gap-2">
-                    <Input type="date" value={filterDueDateStart} onChange={e => setFilterDueDateStart(e.target.value)} />
-                    <Input type="date" value={filterDueDateEnd} onChange={e => setFilterDueDateEnd(e.target.value)} />
+                    <Input type="date" value={filterDueDateStart} onChange={e => { setFilterDueDateStart(e.target.value); setCurrentPage(1); }} />
+                    <Input type="date" value={filterDueDateEnd} onChange={e => { setFilterDueDateEnd(e.target.value); setCurrentPage(1); }} />
                     <Button variant="ghost" onClick={() => { 
                       setSelectedStatuses([]); setSelectedSupplierIds([]); setSelectedCategoryIds([]);
                       setFilterDueDateStart(""); setFilterDueDateEnd(""); setDatePreset("custom"); setSearchTerm("");
+                      setCurrentPage(1);
                     }}><FilterX className="w-4 h-4" /></Button>
                   </div>
                 </div>
@@ -485,10 +521,34 @@ export default function AccountsPayablePage() {
       </Collapsible>
 
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <Card className="bg-destructive/5"><CardHeader className="p-4 pb-2 text-xs font-bold uppercase text-destructive/70">Atrasado</CardHeader><CardContent className="p-4 pt-0 text-xl font-bold">R$ {totalOverdue.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</CardContent></Card>
-        <Card className="bg-amber-50"><CardHeader className="p-4 pb-2 text-xs font-bold uppercase text-amber-700">Hoje</CardHeader><CardContent className="p-4 pt-0 text-xl font-bold">R$ {totalDueToday.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</CardContent></Card>
-        <Card className="bg-primary/5"><CardHeader className="p-4 pb-2 text-xs font-bold uppercase text-primary/70">Em Aberto</CardHeader><CardContent className="p-4 pt-0 text-xl font-bold">R$ {totalOpen.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</CardContent></Card>
-        <Card className="bg-emerald-50"><CardHeader className="p-4 pb-2 text-xs font-bold uppercase text-emerald-700">Total Pago</CardHeader><CardContent className="p-4 pt-0 text-xl font-bold">R$ {totalPaid.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</CardContent></Card>
+        <Card 
+          className={cn("transition-all cursor-pointer hover:shadow-md", selectedStatuses.includes('Overdue') ? "ring-2 ring-destructive" : "bg-destructive/5")}
+          onClick={() => toggleStatusFilter('Overdue')}
+        >
+          <CardHeader className="p-4 pb-2 text-xs font-bold uppercase text-destructive/70">Atrasado</CardHeader>
+          <CardContent className="p-4 pt-0 text-xl font-bold">R$ {totalOverdue.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</CardContent>
+        </Card>
+        <Card 
+          className={cn("transition-all cursor-pointer hover:shadow-md", selectedStatuses.includes('DueToday') ? "ring-2 ring-amber-500" : "bg-amber-50")}
+          onClick={() => toggleStatusFilter('DueToday')}
+        >
+          <CardHeader className="p-4 pb-2 text-xs font-bold uppercase text-amber-700">Hoje</CardHeader>
+          <CardContent className="p-4 pt-0 text-xl font-bold">R$ {totalDueToday.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</CardContent>
+        </Card>
+        <Card 
+          className={cn("transition-all cursor-pointer hover:shadow-md", selectedStatuses.includes('Open') ? "ring-2 ring-primary" : "bg-primary/5")}
+          onClick={() => toggleStatusFilter('Open')}
+        >
+          <CardHeader className="p-4 pb-2 text-xs font-bold uppercase text-primary/70">Em Aberto</CardHeader>
+          <CardContent className="p-4 pt-0 text-xl font-bold">R$ {totalOpen.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</CardContent>
+        </Card>
+        <Card 
+          className={cn("transition-all cursor-pointer hover:shadow-md", selectedStatuses.includes('Paid') ? "ring-2 ring-emerald-500" : "bg-emerald-50")}
+          onClick={() => toggleStatusFilter('Paid')}
+        >
+          <CardHeader className="p-4 pb-2 text-xs font-bold uppercase text-emerald-700">Total Pago</CardHeader>
+          <CardContent className="p-4 pt-0 text-xl font-bold">R$ {totalPaid.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</CardContent>
+        </Card>
       </div>
 
       <Card>
@@ -496,7 +556,7 @@ export default function AccountsPayablePage() {
           <Table>
             <TableHeader><TableRow><TableHead>Vencimento</TableHead><TableHead>Fornecedor</TableHead><TableHead>Descrição</TableHead><TableHead>Status</TableHead><TableHead className="text-right">Valor</TableHead><TableHead className="w-[50px]"></TableHead></TableRow></TableHeader>
             <TableBody>
-              {filteredEntries.sort((a,b) => a.dueDate.localeCompare(b.dueDate)).map((entry) => (
+              {currentEntries.map((entry) => (
                 <TableRow key={entry.id}>
                   <TableCell className="text-xs">
                     {format(new Date(entry.dueDate + 'T12:00:00'), "dd/MM/yy")}
@@ -522,6 +582,8 @@ export default function AccountsPayablePage() {
                       <DropdownMenuContent align="end">
                         {entry.status !== 'Paid' && <DropdownMenuItem onClick={() => { setEntryToPay(entry); setIsPaymentOpen(true); }} className="text-emerald-600 font-bold">Liquidar</DropdownMenuItem>}
                         <DropdownMenuItem onClick={() => openEdit(entry)} className="gap-2"><Pencil className="w-4 h-4" /> Editar</DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => handleDuplicate(entry)} className="gap-2"><Copy className="w-4 h-4" /> Duplicar</DropdownMenuItem>
+                        <DropdownMenuSeparator />
                         <DropdownMenuItem onClick={() => deleteDocumentNonBlocking(doc(db, "users", user.uid, "accountsPayableEntries", entry.id))} className="text-destructive">Excluir</DropdownMenuItem>
                       </DropdownMenuContent>
                     </DropdownMenu>
@@ -530,6 +592,39 @@ export default function AccountsPayablePage() {
               ))}
             </TableBody>
           </Table>
+
+          {totalPages > 1 && (
+            <div className="flex items-center justify-between py-4 border-t mt-4">
+              <div className="text-xs text-muted-foreground">
+                Mostrando <strong>{(currentPage - 1) * pageSize + 1}</strong> a <strong>{Math.min(currentPage * pageSize, allFilteredEntries.length)}</strong> de <strong>{allFilteredEntries.length}</strong> lançamentos
+              </div>
+              <div className="flex gap-2">
+                <Button variant="outline" size="sm" onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))} disabled={currentPage === 1}>
+                  <ChevronLeft className="w-4 h-4" />
+                </Button>
+                {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                  let pageNum = i + 1;
+                  if (totalPages > 5 && currentPage > 3) {
+                    pageNum = currentPage - 2 + i;
+                  }
+                  if (pageNum > totalPages) return null;
+                  return (
+                    <Button 
+                      key={pageNum} 
+                      variant={currentPage === pageNum ? "default" : "outline"} 
+                      size="sm" 
+                      onClick={() => setCurrentPage(pageNum)}
+                    >
+                      {pageNum}
+                    </Button>
+                  );
+                })}
+                <Button variant="outline" size="sm" onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))} disabled={currentPage === totalPages}>
+                  <ChevronRight className="w-4 h-4" />
+                </Button>
+              </div>
+            </div>
+          )}
         </CardContent>
       </Card>
 
