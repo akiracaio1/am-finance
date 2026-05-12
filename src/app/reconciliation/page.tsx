@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useState, useMemo, useEffect, useRef } from "react";
@@ -30,7 +31,9 @@ import {
   ArrowUpCircle,
   ArrowDownCircle,
   CircleOff,
-  SearchIcon
+  SearchIcon,
+  UserPlus,
+  FileText
 } from "lucide-react";
 import { useUser, useFirestore, useCollection, useMemoFirebase } from "@/firebase";
 import { collection, doc, query, where } from "firebase/firestore";
@@ -60,9 +63,10 @@ import {
   AccountsPayableEntry, 
   AccountsReceivableEntry, 
   AccountCategory,
-  Supplier
+  Supplier,
+  EntryType
 } from "@/lib/types";
-import { format, addDays, isBefore, isSameDay, subDays, parseISO, eachDayOfInterval } from "date-fns";
+import { format, addDays, isBefore, isSameDay, subDays, parseISO, eachDayOfInterval, isAfter, max } from "date-fns";
 import { parseOFX, OFXTransaction } from "@/lib/ofx-parser";
 import { cn } from "@/lib/utils";
 
@@ -74,10 +78,19 @@ export default function ReconciliationPage() {
   const [isAccountManagerOpen, setIsAccountManagerOpen] = useState(false);
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
   const [isMatchModalOpen, setIsMatchModalOpen] = useState(false);
+  const [isDetailedCreateOpen, setIsDetailedCreateOpen] = useState(false);
   const [matchingTransaction, setMatchingTransaction] = useState<BankTransaction | null>(null);
   
   const [ofxPreview, setOfxPreview] = useState<OFXTransaction[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Form states for detailed creation
+  const [formDescription, setFormDescription] = useState("");
+  const [formAmount, setFormAmount] = useState<number>(0);
+  const [formDueDate, setFormDueDate] = useState("");
+  const [formCategoryId, setFormCategoryId] = useState("");
+  const [formSupplierId, setFormSupplierId] = useState("");
+  const [formCustomerName, setFormCustomerName] = useState("");
 
   // Queries
   const accountsQuery = useMemoFirebase(() => {
@@ -123,6 +136,11 @@ export default function ReconciliationPage() {
   const { data: categories } = useCollection<AccountCategory>(categoriesQuery);
   const { data: suppliers } = useCollection<Supplier>(suppliersQuery);
 
+  const leafCategories = useMemo(() => {
+    if (!categories) return [];
+    return categories.filter(cat => !categories.some(child => child.parentCategoryId === cat.id));
+  }, [categories]);
+
   // Selecionar conta automaticamente se houver apenas uma
   useEffect(() => {
     if (accounts?.length === 1 && !selectedAccountId) {
@@ -146,12 +164,24 @@ export default function ReconciliationPage() {
     ];
   }, [allPayables, allReceivables, selectedDate]);
 
-  // Identificar dias pendentes
+  // Sugestões para conciliação (Todos os itens abertos do sistema)
+  const openSystemEntries = useMemo(() => {
+    const payables = allPayables?.filter(p => p.status !== 'Paid') || [];
+    const receivables = allReceivables?.filter(r => r.status !== 'Paid') || [];
+    return [
+      ...payables.map(p => ({ ...p, type: 'DEBIT' as const, isPayable: true })),
+      ...receivables.map(r => ({ ...r, type: 'CREDIT' as const, isPayable: false }))
+    ];
+  }, [allPayables, allReceivables]);
+
+  // Identificar dias pendentes (A partir de 01/05/2026)
   const pendingDays = useMemo(() => {
     if (!selectedAccount || !allTransactions || !noMovementDays) return [];
     
     const today = new Date();
-    const start = parseISO(selectedAccount.openingDate);
+    const alertStart = new Date("2026-05-01T12:00:00");
+    const accountStart = parseISO(selectedAccount.openingDate);
+    const start = max([alertStart, accountStart]);
     const end = subDays(today, 1);
     
     if (isBefore(end, start)) return [];
@@ -162,7 +192,7 @@ export default function ReconciliationPage() {
       const hasTransactions = allTransactions.some(t => t.date === dateStr);
       const isMarkedNoMovement = noMovementDays.some(d => d.date === dateStr);
       return !hasTransactions && !isMarkedNoMovement;
-    }).map(day => format(day, "yyyy-MM-dd")).reverse().slice(0, 5); // Mostrar os últimos 5
+    }).map(day => format(day, "yyyy-MM-dd")).reverse();
   }, [selectedAccount, allTransactions, noMovementDays]);
 
   // Totais e Diferenças
@@ -170,8 +200,8 @@ export default function ReconciliationPage() {
     const statementIn = dailyTransactions.filter(t => t.type === 'CREDIT' && !t.ignored).reduce((acc, t) => acc + t.amount, 0);
     const statementOut = Math.abs(dailyTransactions.filter(t => t.type === 'DEBIT' && !t.ignored).reduce((acc, t) => acc + t.amount, 0));
     
-    const systemIn = dailySystemEntries.filter(e => e.type === 'CREDIT').reduce((acc, e) => acc + (e.amount || (e as any).originalAmount || 0), 0);
-    const systemOut = dailySystemEntries.filter(e => e.type === 'DEBIT').reduce((acc, e) => acc + (e.amount || (e as any).originalAmount || 0), 0);
+    const systemIn = dailySystemEntries.filter(e => e.type === 'CREDIT' && e.status === 'Paid').reduce((acc, e) => acc + (e.amount || (e as any).originalAmount || 0), 0);
+    const systemOut = dailySystemEntries.filter(e => e.type === 'DEBIT' && e.status === 'Paid').reduce((acc, e) => acc + (e.amount || (e as any).originalAmount || 0), 0);
 
     return {
       statementIn,
@@ -254,6 +284,50 @@ export default function ReconciliationPage() {
     toast({ title: "Conciliado com sucesso!" });
   };
 
+  const handleDetailedCreate = () => {
+    if (!matchingTransaction) return;
+    setFormDescription(matchingTransaction.description);
+    setFormAmount(Math.abs(matchingTransaction.amount));
+    setFormDueDate(matchingTransaction.date);
+    setFormSupplierId("");
+    setFormCustomerName("");
+    setFormCategoryId("");
+    setIsDetailedCreateOpen(true);
+  };
+
+  const saveDetailedEntry = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!db || !user || !matchingTransaction) return;
+
+    const id = `pay_${Date.now()}`;
+    const isPayable = matchingTransaction.type === 'DEBIT';
+    const col = isPayable ? "accountsPayableEntries" : "accountsReceivableEntries";
+    
+    const data: any = {
+      id,
+      description: formDescription,
+      [isPayable ? "originalAmount" : "amount"]: formAmount,
+      dueDate: formDueDate,
+      status: 'Paid',
+      paymentDate: matchingTransaction.date,
+      bankAccountId: selectedAccountId,
+      accountCategoryId: formCategoryId,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+
+    if (isPayable) {
+      data.supplierId = formSupplierId;
+      data.entryType = "Confirmed" as EntryType;
+    } else {
+      data.customerName = formCustomerName;
+    }
+
+    setDocumentNonBlocking(doc(db, "users", user.uid, col, id), data, { merge: true });
+    confirmMatch(id);
+    setIsDetailedCreateOpen(false);
+  };
+
   const handleNoMovement = () => {
     if (!db || !user || !selectedAccountId) return;
     const dateRef = doc(db, "users", user.uid, "bankAccounts", selectedAccountId, "noMovementDays", selectedDate);
@@ -293,7 +367,7 @@ export default function ReconciliationPage() {
               <div className="space-y-4 py-4">
                 <form onSubmit={(e) => {
                   e.preventDefault();
-                  const formData = new FormData(e.currentTarget);
+                  const formData = new FormData(e.currentTarget as HTMLFormElement);
                   const accId = `acc_${Date.now()}`;
                   const data = {
                     id: accId,
@@ -306,7 +380,7 @@ export default function ReconciliationPage() {
                   };
                   setDocumentNonBlocking(doc(db!, "users", user!.uid, "bankAccounts", accId), data, { merge: true });
                   toast({ title: "Conta cadastrada!" });
-                  e.currentTarget.reset();
+                  (e.currentTarget as HTMLFormElement).reset();
                 }} className="space-y-3 p-3 bg-muted rounded-lg">
                   <Input name="name" placeholder="Nome da Conta (ex: Principal)" required />
                   <div className="grid grid-cols-2 gap-2">
@@ -358,13 +432,14 @@ export default function ReconciliationPage() {
             <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-1" />
             <div className="space-y-1">
               <h4 className="text-sm font-bold text-amber-900">Pendências Detectadas</h4>
-              <p className="text-xs text-amber-700">Os seguintes dias não possuem OFX importado nem marcação de movimento:</p>
+              <p className="text-xs text-amber-700">Os seguintes dias não possuem OFX importado nem marcação de movimento (desde 01/05/2026):</p>
               <div className="flex flex-wrap gap-2 mt-2">
-                {pendingDays.map(date => (
+                {pendingDays.slice(0, 10).map(date => (
                   <Badge key={date} variant="secondary" className="cursor-pointer hover:bg-amber-200" onClick={() => setSelectedDate(date)}>
                     {format(parseISO(date), "dd/MM")}
                   </Badge>
                 ))}
+                {pendingDays.length > 10 && <span className="text-[10px] text-muted-foreground self-center">... e mais {pendingDays.length - 10} dias</span>}
               </div>
             </div>
           </CardContent>
@@ -478,17 +553,17 @@ export default function ReconciliationPage() {
             <Card>
               <CardHeader className="p-4 border-b bg-muted/20">
                 <CardTitle className="text-xs uppercase flex items-center gap-2">
-                  <Settings className="w-3 h-3" /> Lançamentos no Sistema
+                  <Settings className="w-3 h-3" /> Lançamentos Pagos Hoje
                 </CardTitle>
               </CardHeader>
               <CardContent className="p-0">
                 <Table>
                   <TableBody>
-                    {dailySystemEntries.length === 0 ? (
-                      <TableRow><TableCell className="text-center py-10 text-muted-foreground italic text-xs">Sem lançamentos registrados neste dia.</TableCell></TableRow>
+                    {dailySystemEntries.filter(e => e.status === 'Paid').length === 0 ? (
+                      <TableRow><TableCell className="text-center py-10 text-muted-foreground italic text-xs">Sem baixas registradas nesta data.</TableCell></TableRow>
                     ) : (
-                      dailySystemEntries.map(entry => (
-                        <TableRow key={entry.id} className={cn(entry.status === 'Paid' ? "bg-emerald-50/50" : "")}>
+                      dailySystemEntries.filter(e => e.status === 'Paid').map(entry => (
+                        <TableRow key={entry.id} className="bg-emerald-50/50">
                           <TableCell className="p-3">
                             <div className="flex flex-col">
                               <span className="text-xs font-bold line-clamp-1">{entry.description}</span>
@@ -501,11 +576,7 @@ export default function ReconciliationPage() {
                             R$ {(entry.amount || (entry as any).originalAmount || 0).toLocaleString('pt-BR')}
                           </TableCell>
                           <TableCell className="p-3 text-right">
-                            {entry.status === 'Paid' ? (
-                              <Badge variant="outline" className="text-[9px] border-emerald-200 text-emerald-700">Baixado</Badge>
-                            ) : (
-                              <Badge variant="outline" className="text-[9px]">Aberto</Badge>
-                            )}
+                            <Badge variant="outline" className="text-[9px] border-emerald-200 text-emerald-700">Baixado</Badge>
                           </TableCell>
                         </TableRow>
                       ))
@@ -550,30 +621,45 @@ export default function ReconciliationPage() {
             <DialogTitle>Conciliar: {matchingTransaction?.description}</DialogTitle>
             <DialogDescription>
               Valor: R$ {Math.abs(matchingTransaction?.amount || 0).toLocaleString('pt-BR')} | 
-              Data: {matchingTransaction ? format(parseISO(matchingTransaction.date), "dd/MM/yyyy") : ''}
+              Data Extrato: {matchingTransaction ? format(parseISO(matchingTransaction.date), "dd/MM/yyyy") : ''}
             </DialogDescription>
           </DialogHeader>
           
           <div className="space-y-4 py-4">
-            <h4 className="text-xs font-bold uppercase text-muted-foreground border-b pb-2">Sugestões e Busca</h4>
+            <h4 className="text-xs font-bold uppercase text-muted-foreground border-b pb-2">Itens em Aberto no Sistema</h4>
             <div className="max-h-[300px] overflow-y-auto space-y-2">
-              {dailySystemEntries
-                .filter(e => e.status !== 'Paid' && e.type === matchingTransaction?.type)
+              {openSystemEntries
+                .filter(e => e.type === matchingTransaction?.type)
+                .sort((a, b) => {
+                   // Priorizar mesma data e valor
+                   const aSameVal = Math.abs((a.amount || (a as any).originalAmount) - Math.abs(matchingTransaction?.amount || 0)) < 0.01;
+                   const bSameVal = Math.abs((b.amount || (b as any).originalAmount) - Math.abs(matchingTransaction?.amount || 0)) < 0.01;
+                   if (aSameVal && !bSameVal) return -1;
+                   if (!aSameVal && bSameVal) return 1;
+                   return a.dueDate.localeCompare(b.dueDate);
+                })
                 .map(entry => (
-                  <div key={entry.id} className="flex items-center justify-between p-3 border rounded-lg hover:bg-muted/50 cursor-pointer" onClick={() => confirmMatch(entry.id)}>
+                  <div key={entry.id} className="flex items-center justify-between p-3 border rounded-lg hover:bg-muted/50 cursor-pointer group" onClick={() => confirmMatch(entry.id)}>
                     <div className="flex flex-col">
-                      <span className="text-sm font-bold">{entry.description}</span>
-                      <span className="text-[10px] text-muted-foreground">{entry.type === 'CREDIT' ? 'Receber' : 'Pagar'}</span>
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-bold">{entry.description}</span>
+                        {entry.dueDate === matchingTransaction?.date && <Badge className="bg-primary/10 text-primary text-[8px] h-4">Mesmo Dia</Badge>}
+                      </div>
+                      <span className="text-[10px] text-muted-foreground">Vencimento: {format(parseISO(entry.dueDate), "dd/MM/yy")} | {entry.type === 'CREDIT' ? 'Receber' : 'Pagar'}</span>
                     </div>
                     <div className="text-right">
                       <p className="text-sm font-bold">R$ {(entry.amount || (entry as any).originalAmount || 0).toLocaleString('pt-BR')}</p>
-                      <p className="text-[10px] text-primary flex items-center justify-end gap-1">Clique para vincular <ArrowRightLeft className="w-3 h-3" /></p>
+                      <p className="text-[10px] text-primary opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-end gap-1">Clique para vincular <ArrowRightLeft className="w-3 h-3" /></p>
                     </div>
                   </div>
                 ))}
               
+              {openSystemEntries.filter(e => e.type === matchingTransaction?.type).length === 0 && (
+                <p className="text-center py-4 text-xs text-muted-foreground">Nenhum lançamento em aberto encontrado para este tipo.</p>
+              )}
+              
               <div className="pt-6 border-t">
-                <p className="text-xs text-center text-muted-foreground mb-4">Ou crie um novo lançamento com esses dados:</p>
+                <p className="text-xs text-center text-muted-foreground mb-4">Se não encontrou o lançamento, crie um novo:</p>
                 <div className="flex gap-2">
                   <Button className="flex-1 gap-2" variant="outline" onClick={() => {
                     if (!db || !user || !matchingTransaction) return;
@@ -590,26 +676,84 @@ export default function ReconciliationPage() {
                       bankAccountId: selectedAccountId,
                       createdAt: new Date().toISOString(),
                       updatedAt: new Date().toISOString(),
+                      accountCategoryId: "none"
                     };
                     
                     if (isPayable) {
                       data.supplierId = "none";
-                      data.accountCategoryId = "none";
                       data.entryType = "Confirmed";
                     } else {
                       data.customerName = "Venda Rápida";
-                      data.accountCategoryId = "none";
                     }
 
                     setDocumentNonBlocking(doc(db, "users", user.uid, col, id), data, { merge: true });
                     confirmMatch(id);
                   }}>
-                    <PlusCircle className="w-4 h-4" /> Criar Lançamento Rápido
+                    <PlusCircle className="w-4 h-4" /> Lançamento Rápido
+                  </Button>
+                  <Button className="flex-1 gap-2" onClick={handleDetailedCreate}>
+                    <FileText className="w-4 h-4" /> Lançamento Detalhado
                   </Button>
                 </div>
               </div>
             </div>
           </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={isDetailedCreateOpen} onOpenChange={setIsDetailedCreateOpen}>
+        <DialogContent className="max-w-xl">
+          <form onSubmit={saveDetailedEntry}>
+            <DialogHeader>
+              <DialogTitle>Novo Lançamento Detalhado</DialogTitle>
+              <DialogDescription>Preencha os dados para salvar e conciliar com o extrato.</DialogDescription>
+            </DialogHeader>
+            <div className="grid gap-4 py-4">
+              <div className="grid gap-2">
+                <Label>Descrição*</Label>
+                <Input value={formDescription} onChange={e => setFormDescription(e.target.value)} required />
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="grid gap-2">
+                  <Label>Valor*</Label>
+                  <Input type="number" step="0.01" value={formAmount} onChange={e => setFormAmount(Number(e.target.value))} required />
+                </div>
+                <div className="grid gap-2">
+                  <Label>Vencimento*</Label>
+                  <Input type="date" value={formDueDate} onChange={e => setFormDueDate(e.target.value)} required />
+                </div>
+              </div>
+              <div className="grid gap-2">
+                <Label>Categoria*</Label>
+                <Select value={formCategoryId} onValueChange={setFormCategoryId} required>
+                  <SelectTrigger><SelectValue placeholder="Selecione..." /></SelectTrigger>
+                  <SelectContent>
+                    {leafCategories.map(c => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+              {matchingTransaction?.type === 'DEBIT' ? (
+                <div className="grid gap-2">
+                  <Label>Fornecedor*</Label>
+                  <Select value={formSupplierId} onValueChange={setFormSupplierId} required>
+                    <SelectTrigger><SelectValue placeholder="Selecione..." /></SelectTrigger>
+                    <SelectContent>
+                      {suppliers?.sort((a,b) => a.name.localeCompare(b.name)).map(s => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+              ) : (
+                <div className="grid gap-2">
+                  <Label>Origem / Cliente*</Label>
+                  <Input value={formCustomerName} onChange={e => setFormCustomerName(e.target.value)} placeholder="Ex: iFood, Cliente X" required />
+                </div>
+              )}
+            </div>
+            <DialogFooter>
+              <Button type="button" variant="ghost" onClick={() => setIsDetailedCreateOpen(false)}>Cancelar</Button>
+              <Button type="submit">Salvar e Conciliar</Button>
+            </DialogFooter>
+          </form>
         </DialogContent>
       </Dialog>
     </div>
