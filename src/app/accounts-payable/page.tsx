@@ -82,7 +82,6 @@ import {
   isSameDay,
   parseISO
 } from "date-fns";
-import * as XLSX from 'xlsx';
 
 export default function AccountsPayablePage() {
   const { user } = useUser();
@@ -94,15 +93,6 @@ export default function AccountsPayablePage() {
   const [entryToPay, setEntryToPay] = useState<AccountsPayableEntry | null>(null);
   const [todayStr, setTodayStr] = useState("");
   const [showFilters, setShowFilters] = useState(true);
-  const [isImporting, setIsImporting] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-
-  const [isQuickSupplierOpen, setIsQuickSupplierOpen] = useState(false);
-  const [quickSupplierName, setQuickSupplierName] = useState("");
-  const [quickSupplierType, setQuickSupplierType] = useState<PersonType>("Pessoa Jurídica");
-
-  const [currentPage, setCurrentPage] = useState(1);
-  const pageSize = 50;
 
   useEffect(() => {
     setMounted(true);
@@ -116,7 +106,6 @@ export default function AccountsPayablePage() {
   
   const [filterDueDateStart, setFilterDueDateStart] = useState("");
   const [filterDueDateEnd, setFilterDueDateEnd] = useState("");
-  const [datePreset, setDatePreset] = useState("custom");
 
   const [interest, setInterest] = useState(0);
   const [fine, setFine] = useState(0);
@@ -131,20 +120,8 @@ export default function AccountsPayablePage() {
   const [formDescription, setFormDescription] = useState("");
   const [formAmount, setFormAmount] = useState<number>(0);
   const [formDueDate, setFormDueDate] = useState("");
-  const [formIssueDate, setFormIssueDate] = useState("");
   const [formSupplierId, setFormSupplierId] = useState("");
   const [formCategoryId, setFormCategoryId] = useState("");
-  const [formPaymentMethod, setFormPaymentMethod] = useState("Pix");
-  const [formCostCenterId, setFormCostCenterId] = useState("none");
-
-  useEffect(() => {
-    if (todayStr && !formDueDate) setFormDueDate(todayStr);
-  }, [todayStr, formDueDate]);
-
-  const [repetitionType, setRepetitionType] = useState<"single" | "fixed" | "installments">("single");
-  const [recurrenceInterval, setRecurrenceInterval] = useState<"weekly" | "biweekly" | "monthly" | "yearly">("monthly");
-  const [numRepetitions, setNumRepetitions] = useState(1);
-  const [generatedInstallments, setGeneratedInstallments] = useState<{date: string, amount: number}[]>([]);
 
   const entriesQuery = useMemoFirebase(() => {
     if (!db || !user) return null;
@@ -161,15 +138,9 @@ export default function AccountsPayablePage() {
     return collection(db, "users", user.uid, "accountCategories");
   }, [db, user]);
 
-  const centersQuery = useMemoFirebase(() => {
-    if (!db || !user) return null;
-    return collection(db, "users", user.uid, "costCenters");
-  }, [db, user]);
-
   const { data: entries } = useCollection<AccountsPayableEntry>(entriesQuery);
   const { data: suppliers } = useCollection<Supplier>(suppliersQuery);
   const { data: categories } = useCollection<AccountCategory>(categoriesQuery);
-  const { data: centers } = useCollection<CostCenter>(centersQuery);
 
   const sortedSuppliers = useMemo(() => {
     if (!suppliers) return [];
@@ -218,36 +189,16 @@ export default function AccountsPayablePage() {
       }).sort((a,b) => a.dueDate.localeCompare(b.dueDate)) || [];
   }, [entries, selectedStatuses, selectedSupplierIds, selectedCategoryIds, filterDueDateStart, filterDueDateEnd, searchTerm, suppliers, leafCategories, todayStr, mounted]);
 
-  const currentEntries = useMemo(() => {
-    return allFilteredEntries.slice((currentPage - 1) * pageSize, currentPage * pageSize);
-  }, [allFilteredEntries, currentPage]);
-
   const totalOverdue = allFilteredEntries.filter(e => e.dynamicStatus === 'Overdue').reduce((acc, curr) => acc + curr.originalAmount, 0);
   const totalDueToday = allFilteredEntries.filter(e => e.dynamicStatus === 'DueToday').reduce((acc, curr) => acc + curr.originalAmount, 0);
   const totalOpen = allFilteredEntries.filter(e => e.dynamicStatus === 'Open').reduce((acc, curr) => acc + curr.originalAmount, 0);
   const totalPaid = allFilteredEntries.filter(e => e.dynamicStatus === 'Paid').reduce((acc, curr) => acc + calculateSettledValue(curr), 0);
 
-  useEffect(() => {
-    if (repetitionType === 'single' || !formDueDate) {
-      setGeneratedInstallments([]);
-      return;
-    }
-    const newInstallments = [];
-    const baseDate = new Date(formDueDate + 'T12:00:00');
-    for (let i = 0; i < numRepetitions; i++) {
-      let installmentDate: Date;
-      switch (recurrenceInterval) {
-        case 'weekly': installmentDate = addWeeks(baseDate, i); break;
-        case 'biweekly': installmentDate = addWeeks(baseDate, i * 2); break;
-        case 'yearly': installmentDate = addYears(baseDate, i); break;
-        case 'monthly':
-        default: installmentDate = addMonths(baseDate, i); break;
-      }
-      const installmentAmount = repetitionType === 'installments' ? Number((formAmount / numRepetitions).toFixed(2)) : formAmount;
-      newInstallments.push({ date: format(installmentDate, "yyyy-MM-dd"), amount: installmentAmount });
-    }
-    setGeneratedInstallments(newInstallments);
-  }, [repetitionType, numRepetitions, formAmount, formDueDate, recurrenceInterval]);
+  const toggleStatusFilter = (status: string) => {
+    setSelectedStatuses(prev => 
+      prev.includes(status) ? prev.filter(s => s !== status) : [...prev, status]
+    );
+  };
 
   const handleSaveEntry = (e: React.FormEvent) => {
     e.preventDefault();
@@ -261,23 +212,13 @@ export default function AccountsPayablePage() {
       updatedAt: new Date().toISOString(),
     };
     
-    if (formIssueDate) baseData.issueDate = formIssueDate;
-    if (formPaymentMethod) baseData.paymentMethod = formPaymentMethod;
-    if (formCostCenterId !== "none") baseData.costCenterId = formCostCenterId;
-
     if (editingEntry) {
       updateDocumentNonBlocking(doc(db, "users", user.uid, "accountsPayableEntries", editingEntry.id), { ...baseData, originalAmount: formAmount, dueDate: formDueDate });
       toast({ title: "Lançamento atualizado" });
     } else {
-      if (repetitionType === 'single') {
-        const id = `pay_${Date.now()}`;
-        setDocumentNonBlocking(doc(db, "users", user.uid, "accountsPayableEntries", id), { ...baseData, id, status: 'Open', originalAmount: formAmount, dueDate: formDueDate, createdAt: new Date().toISOString() }, { merge: true });
-      } else {
-        generatedInstallments.forEach((inst, idx) => {
-          const id = `pay_${Date.now()}_${idx}`;
-          setDocumentNonBlocking(doc(db, "users", user.uid, "accountsPayableEntries", id), { ...baseData, id, status: 'Open', originalAmount: inst.amount, dueDate: inst.date, installmentInfo: repetitionType === 'installments' ? `${idx + 1}/${numRepetitions}` : "", createdAt: new Date().toISOString() }, { merge: true });
-        });
-      }
+      const id = `pay_${Date.now()}`;
+      setDocumentNonBlocking(doc(db, "users", user.uid, "accountsPayableEntries", id), { ...baseData, id, status: 'Open', originalAmount: formAmount, dueDate: formDueDate, createdAt: new Date().toISOString() }, { merge: true });
+      toast({ title: "Lançamento criado" });
     }
     setIsNewEntryOpen(false); setEditingEntry(null);
   };
@@ -338,10 +279,34 @@ export default function AccountsPayablePage() {
       </Collapsible>
 
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <Card className="bg-destructive/5"><CardHeader className="p-4 pb-2 text-[10px] font-bold uppercase text-destructive/70">Atrasado</CardHeader><CardContent className="p-4 pt-0 text-xl font-bold">R$ {totalOverdue.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</CardContent></Card>
-        <Card className="bg-amber-50"><CardHeader className="p-4 pb-2 text-[10px] font-bold uppercase text-amber-700">Hoje</CardHeader><CardContent className="p-4 pt-0 text-xl font-bold">R$ {totalDueToday.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</CardContent></Card>
-        <Card className="bg-primary/5"><CardHeader className="p-4 pb-2 text-[10px] font-bold uppercase text-primary/70">Em Aberto</CardHeader><CardContent className="p-4 pt-0 text-xl font-bold">R$ {totalOpen.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</CardContent></Card>
-        <Card className="bg-emerald-50"><CardHeader className="p-4 pb-2 text-[10px] font-bold uppercase text-emerald-700">Total Pago</CardHeader><CardContent className="p-4 pt-0 text-xl font-bold">R$ {totalPaid.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</CardContent></Card>
+        <Card 
+          className={cn("cursor-pointer transition-all hover:shadow-md", selectedStatuses.includes('Overdue') ? "ring-2 ring-destructive" : "bg-destructive/5")}
+          onClick={() => toggleStatusFilter('Overdue')}
+        >
+          <CardHeader className="p-4 pb-2 text-[10px] font-bold uppercase text-destructive/70">Atrasado</CardHeader>
+          <CardContent className="p-4 pt-0 text-xl font-bold">R$ {totalOverdue.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</CardContent>
+        </Card>
+        <Card 
+          className={cn("cursor-pointer transition-all hover:shadow-md", selectedStatuses.includes('DueToday') ? "ring-2 ring-amber-500" : "bg-amber-50")}
+          onClick={() => toggleStatusFilter('DueToday')}
+        >
+          <CardHeader className="p-4 pb-2 text-[10px] font-bold uppercase text-amber-700">Hoje</CardHeader>
+          <CardContent className="p-4 pt-0 text-xl font-bold">R$ {totalDueToday.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</CardContent>
+        </Card>
+        <Card 
+          className={cn("cursor-pointer transition-all hover:shadow-md", selectedStatuses.includes('Open') ? "ring-2 ring-primary" : "bg-primary/5")}
+          onClick={() => toggleStatusFilter('Open')}
+        >
+          <CardHeader className="p-4 pb-2 text-[10px] font-bold uppercase text-primary/70">Em Aberto</CardHeader>
+          <CardContent className="p-4 pt-0 text-xl font-bold">R$ {totalOpen.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</CardContent>
+        </Card>
+        <Card 
+          className={cn("cursor-pointer transition-all hover:shadow-md", selectedStatuses.includes('Paid') ? "ring-2 ring-emerald-500" : "bg-emerald-50")}
+          onClick={() => toggleStatusFilter('Paid')}
+        >
+          <CardHeader className="p-4 pb-2 text-[10px] font-bold uppercase text-emerald-700">Total Pago</CardHeader>
+          <CardContent className="p-4 pt-0 text-xl font-bold">R$ {totalPaid.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</CardContent>
+        </Card>
       </div>
 
       <Card>
@@ -349,7 +314,7 @@ export default function AccountsPayablePage() {
           <Table>
             <TableHeader><TableRow><TableHead>Vencimento</TableHead><TableHead>Fornecedor</TableHead><TableHead>Descrição / Categoria</TableHead><TableHead>Status</TableHead><TableHead className="text-right">Valor</TableHead><TableHead className="w-[50px]"></TableHead></TableRow></TableHeader>
             <TableBody>
-              {currentEntries.map((entry) => (
+              {allFilteredEntries.map((entry) => (
                 <TableRow key={entry.id}>
                   <TableCell className="text-xs">{format(new Date(entry.dueDate + 'T12:00:00'), "dd/MM/yy")}</TableCell>
                   <TableCell className="font-medium">{suppliers?.find(s => s.id === entry.supplierId)?.name || '-'}</TableCell>
@@ -367,6 +332,8 @@ export default function AccountsPayablePage() {
                       </div>
                     ) : entry.dynamicStatus === 'Overdue' ? (
                       <Badge variant="destructive">Atrasado</Badge>
+                    ) : entry.dynamicStatus === 'DueToday' ? (
+                      <Badge className="bg-amber-100 text-amber-700 border-none">Hoje</Badge>
                     ) : (
                       <Badge variant="outline">Aberto</Badge>
                     )}

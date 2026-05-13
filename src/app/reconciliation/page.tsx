@@ -77,7 +77,6 @@ export default function ReconciliationPage() {
   const db = useFirestore();
   const [selectedAccountId, setSelectedAccountId] = useState<string>("");
   const [selectedDate, setSelectedDate] = useState<string>(format(new Date(), "yyyy-MM-dd"));
-  const [isAccountManagerOpen, setIsAccountManagerOpen] = useState(false);
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
   const [isMatchModalOpen, setIsMatchModalOpen] = useState(false);
   const [isDetailedCreateOpen, setIsDetailedCreateOpen] = useState(false);
@@ -144,7 +143,6 @@ export default function ReconciliationPage() {
 
   const filteredCategories = useMemo(() => {
     if (!categories || !matchingTransaction) return [];
-    // CRITICAL: Filter contextually based on transaction type (CREDIT -> Revenue, DEBIT -> Expense)
     const targetType = matchingTransaction.type === 'CREDIT' ? 'Revenue' : 'Expense';
     return categories.filter(cat => 
       cat.type === targetType && 
@@ -217,12 +215,14 @@ export default function ReconciliationPage() {
       const dateStr = format(day, "yyyy-MM-dd");
       if (noMovementDays.some(d => d.date === dateStr)) return false;
       const dayTransactions = allTransactions.filter(t => t.date === dateStr);
-      if (dayTransactions.length === 0) return true;
-      if (dayTransactions.some(t => !t.reconciled && !t.ignored)) return true;
-      const statementIn = dayTransactions.filter(t => t.type === 'CREDIT' && !t.ignored).reduce((acc, t) => acc + t.amount, 0);
-      const statementOut = Math.abs(dayTransactions.filter(t => t.type === 'DEBIT' && !t.ignored).reduce((acc, t) => acc + t.amount, 0));
       const daySystemIn = allReceivables.filter(r => r.paymentDate === dateStr && r.bankAccountId === selectedAccountId).reduce((acc, e) => acc + e.amount, 0);
       const daySystemOut = allPayables.filter(p => p.paymentDate === dateStr && p.bankAccountId === selectedAccountId).reduce((acc, p) => acc + (p.originalAmount + (p.interest || 0) + (p.fine || 0) - (p.discount || 0)), 0);
+      
+      const statementIn = dayTransactions.filter(t => t.type === 'CREDIT' && !t.ignored).reduce((acc, t) => acc + t.amount, 0);
+      const statementOut = Math.abs(dayTransactions.filter(t => t.type === 'DEBIT' && !t.ignored).reduce((acc, t) => acc + t.amount, 0));
+
+      if (dayTransactions.length === 0 && daySystemIn === 0 && daySystemOut === 0) return false;
+      if (dayTransactions.some(t => !t.reconciled && !t.ignored)) return true;
       return Math.abs(statementIn - daySystemIn) > 0.01 || Math.abs(statementOut - daySystemOut) > 0.01;
     }).map(day => format(day, "yyyy-MM-dd")).reverse();
   }, [allTransactions, noMovementDays, allPayables, allReceivables, selectedAccountId, selectedDate]);
@@ -255,6 +255,14 @@ export default function ReconciliationPage() {
     setIsImportModalOpen(false);
   };
 
+  const undoMatch = (transaction: BankTransaction) => {
+    if (!db || !user || !selectedAccountId || !transaction.reconciledEntryId) return;
+    const col = transaction.type === 'DEBIT' ? "accountsPayableEntries" : "accountsReceivableEntries";
+    updateDocumentNonBlocking(doc(db, "users", user.uid, "bankAccounts", selectedAccountId, "bankTransactions", transaction.id), { reconciled: false, reconciledEntryId: null });
+    updateDocumentNonBlocking(doc(db, "users", user.uid, col, transaction.reconciledEntryId), { status: 'Open', paymentDate: null, bankAccountId: null });
+    toast({ title: "Conciliação desfeita" });
+  };
+
   const confirmMatch = (entryId: string) => {
     if (!db || !user || !selectedAccountId || !matchingTransaction) return;
     updateDocumentNonBlocking(doc(db, "users", user.uid, "bankAccounts", selectedAccountId, "bankTransactions", matchingTransaction.id), { reconciled: true, reconciledEntryId: entryId });
@@ -267,7 +275,7 @@ export default function ReconciliationPage() {
   const saveDetailedEntry = (e: React.FormEvent) => {
     e.preventDefault();
     if (!db || !user || !matchingTransaction) return;
-    const id = `rec_${Date.now()}`;
+    const id = `${matchingTransaction.type === 'DEBIT' ? 'pay' : 'rec'}_${Date.now()}`;
     const isPayable = matchingTransaction.type === 'DEBIT';
     const col = isPayable ? "accountsPayableEntries" : "accountsReceivableEntries";
     const data: any = { id, description: formDescription, [isPayable ? "originalAmount" : "amount"]: formAmount, dueDate: formDueDate, status: 'Paid', paymentDate: matchingTransaction.date, bankAccountId: selectedAccountId, accountCategoryId: formCategoryId, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
@@ -344,7 +352,11 @@ export default function ReconciliationPage() {
                         <TableCell className="p-3"><div className="flex flex-col"><span className="text-xs font-bold line-clamp-1">{txn.description}</span><span className="text-[10px] text-muted-foreground">{txn.type === 'CREDIT' ? 'Entrada' : 'Saída'}</span></div></TableCell>
                         <TableCell className={cn("p-3 text-right font-bold text-xs", txn.type === 'CREDIT' ? "text-emerald-600" : "text-destructive")}>R$ {Math.abs(txn.amount).toLocaleString('pt-BR')}</TableCell>
                         <TableCell className="p-3 text-right">
-                          {!txn.reconciled ? <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => { setMatchingTransaction(txn); setIsMatchModalOpen(true); }}><ArrowRightLeft className="w-3 h-3" /></Button> : <Badge className="bg-emerald-100 text-emerald-700 text-[9px]">OK</Badge>}
+                          {!txn.reconciled ? (
+                            <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => { setMatchingTransaction(txn); setIsMatchModalOpen(true); }}><ArrowRightLeft className="w-3 h-3" /></Button>
+                          ) : (
+                            <Button size="icon" variant="ghost" className="h-7 w-7 text-destructive" onClick={() => undoMatch(txn)}><X className="w-3 h-3" /></Button>
+                          )}
                         </TableCell>
                       </TableRow>
                     ))}
@@ -360,7 +372,7 @@ export default function ReconciliationPage() {
                   <TableBody>
                     {dailySystemEntries.map(entry => (
                       <TableRow key={entry.id} className="bg-emerald-50/50">
-                        <TableCell className="p-3"><div className="flex flex-col"><span className="text-xs font-bold line-clamp-1">{entry.description}</span><span className="text-[10px] text-muted-foreground">{(entry as any).customerName || 'Fornecedor'}</span></div></TableCell>
+                        <TableCell className="p-3"><div className="flex flex-col"><span className="text-xs font-bold line-clamp-1">{entry.description}</span><span className="text-[10px] text-muted-foreground">{(entry as any).customerName || suppliers?.find(s => s.id === (entry as any).supplierId)?.name || 'Fornecedor'}</span></div></TableCell>
                         <TableCell className={cn("p-3 text-right font-bold text-xs", entry.type === 'CREDIT' ? "text-emerald-600" : "text-destructive")}>R$ {(entry.amount || (entry as any).originalAmount).toLocaleString('pt-BR')}</TableCell>
                         <TableCell className="p-3 text-right"><Badge variant="outline" className="text-[9px] border-emerald-200 text-emerald-700">OK</Badge></TableCell>
                       </TableRow>
@@ -380,6 +392,18 @@ export default function ReconciliationPage() {
               <DialogTitle className="flex items-center gap-2"><ArrowRightLeft className="w-5 h-5 text-primary" />Conciliar: {matchingTransaction?.description}</DialogTitle>
               <DialogDescription className="font-bold text-primary">Valor: R$ {Math.abs(matchingTransaction?.amount || 0).toLocaleString('pt-BR')}</DialogDescription>
             </DialogHeader>
+            <div className="grid grid-cols-1 md:grid-cols-5 gap-3 mt-4">
+              <div className="md:col-span-2 relative">
+                <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+                <Input placeholder="Filtrar lançamentos..." className="pl-9 h-9 text-xs" value={matchSearchTerm} onChange={e => setMatchSearchTerm(e.target.value)} />
+              </div>
+              <Input type="date" value={matchDateStart} onChange={e => setMatchDateStart(e.target.value)} className="h-9 text-xs" />
+              <Input type="date" value={matchDateEnd} onChange={e => setMatchDateEnd(e.target.value)} className="h-9 text-xs" />
+              <div className="flex gap-2">
+                <Input type="number" placeholder="Min" value={matchMinValue} onChange={e => setMatchMinValue(e.target.value)} className="h-9 text-xs" />
+                <Input type="number" placeholder="Max" value={matchMaxValue} onChange={e => setMatchMaxValue(e.target.value)} className="h-9 text-xs" />
+              </div>
+            </div>
           </div>
           <div className="flex-1 overflow-y-auto p-6 space-y-4">
             {filteredOpenEntries.map(entry => (
@@ -393,7 +417,7 @@ export default function ReconciliationPage() {
           <div className="p-6 border-t bg-muted/10 flex gap-2">
             <Button className="flex-1" variant="outline" onClick={() => {
               if (!matchingTransaction) return;
-              const id = `pay_${Date.now()}`;
+              const id = `${matchingTransaction.type === 'DEBIT' ? 'pay' : 'rec'}_${Date.now()}`;
               const isPayable = matchingTransaction.type === 'DEBIT';
               const col = isPayable ? "accountsPayableEntries" : "accountsReceivableEntries";
               const data: any = { id, description: matchingTransaction.description, [isPayable ? "originalAmount" : "amount"]: Math.abs(matchingTransaction.amount), dueDate: matchingTransaction.date, status: 'Paid', paymentDate: matchingTransaction.date, bankAccountId: selectedAccountId, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), accountCategoryId: "none" };
