@@ -232,13 +232,13 @@ export default function ReconciliationPage() {
     const accountStart = parseISO(selectedAccount.openingDate);
     const start = max([alertStart, accountStart]);
     
-    // O fim da análise deve ser a maior data entre (hoje - 1) e a última atividade (OFX ou Sistema)
+    // O fim da auditoria deve ser o máximo entre Ontem, a última atividade, ou a Data Selecionada
     const today = new Date();
-    let lastActivityDate = subDays(today, 1);
+    let end = subDays(today, 1);
 
     if (allTransactions.length > 0) {
       const maxTxnDate = max(allTransactions.map(t => parseISO(t.date)));
-      if (isAfter(maxTxnDate, lastActivityDate)) lastActivityDate = maxTxnDate;
+      if (isAfter(maxTxnDate, end)) end = maxTxnDate;
     }
 
     const systemPayables = (allPayables || []).filter(p => p.bankAccountId === selectedAccountId && p.status === 'Paid' && p.paymentDate);
@@ -246,14 +246,17 @@ export default function ReconciliationPage() {
 
     if (systemPayables.length > 0) {
       const maxP = max(systemPayables.map(p => parseISO(p.paymentDate!)));
-      if (isAfter(maxP, lastActivityDate)) lastActivityDate = maxP;
+      if (isAfter(maxP, end)) end = maxP;
     }
     if (systemReceivables.length > 0) {
       const maxR = max(systemReceivables.map(r => parseISO(r.paymentDate!)));
-      if (isAfter(maxR, lastActivityDate)) lastActivityDate = maxR;
+      if (isAfter(maxR, end)) end = maxR;
     }
+    
+    // Incluir a data selecionada no limite da auditoria
+    const currentSelectedDate = parseISO(selectedDate);
+    if (isAfter(currentSelectedDate, end)) end = currentSelectedDate;
 
-    const end = lastActivityDate;
     if (isBefore(end, start)) return [];
 
     const interval = eachDayOfInterval({ start, end });
@@ -263,22 +266,21 @@ export default function ReconciliationPage() {
       const dayTransactions = allTransactions.filter(t => t.date === dateStr);
       const hasTransactions = dayTransactions.length > 0;
 
-      // Pendência 1: Sem dados (nem OFX nem marcação de "Sem Movimento")
+      // Se não tem dados e não marcou sem movimento -> PENDENTE
       if (!hasTransactions && !isMarkedNoMovement) return true;
 
-      // Pendência 2: Tem dados (ou OFX ou marcação) mas o saldo não confere
-      // Nota: Se houver OFX, conferimos o saldo. Se for marcado como "Sem Movimento", conferimos se realmente não há baixas no sistema.
+      // Se tem dados, confere se o saldo está balanceado
       const statementIn = dayTransactions.filter(t => t.type === 'CREDIT' && !t.ignored).reduce((acc, t) => acc + t.amount, 0);
       const statementOut = Math.abs(dayTransactions.filter(t => t.type === 'DEBIT' && !t.ignored).reduce((acc, t) => acc + t.amount, 0));
       
-      const systemIn = systemReceivables.filter(r => r.paymentDate === dateStr).reduce((acc, e) => acc + e.amount, 0);
-      const systemOut = systemPayables.filter(p => p.paymentDate === dateStr).reduce((acc, p) => acc + (p.originalAmount + (p.interest || 0) + (p.fine || 0) - (p.discount || 0)), 0);
+      const daySystemIn = systemReceivables.filter(r => r.paymentDate === dateStr).reduce((acc, e) => acc + e.amount, 0);
+      const daySystemOut = systemPayables.filter(p => p.paymentDate === dateStr).reduce((acc, p) => acc + (p.originalAmount + (p.interest || 0) + (p.fine || 0) - (p.discount || 0)), 0);
 
-      const isBalanced = Math.abs(statementIn - systemIn) < 0.01 && Math.abs(statementOut - systemOut) < 0.01;
+      const isBalanced = Math.abs(statementIn - daySystemIn) < 0.01 && Math.abs(statementOut - daySystemOut) < 0.01;
       
       return !isBalanced;
     }).map(day => format(day, "yyyy-MM-dd")).reverse();
-  }, [selectedAccount, allTransactions, noMovementDays, allPayables, allReceivables, selectedAccountId]);
+  }, [selectedAccount, allTransactions, noMovementDays, allPayables, allReceivables, selectedAccountId, selectedDate]);
 
   const summary = useMemo(() => {
     const statementIn = dailyTransactions.filter(t => t.type === 'CREDIT' && !t.ignored).reduce((acc, t) => acc + t.amount, 0);
