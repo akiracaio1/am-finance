@@ -225,7 +225,7 @@ export default function ReconciliationPage() {
   }, [openSystemEntries, matchingTransaction, matchSearchTerm, matchDateStart, matchDateEnd, matchMinValue, matchMaxValue, suppliers]);
 
   const pendingDays = useMemo(() => {
-    if (!selectedAccount || !allTransactions || !noMovementDays) return [];
+    if (!selectedAccount || !allTransactions || !noMovementDays || !allPayables || !allReceivables) return [];
     
     const today = new Date();
     // Regra: A partir de 01/05/2026
@@ -239,18 +239,44 @@ export default function ReconciliationPage() {
     const interval = eachDayOfInterval({ start, end });
     return interval.filter(day => {
       const dateStr = format(day, "yyyy-MM-dd");
-      const hasTransactions = allTransactions.some(t => t.date === dateStr);
       const isMarkedNoMovement = noMovementDays.some(d => d.date === dateStr);
-      return !hasTransactions && !isMarkedNoMovement;
+      const dayTransactions = allTransactions.filter(t => t.date === dateStr);
+      const hasTransactions = dayTransactions.length > 0;
+
+      // Pendência 1: Sem dados (OFX ou Marcação)
+      if (!hasTransactions && !isMarkedNoMovement) return true;
+
+      // Pendência 2: OFX Importado mas não balanceado (Resultado Geral não é Conferido)
+      if (hasTransactions) {
+        const statementIn = dayTransactions.filter(t => t.type === 'CREDIT' && !t.ignored).reduce((acc, t) => acc + t.amount, 0);
+        const statementOut = Math.abs(dayTransactions.filter(t => t.type === 'DEBIT' && !t.ignored).reduce((acc, t) => acc + t.amount, 0));
+        
+        const systemIn = allReceivables.filter(r => r.paymentDate === dateStr && r.bankAccountId === selectedAccountId && r.status === 'Paid')
+          .reduce((acc, e) => acc + e.amount, 0);
+        
+        const systemOut = allPayables.filter(p => p.paymentDate === dateStr && p.bankAccountId === selectedAccountId && p.status === 'Paid')
+          .reduce((acc, p) => acc + (p.originalAmount + (p.interest || 0) + (p.fine || 0) - (p.discount || 0)), 0);
+
+        const isBalanced = Math.abs(statementIn - systemIn) < 0.01 && Math.abs(statementOut - systemOut) < 0.01;
+        return !isBalanced;
+      }
+
+      return false;
     }).map(day => format(day, "yyyy-MM-dd")).reverse();
-  }, [selectedAccount, allTransactions, noMovementDays]);
+  }, [selectedAccount, allTransactions, noMovementDays, allPayables, allReceivables, selectedAccountId]);
 
   const summary = useMemo(() => {
     const statementIn = dailyTransactions.filter(t => t.type === 'CREDIT' && !t.ignored).reduce((acc, t) => acc + t.amount, 0);
     const statementOut = Math.abs(dailyTransactions.filter(t => t.type === 'DEBIT' && !t.ignored).reduce((acc, t) => acc + t.amount, 0));
     
     const systemIn = dailySystemEntries.filter(e => e.type === 'CREDIT').reduce((acc, e) => acc + (e.amount || (e as any).originalAmount || 0), 0);
-    const systemOut = dailySystemEntries.filter(e => e.type === 'DEBIT').reduce((acc, e) => acc + (e.amount || (e as any).originalAmount || 0), 0);
+    const systemOut = dailySystemEntries.filter(e => e.type === 'DEBIT').reduce((acc, e) => {
+      const p = e as any;
+      const value = p.originalAmount !== undefined 
+        ? (p.originalAmount + (p.interest || 0) + (p.fine || 0) - (p.discount || 0))
+        : (p.amount || 0);
+      return acc + value;
+    }, 0);
 
     return {
       statementIn,
@@ -501,7 +527,7 @@ export default function ReconciliationPage() {
             <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-1" />
             <div className="space-y-1">
               <h4 className="text-sm font-bold text-amber-900">Pendências Detectadas</h4>
-              <p className="text-xs text-amber-700">Os seguintes dias não possuem OFX importado nem marcação de movimento (desde 01/05/2026):</p>
+              <p className="text-xs text-amber-700">Os seguintes dias possuem pendências (falta OFX ou saldo divergente):</p>
               <div className="flex flex-wrap gap-2 mt-2">
                 {pendingDays.slice(0, 15).map(date => (
                   <Badge key={date} variant="secondary" className="cursor-pointer hover:bg-amber-200" onClick={() => setSelectedDate(date)}>
@@ -623,24 +649,31 @@ export default function ReconciliationPage() {
                     {dailySystemEntries.length === 0 ? (
                       <TableRow><TableCell className="text-center py-10 text-muted-foreground italic text-xs">Sem baixas conciliadas nesta data.</TableCell></TableRow>
                     ) : (
-                      dailySystemEntries.map(entry => (
-                        <TableRow key={entry.id} className="bg-emerald-50/50">
-                          <TableCell className="p-3">
-                            <div className="flex flex-col">
-                              <span className="text-xs font-bold line-clamp-1">{entry.description}</span>
-                              <span className="text-[10px] text-muted-foreground">
-                                {(entry as any).customerName || suppliers?.find(s => s.id === (entry as any).supplierId)?.name || 'Outros'}
-                              </span>
-                            </div>
-                          </TableCell>
-                          <TableCell className={cn("p-3 text-right font-bold text-xs", entry.type === 'CREDIT' ? "text-emerald-600" : "text-destructive")}>
-                            R$ {(entry.amount || (entry as any).originalAmount || 0).toLocaleString('pt-BR')}
-                          </TableCell>
-                          <TableCell className="p-3 text-right">
-                            <Badge variant="outline" className="text-[9px] border-emerald-200 text-emerald-700">OK</Badge>
-                          </TableCell>
-                        </TableRow>
-                      ))
+                      dailySystemEntries.map(entry => {
+                        const p = entry as any;
+                        const value = p.originalAmount !== undefined 
+                          ? (p.originalAmount + (p.interest || 0) + (p.fine || 0) - (p.discount || 0))
+                          : (p.amount || 0);
+                          
+                        return (
+                          <TableRow key={entry.id} className="bg-emerald-50/50">
+                            <TableCell className="p-3">
+                              <div className="flex flex-col">
+                                <span className="text-xs font-bold line-clamp-1">{entry.description}</span>
+                                <span className="text-[10px] text-muted-foreground">
+                                  {(entry as any).customerName || suppliers?.find(s => s.id === (entry as any).supplierId)?.name || 'Outros'}
+                                </span>
+                              </div>
+                            </TableCell>
+                            <TableCell className={cn("p-3 text-right font-bold text-xs", entry.type === 'CREDIT' ? "text-emerald-600" : "text-destructive")}>
+                              R$ {value.toLocaleString('pt-BR')}
+                            </TableCell>
+                            <TableCell className="p-3 text-right">
+                              <Badge variant="outline" className="text-[9px] border-emerald-200 text-emerald-700">OK</Badge>
+                            </TableCell>
+                          </TableRow>
+                        );
+                      })
                     )}
                   </TableBody>
                 </Table>
