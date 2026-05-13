@@ -212,20 +212,15 @@ export default function ReconciliationPage() {
   }, [openSystemEntries, matchingTransaction, matchSearchTerm, matchDateStart, matchDateEnd, matchMinValue, matchMaxValue, suppliers]);
 
   const pendingDays = useMemo(() => {
-    if (!selectedAccount || !allTransactions || !noMovementDays || !allPayables || !allReceivables) return [];
+    if (!selectedAccountId || !allTransactions || !noMovementDays || !allPayables || !allReceivables) return [];
     
-    const alertStart = new Date("2026-05-01T12:00:00");
-    const accountStart = parseISO(selectedAccount.openingDate);
-    const start = max([alertStart, accountStart]);
+    // Marco inicial absoluto: 01/05/2026
+    const start = new Date("2026-05-01T12:00:00");
     
+    // Fim do intervalo: Data selecionada ou hoje (o que for maior)
     const today = new Date();
-    let end = subDays(today, 1);
-    if (allTransactions.length > 0) {
-      const maxTxnDate = max(allTransactions.map(t => parseISO(t.date)));
-      if (isAfter(maxTxnDate, end)) end = maxTxnDate;
-    }
-    const currentSelectedDate = parseISO(selectedDate);
-    if (isAfter(currentSelectedDate, end)) end = currentSelectedDate;
+    let end = parseISO(selectedDate);
+    if (isBefore(end, today)) end = today;
 
     if (isBefore(end, start)) return [];
 
@@ -241,13 +236,13 @@ export default function ReconciliationPage() {
       const hasTransactions = dayTransactions.length > 0;
       const hasUnreconciled = dayTransactions.some(t => !t.reconciled && !t.ignored);
 
-      // Critério 1: Sem OFX e sem marcação
+      // Critério 1: Falta de OFX e falta de marcação manual
       if (!hasTransactions) return true;
       
-      // Critério 2: Tem transações não resolvidas
+      // Critério 2: Possui transações não resolvidas (pendentes ou não ignoradas)
       if (hasUnreconciled) return true;
 
-      // Critério 3: O saldo do dia não bate
+      // Critério 3: O saldo total do dia não bate centavo por centavo
       const statementIn = dayTransactions.filter(t => t.type === 'CREDIT' && !t.ignored).reduce((acc, t) => acc + t.amount, 0);
       const statementOut = Math.abs(dayTransactions.filter(t => t.type === 'DEBIT' && !t.ignored).reduce((acc, t) => acc + t.amount, 0));
       const daySystemIn = systemReceivables.filter(r => r.paymentDate === dateStr).reduce((acc, e) => acc + e.amount, 0);
@@ -257,7 +252,7 @@ export default function ReconciliationPage() {
       
       return !isBalanced;
     }).map(day => format(day, "yyyy-MM-dd")).reverse();
-  }, [selectedAccount, allTransactions, noMovementDays, allPayables, allReceivables, selectedAccountId, selectedDate]);
+  }, [allTransactions, noMovementDays, allPayables, allReceivables, selectedAccountId, selectedDate]);
 
   const summary = useMemo(() => {
     const statementIn = dailyTransactions.filter(t => t.type === 'CREDIT' && !t.ignored).reduce((acc, t) => acc + t.amount, 0);
@@ -451,7 +446,11 @@ export default function ReconciliationPage() {
             <div className="pt-4 border-t space-y-3">
               <div className="flex justify-between items-center">
                 <span className="text-xs font-medium">Status do Dia</span>
-                {summary.isBalanced ? <Badge className="bg-emerald-100 text-emerald-700">Conciliado ✓</Badge> : <Badge variant="destructive">Pendente</Badge>}
+                {summary.isBalanced && (dailyTransactions.length > 0 || noMovementDays?.some(d => d.date === selectedDate)) ? (
+                  <Badge className="bg-emerald-100 text-emerald-700">Conciliado ✓</Badge>
+                ) : (
+                  <Badge variant="destructive">Pendente</Badge>
+                )}
               </div>
               <Button variant="outline" className="w-full gap-2 text-xs" onClick={handleNoMovement}><CircleOff className="w-3 h-3" /> Marcar sem movimento</Button>
             </div>
@@ -552,7 +551,7 @@ export default function ReconciliationPage() {
               <DialogTitle className="flex items-center gap-2"><ArrowRightLeft className="w-5 h-5 text-primary" />Conciliar: {matchingTransaction?.description}</DialogTitle>
               <DialogDescription className="font-bold text-primary">
                 Valor: R$ {Math.abs(matchingTransaction?.amount || 0).toLocaleString('pt-BR')} | 
-                Data: {matchingTransaction ? format(parseISO(matchingTransaction.date), "dd/MM/yy") : ''}
+                Data: {matchingTransaction ? format(parseISO(matchingTransaction.date), "dd/MM/yyyy") : ''}
               </DialogDescription>
             </DialogHeader>
             <div className="grid grid-cols-1 md:grid-cols-4 gap-3 mt-6 p-4 bg-background border rounded-lg">
