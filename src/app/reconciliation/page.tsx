@@ -227,12 +227,24 @@ export default function ReconciliationPage() {
   const pendingDays = useMemo(() => {
     if (!selectedAccount || !allTransactions || !noMovementDays || !allPayables || !allReceivables) return [];
     
-    const today = new Date();
-    // Regra: A partir de 01/05/2026
+    // Marco inicial solicitado pelo usuário: 01/05/2026
     const alertStart = new Date("2026-05-01T12:00:00");
     const accountStart = parseISO(selectedAccount.openingDate);
     const start = max([alertStart, accountStart]);
-    const end = subDays(today, 1);
+    
+    // O fim da análise deve ser a maior data entre (hoje - 1) e a última transação importada (para suportar testes em 2026)
+    const today = new Date();
+    let lastActivityDate = subDays(today, 1);
+
+    if (allTransactions.length > 0) {
+      const allDates = allTransactions.map(t => parseISO(t.date));
+      const maxTxnDate = max(allDates);
+      if (isAfter(maxTxnDate, lastActivityDate)) {
+        lastActivityDate = maxTxnDate;
+      }
+    }
+
+    const end = lastActivityDate;
     
     if (isBefore(end, start)) return [];
 
