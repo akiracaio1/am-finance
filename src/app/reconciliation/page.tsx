@@ -225,27 +225,35 @@ export default function ReconciliationPage() {
   }, [openSystemEntries, matchingTransaction, matchSearchTerm, matchDateStart, matchDateEnd, matchMinValue, matchMaxValue, suppliers]);
 
   const pendingDays = useMemo(() => {
-    if (!selectedAccount || !allTransactions || !noMovementDays || !allPayables || !allReceivables) return [];
+    if (!selectedAccount || !allTransactions || !noMovementDays) return [];
     
-    // Marco inicial solicitado pelo usuário: 01/05/2026
+    // Marco inicial: 01/05/2026
     const alertStart = new Date("2026-05-01T12:00:00");
     const accountStart = parseISO(selectedAccount.openingDate);
     const start = max([alertStart, accountStart]);
     
-    // O fim da análise deve ser a maior data entre (hoje - 1) e a última transação importada (para suportar testes em 2026)
+    // O fim da análise deve ser a maior data entre (hoje - 1) e a última atividade (OFX ou Sistema)
     const today = new Date();
     let lastActivityDate = subDays(today, 1);
 
     if (allTransactions.length > 0) {
-      const allDates = allTransactions.map(t => parseISO(t.date));
-      const maxTxnDate = max(allDates);
-      if (isAfter(maxTxnDate, lastActivityDate)) {
-        lastActivityDate = maxTxnDate;
-      }
+      const maxTxnDate = max(allTransactions.map(t => parseISO(t.date)));
+      if (isAfter(maxTxnDate, lastActivityDate)) lastActivityDate = maxTxnDate;
+    }
+
+    const systemPayables = (allPayables || []).filter(p => p.bankAccountId === selectedAccountId && p.status === 'Paid' && p.paymentDate);
+    const systemReceivables = (allReceivables || []).filter(r => r.bankAccountId === selectedAccountId && r.status === 'Paid' && r.paymentDate);
+
+    if (systemPayables.length > 0) {
+      const maxP = max(systemPayables.map(p => parseISO(p.paymentDate!)));
+      if (isAfter(maxP, lastActivityDate)) lastActivityDate = maxP;
+    }
+    if (systemReceivables.length > 0) {
+      const maxR = max(systemReceivables.map(r => parseISO(r.paymentDate!)));
+      if (isAfter(maxR, lastActivityDate)) lastActivityDate = maxR;
     }
 
     const end = lastActivityDate;
-    
     if (isBefore(end, start)) return [];
 
     const interval = eachDayOfInterval({ start, end });
@@ -255,25 +263,20 @@ export default function ReconciliationPage() {
       const dayTransactions = allTransactions.filter(t => t.date === dateStr);
       const hasTransactions = dayTransactions.length > 0;
 
-      // Pendência 1: Sem dados (OFX ou Marcação)
+      // Pendência 1: Sem dados (nem OFX nem marcação de "Sem Movimento")
       if (!hasTransactions && !isMarkedNoMovement) return true;
 
-      // Pendência 2: OFX Importado mas não balanceado (Resultado Geral não é Conferido)
-      if (hasTransactions) {
-        const statementIn = dayTransactions.filter(t => t.type === 'CREDIT' && !t.ignored).reduce((acc, t) => acc + t.amount, 0);
-        const statementOut = Math.abs(dayTransactions.filter(t => t.type === 'DEBIT' && !t.ignored).reduce((acc, t) => acc + t.amount, 0));
-        
-        const systemIn = allReceivables.filter(r => r.paymentDate === dateStr && r.bankAccountId === selectedAccountId && r.status === 'Paid')
-          .reduce((acc, e) => acc + e.amount, 0);
-        
-        const systemOut = allPayables.filter(p => p.paymentDate === dateStr && p.bankAccountId === selectedAccountId && p.status === 'Paid')
-          .reduce((acc, p) => acc + (p.originalAmount + (p.interest || 0) + (p.fine || 0) - (p.discount || 0)), 0);
+      // Pendência 2: Tem dados (ou OFX ou marcação) mas o saldo não confere
+      // Nota: Se houver OFX, conferimos o saldo. Se for marcado como "Sem Movimento", conferimos se realmente não há baixas no sistema.
+      const statementIn = dayTransactions.filter(t => t.type === 'CREDIT' && !t.ignored).reduce((acc, t) => acc + t.amount, 0);
+      const statementOut = Math.abs(dayTransactions.filter(t => t.type === 'DEBIT' && !t.ignored).reduce((acc, t) => acc + t.amount, 0));
+      
+      const systemIn = systemReceivables.filter(r => r.paymentDate === dateStr).reduce((acc, e) => acc + e.amount, 0);
+      const systemOut = systemPayables.filter(p => p.paymentDate === dateStr).reduce((acc, p) => acc + (p.originalAmount + (p.interest || 0) + (p.fine || 0) - (p.discount || 0)), 0);
 
-        const isBalanced = Math.abs(statementIn - systemIn) < 0.01 && Math.abs(statementOut - systemOut) < 0.01;
-        return !isBalanced;
-      }
-
-      return false;
+      const isBalanced = Math.abs(statementIn - systemIn) < 0.01 && Math.abs(statementOut - systemOut) < 0.01;
+      
+      return !isBalanced;
     }).map(day => format(day, "yyyy-MM-dd")).reverse();
   }, [selectedAccount, allTransactions, noMovementDays, allPayables, allReceivables, selectedAccountId]);
 
@@ -541,12 +544,12 @@ export default function ReconciliationPage() {
               <h4 className="text-sm font-bold text-amber-900">Pendências Detectadas</h4>
               <p className="text-xs text-amber-700">Os seguintes dias possuem pendências (falta OFX ou saldo divergente):</p>
               <div className="flex flex-wrap gap-2 mt-2">
-                {pendingDays.slice(0, 15).map(date => (
+                {pendingDays.slice(0, 30).map(date => (
                   <Badge key={date} variant="secondary" className="cursor-pointer hover:bg-amber-200" onClick={() => setSelectedDate(date)}>
                     {format(parseISO(date), "dd/MM")}
                   </Badge>
                 ))}
-                {pendingDays.length > 15 && <span className="text-[10px] text-muted-foreground self-center">... e mais {pendingDays.length - 15} dias</span>}
+                {pendingDays.length > 30 && <span className="text-[10px] text-muted-foreground self-center">... e mais {pendingDays.length - 30} dias</span>}
               </div>
             </div>
           </CardContent>
