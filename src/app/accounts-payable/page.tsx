@@ -1,7 +1,7 @@
 
 "use client";
 
-import { useState, useEffect, useMemo, useRef } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { 
   Table, 
   TableBody, 
@@ -18,20 +18,8 @@ import {
   Filter, 
   MoreHorizontal, 
   Plus, 
-  Trash2, 
-  FilterX, 
-  Loader2,
-  Download,
-  FileSpreadsheet,
-  Pencil,
   Search,
-  Check,
-  ChevronDown,
-  Calendar,
-  Copy,
-  ChevronLeft,
-  ChevronRight,
-  UserPlus,
+  Loader2,
   RotateCcw
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -49,10 +37,7 @@ import {
   DropdownMenu, 
   DropdownMenuContent, 
   DropdownMenuItem, 
-  DropdownMenuTrigger,
-  DropdownMenuCheckboxItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator
+  DropdownMenuTrigger
 } from "@/components/ui/dropdown-menu";
 import { 
   Select, 
@@ -63,22 +48,11 @@ import {
 } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Collapsible, CollapsibleContent } from "@/components/ui/collapsible";
 import { toast } from "@/hooks/use-toast";
-import { Supplier, AccountCategory, AccountsPayableEntry, EntryType, CostCenter, PersonType } from "@/lib/types";
+import { Supplier, AccountCategory, AccountsPayableEntry, EntryType } from "@/lib/types";
 import { 
   format, 
-  startOfWeek, 
-  endOfWeek, 
-  addWeeks, 
-  startOfMonth, 
-  endOfMonth, 
-  addMonths,
-  addYears,
-  startOfYear,
-  subMonths,
-  endOfYear,
   isBefore,
   isSameDay,
   parseISO
@@ -108,9 +82,6 @@ export default function AccountsPayablePage() {
   const [filterDueDateStart, setFilterDueDateStart] = useState("");
   const [filterDueDateEnd, setFilterDueDateEnd] = useState("");
 
-  const [interest, setInterest] = useState(0);
-  const [fine, setFine] = useState(0);
-  const [discount, setDiscount] = useState(0);
   const [paymentDate, setPaymentDate] = useState("");
 
   useEffect(() => {
@@ -283,8 +254,8 @@ export default function AccountsPayablePage() {
                   <Input type="date" value={filterDueDateEnd} onChange={e => setFilterDueDateEnd(e.target.value)} />
                 </div>
                 <div>
-                  <Button variant="ghost" className="w-full gap-2 text-muted-foreground" onClick={clearFilters}>
-                    <RotateCcw className="w-4 h-4" /> Limpar
+                  <Button variant="ghost" className="w-full gap-2 text-muted-foreground hover:text-primary" onClick={clearFilters}>
+                    <RotateCcw className="w-4 h-4" /> Limpar Filtros
                   </Button>
                 </div>
               </div>
@@ -402,14 +373,14 @@ export default function AccountsPayablePage() {
           {entryToPay && (
             <form onSubmit={(e) => { 
               e.preventDefault(); 
-              updateDocumentNonBlocking(doc(db!, "users", user!.uid, "accountsPayableEntries", entryToPay.id), { status: 'Paid', interest, fine, discount, paymentDate, updatedAt: new Date().toISOString() }); 
+              updateDocumentNonBlocking(doc(db!, "users", user!.uid, "accountsPayableEntries", entryToPay.id), { status: 'Paid', paymentDate, updatedAt: new Date().toISOString() }); 
               setIsPaymentOpen(false); 
               toast({ title: "Conta liquidada!" });
             }}>
               <DialogHeader><DialogTitle>Liquidar: {entryToPay.description}</DialogTitle></DialogHeader>
               <div className="grid gap-4 py-4">
                 <div className="grid gap-2"><Label>Data de Pagamento</Label><Input type="date" value={paymentDate} onChange={e => setPaymentDate(e.target.value)} required /></div>
-                <div className="bg-primary/5 p-4 rounded text-center font-bold text-xl">Total: R$ {(entryToPay.originalAmount + interest + fine - discount).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</div>
+                <div className="bg-primary/5 p-4 rounded text-center font-bold text-xl">Total: R$ {entryToPay.originalAmount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</div>
               </div>
               <DialogFooter><Button type="submit" className="w-full">Confirmar Pagamento</Button></DialogFooter>
             </form>

@@ -17,37 +17,26 @@ import {
   Link2, 
   CheckCircle, 
   Upload, 
-  RefreshCw,
   Search,
   Check,
   X,
   PlusCircle,
   ArrowRightLeft,
-  Loader2,
-  Calendar,
   AlertTriangle,
   Settings,
-  Plus,
-  ArrowUpCircle,
-  ArrowDownCircle,
-  CircleOff,
-  SearchIcon,
-  UserPlus,
   FileText,
-  Filter,
-  RotateCcw
+  CircleOff
 } from "lucide-react";
 import { useUser, useFirestore, useCollection, useMemoFirebase } from "@/firebase";
-import { collection, doc, query, where } from "firebase/firestore";
-import { setDocumentNonBlocking, updateDocumentNonBlocking, deleteDocumentNonBlocking } from "@/firebase/non-blocking-updates";
+import { collection, doc } from "firebase/firestore";
+import { setDocumentNonBlocking, updateDocumentNonBlocking } from "@/firebase/non-blocking-updates";
 import { 
   Dialog, 
   DialogContent, 
   DialogHeader, 
   DialogTitle, 
   DialogDescription,
-  DialogFooter,
-  DialogTrigger 
+  DialogFooter
 } from "@/components/ui/dialog";
 import { 
   Select, 
@@ -65,10 +54,9 @@ import {
   AccountsPayableEntry, 
   AccountsReceivableEntry, 
   AccountCategory,
-  Supplier,
-  EntryType
+  Supplier
 } from "@/lib/types";
-import { format, addDays, isBefore, isSameDay, subDays, parseISO, eachDayOfInterval, isAfter, max } from "date-fns";
+import { format, isBefore, parseISO, eachDayOfInterval, max } from "date-fns";
 import { parseOFX, OFXTransaction } from "@/lib/ofx-parser";
 import { cn } from "@/lib/utils";
 
@@ -207,10 +195,10 @@ export default function ReconciliationPage() {
     if (!selectedAccountId || !allTransactions || !noMovementDays || !allPayables || !allReceivables) return [];
     const start = new Date("2026-05-01T12:00:00");
     const today = new Date();
-    let end = parseISO(selectedDate);
-    if (isBefore(end, today)) end = today;
-    if (isBefore(end, start)) return [];
-    const interval = eachDayOfInterval({ start, end });
+    let latestActivity = parseISO(selectedDate);
+    if (isBefore(latestActivity, today)) latestActivity = today;
+    
+    const interval = eachDayOfInterval({ start, end: latestActivity });
     return interval.filter(day => {
       const dateStr = format(day, "yyyy-MM-dd");
       if (noMovementDays.some(d => d.date === dateStr)) return false;
@@ -482,7 +470,7 @@ export default function ReconciliationPage() {
               <TableBody>
                 {ofxPreview.map((t, i) => (
                   <TableRow key={i}>
-                    <TableCell className="text-xs">{format(parseISO(t.date), "dd/MM/yy")}</TableCell>
+                    <TableCell className="text-xs">{t.date}</TableCell>
                     <TableCell className="text-xs">{t.memo}</TableCell>
                     <TableCell className={cn("text-xs text-right font-bold", t.type === 'CREDIT' ? "text-emerald-600" : "text-destructive")}>R$ {t.amount.toLocaleString('pt-BR')}</TableCell>
                   </TableRow>
