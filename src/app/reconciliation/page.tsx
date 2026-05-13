@@ -406,12 +406,22 @@ export default function ReconciliationPage() {
             </div>
           </div>
           <div className="flex-1 overflow-y-auto p-6 space-y-4">
-            {filteredOpenEntries.map(entry => (
-              <div key={entry.id} className="flex items-center justify-between p-3 border rounded-lg hover:bg-primary/5 cursor-pointer" onClick={() => confirmMatch(entry.id)}>
-                <div className="flex flex-col"><span className="text-sm font-bold">{entry.description}</span><span className="text-[10px] text-muted-foreground">Vencimento: {format(parseISO(entry.dueDate), "dd/MM/yy")}</span></div>
-                <div className="text-right font-bold text-sm">R$ {(entry.amount || (entry as any).originalAmount).toLocaleString('pt-BR')}</div>
-              </div>
-            ))}
+            {filteredOpenEntries.map(entry => {
+              const partyName = entry.isPayable 
+                ? suppliers?.find(s => s.id === (entry as any).supplierId)?.name || "Fornecedor não encontrado"
+                : (entry as any).customerName;
+                
+              return (
+                <div key={entry.id} className="flex items-center justify-between p-3 border rounded-lg hover:bg-primary/5 cursor-pointer" onClick={() => confirmMatch(entry.id)}>
+                  <div className="flex flex-col">
+                    <span className="text-sm font-bold">{entry.description}</span>
+                    <span className="text-xs text-muted-foreground font-medium">{partyName}</span>
+                    <span className="text-[10px] text-muted-foreground mt-1">Vencimento: {format(parseISO(entry.dueDate), "dd/MM/yy")}</span>
+                  </div>
+                  <div className="text-right font-bold text-sm">R$ {(entry.amount || (entry as any).originalAmount).toLocaleString('pt-BR')}</div>
+                </div>
+              );
+            })}
             {filteredOpenEntries.length === 0 && <p className="text-center py-10 text-muted-foreground text-xs">Nenhum lançamento em aberto encontrado.</p>}
           </div>
           <div className="p-6 border-t bg-muted/10 flex gap-2">

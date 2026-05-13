@@ -31,7 +31,8 @@ import {
   Copy,
   ChevronLeft,
   ChevronRight,
-  UserPlus
+  UserPlus,
+  RotateCcw
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useUser, useFirestore, useCollection, useMemoFirebase } from "@/firebase";
@@ -147,7 +148,6 @@ export default function AccountsPayablePage() {
     return [...suppliers].sort((a, b) => a.name.localeCompare(b.name));
   }, [suppliers]);
 
-  // CRITICAL: Filter only for 'Expense' type categories for this page
   const leafCategories = useMemo(() => {
     if (!categories) return [];
     return categories.filter(cat => 
@@ -200,6 +200,16 @@ export default function AccountsPayablePage() {
     );
   };
 
+  const clearFilters = () => {
+    setSearchTerm("");
+    setSelectedStatuses([]);
+    setSelectedSupplierIds([]);
+    setSelectedCategoryIds([]);
+    setFilterDueDateStart("");
+    setFilterDueDateEnd("");
+    toast({ title: "Filtros limpos" });
+  };
+
   const handleSaveEntry = (e: React.FormEvent) => {
     e.preventDefault();
     if (!db || !user) return;
@@ -242,7 +252,7 @@ export default function AccountsPayablePage() {
         <CollapsibleContent className="space-y-4">
           <Card className="bg-muted/30 border-dashed">
             <CardContent className="pt-6">
-              <div className="grid grid-cols-1 md:grid-cols-4 lg:grid-cols-6 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-4 lg:grid-cols-7 gap-4 items-end">
                 <div className="space-y-2 md:col-span-2">
                   <Label>Busca Global</Label>
                   <div className="relative">
@@ -258,7 +268,7 @@ export default function AccountsPayablePage() {
                   </Select>
                 </div>
                 <div className="space-y-2">
-                  <Label>Categoria (Despesa)</Label>
+                  <Label>Categoria</Label>
                   <Select value={selectedCategoryIds[0] || "all"} onValueChange={v => setSelectedCategoryIds(v === "all" ? [] : [v])}>
                     <SelectTrigger><SelectValue placeholder="Todas" /></SelectTrigger>
                     <SelectContent><SelectItem value="all">Todas</SelectItem>{leafCategories.map(c => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}</SelectContent>
@@ -271,6 +281,11 @@ export default function AccountsPayablePage() {
                 <div className="space-y-2">
                   <Label>Fim Venc.</Label>
                   <Input type="date" value={filterDueDateEnd} onChange={e => setFilterDueDateEnd(e.target.value)} />
+                </div>
+                <div>
+                  <Button variant="ghost" className="w-full gap-2 text-muted-foreground" onClick={clearFilters}>
+                    <RotateCcw className="w-4 h-4" /> Limpar
+                  </Button>
                 </div>
               </div>
             </CardContent>
