@@ -25,7 +25,9 @@ import {
   CheckCircle2,
   Clock,
   Copy,
-  Undo2
+  Undo2,
+  CalendarDays,
+  Repeat
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useUser, useFirestore, useCollection, useMemoFirebase } from "@/firebase";
@@ -55,6 +57,7 @@ import {
 } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Collapsible, CollapsibleContent } from "@/components/ui/collapsible";
 import { toast } from "@/hooks/use-toast";
 import { Supplier, AccountCategory, AccountsPayableEntry, EntryType, CostCenter, CostCenterGroup } from "@/lib/types";
@@ -62,7 +65,9 @@ import {
   format, 
   isBefore,
   isSameDay,
-  parseISO
+  parseISO,
+  addMonths,
+  addWeeks
 } from "date-fns";
 
 export default function AccountsPayablePage() {
@@ -76,25 +81,7 @@ export default function AccountsPayablePage() {
   const [todayStr, setTodayStr] = useState("");
   const [showFilters, setShowFilters] = useState(true);
 
-  useEffect(() => {
-    setMounted(true);
-    setTodayStr(format(new Date(), "yyyy-MM-dd"));
-  }, []);
-
-  const [searchTerm, setSearchTerm] = useState("");
-  const [selectedStatuses, setSelectedStatuses] = useState<string[]>([]);
-  const [selectedSupplierIds, setSelectedSupplierIds] = useState<string[]>([]);
-  const [selectedCategoryIds, setSelectedCategoryIds] = useState<string[]>([]);
-  
-  const [filterDueDateStart, setFilterDueDateStart] = useState("");
-  const [filterDueDateEnd, setFilterDueDateEnd] = useState("");
-
-  const [paymentDate, setPaymentDate] = useState("");
-
-  useEffect(() => {
-    if (todayStr) setPaymentDate(todayStr);
-  }, [todayStr]);
-
+  // Estados do Formulário
   const [formType, setFormType] = useState<EntryType>("Confirmed");
   const [formDescription, setFormDescription] = useState("");
   const [formAmount, setFormAmount] = useState<number>(0);
@@ -102,6 +89,27 @@ export default function AccountsPayablePage() {
   const [formSupplierId, setFormSupplierId] = useState("");
   const [formCategoryId, setFormCategoryId] = useState("");
   const [formCostCenterId, setFormCostCenterId] = useState("");
+  
+  // Estados de Parcelamento
+  const [isRecurring, setIsRecurring] = useState(false);
+  const [installmentsCount, setInstallmentsCount] = useState(1);
+  const [recurrenceInterval, setRecurrenceInterval] = useState<"monthly" | "weekly">("monthly");
+
+  // Filtros da Tabela
+  const [searchTerm, setSearchTerm] = useState("");
+  const [selectedStatuses, setSelectedStatuses] = useState<string[]>([]);
+  const [selectedSupplierIds, setSelectedSupplierIds] = useState<string[]>([]);
+  const [selectedCategoryIds, setSelectedCategoryIds] = useState<string[]>([]);
+  const [filterDueDateStart, setFilterDueDateStart] = useState("");
+  const [filterDueDateEnd, setFilterDueDateEnd] = useState("");
+  const [paymentDate, setPaymentDate] = useState("");
+
+  useEffect(() => {
+    setMounted(true);
+    const now = new Date();
+    setTodayStr(format(now, "yyyy-MM-dd"));
+    setPaymentDate(format(now, "yyyy-MM-dd"));
+  }, []);
 
   const entriesQuery = useMemoFirebase(() => {
     if (!db || !user) return null;
@@ -165,10 +173,6 @@ export default function AccountsPayablePage() {
     return 'Open';
   };
 
-  const calculateSettledValue = (entry: AccountsPayableEntry) => {
-    return (entry.originalAmount || 0) + (entry.interest || 0) + (entry.fine || 0) - (entry.discount || 0);
-  };
-
   const allFilteredEntries = useMemo(() => {
     if (!mounted) return [];
     return entries?.map(entry => ({ ...entry, dynamicStatus: getDynamicStatus(entry) }))
@@ -191,7 +195,7 @@ export default function AccountsPayablePage() {
   const totalOverdue = allFilteredEntries.filter(e => e.dynamicStatus === 'Overdue').reduce((acc, curr) => acc + curr.originalAmount, 0);
   const totalDueToday = allFilteredEntries.filter(e => e.dynamicStatus === 'DueToday').reduce((acc, curr) => acc + curr.originalAmount, 0);
   const totalOpen = allFilteredEntries.filter(e => e.dynamicStatus === 'Open').reduce((acc, curr) => acc + curr.originalAmount, 0);
-  const totalPaid = allFilteredEntries.filter(e => e.dynamicStatus === 'Paid').reduce((acc, curr) => acc + calculateSettledValue(curr), 0);
+  const totalPaid = allFilteredEntries.filter(e => e.dynamicStatus === 'Paid').reduce((acc, curr) => acc + (curr.originalAmount + (curr.interest || 0) + (curr.fine || 0) - (curr.discount || 0)), 0);
 
   const toggleStatusFilter = (status: string) => {
     setSelectedStatuses(prev => 
@@ -226,16 +230,36 @@ export default function AccountsPayablePage() {
       updateDocumentNonBlocking(doc(db, "users", user.uid, "accountsPayableEntries", editingEntry.id), { ...baseData, originalAmount: formAmount, dueDate: formDueDate });
       toast({ title: "Lançamento atualizado" });
     } else {
-      const id = `pay_${Date.now()}`;
-      setDocumentNonBlocking(doc(db, "users", user.uid, "accountsPayableEntries", id), { ...baseData, id, status: 'Open', originalAmount: formAmount, dueDate: formDueDate, createdAt: new Date().toISOString() }, { merge: true });
-      toast({ title: "Lançamento salvo com sucesso" });
+      const count = isRecurring ? installmentsCount : 1;
+      const startDate = parseISO(formDueDate);
+
+      for (let i = 0; i < count; i++) {
+        const id = `pay_${Date.now()}_${i}`;
+        const currentDueDate = recurrenceInterval === 'monthly' ? addMonths(startDate, i) : addWeeks(startDate, i);
+        const installmentInfo = count > 1 ? `${i + 1}/${count}` : "";
+        
+        setDocumentNonBlocking(
+          doc(db, "users", user.uid, "accountsPayableEntries", id), 
+          { 
+            ...baseData, 
+            id, 
+            status: 'Open', 
+            originalAmount: formAmount, 
+            dueDate: format(currentDueDate, "yyyy-MM-dd"), 
+            installmentInfo,
+            createdAt: new Date().toISOString() 
+          }, 
+          { merge: true }
+        );
+      }
+      toast({ title: count > 1 ? `${count} parcelas geradas` : "Lançamento salvo" });
     }
     setIsNewEntryOpen(false); setEditingEntry(null);
   };
 
   const handleUnlinkPayment = (entry: AccountsPayableEntry) => {
     if (!db || !user) return;
-    if (!confirm("Deseja realmente estornar este pagamento? O lançamento voltará para o status Em Aberto.")) return;
+    if (!confirm("Estornar este pagamento? O lançamento voltará para o status Em Aberto.")) return;
 
     updateDocumentNonBlocking(doc(db, "users", user.uid, "accountsPayableEntries", entry.id), {
       status: 'Open',
@@ -258,8 +282,9 @@ export default function AccountsPayablePage() {
     setFormCategoryId(entry.accountCategoryId);
     setFormCostCenterId(entry.costCenterId || "");
     setFormType(entry.entryType || "Confirmed");
+    setIsRecurring(false);
     setIsNewEntryOpen(true);
-    toast({ title: "Lançamento duplicado", description: "O formulário foi preenchido com os dados da cópia." });
+    toast({ title: "Dados copiados para o formulário" });
   };
 
   if (!mounted) return <div className="flex items-center justify-center min-h-[400px]"><Loader2 className="animate-spin h-8 w-8 text-primary" /></div>;
@@ -282,6 +307,7 @@ export default function AccountsPayablePage() {
             setFormCategoryId("");
             setFormCostCenterId(""); 
             setFormType("Confirmed");
+            setIsRecurring(false);
             setIsNewEntryOpen(true); 
           }}><Plus className="w-4 h-4" /> Novo Lançamento</Button>
         </div>
@@ -333,34 +359,22 @@ export default function AccountsPayablePage() {
       </Collapsible>
 
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <Card 
-          className={cn("cursor-pointer transition-all hover:shadow-md", selectedStatuses.includes('Overdue') ? "ring-2 ring-destructive" : "bg-destructive/5")}
-          onClick={() => toggleStatusFilter('Overdue')}
-        >
-          <CardHeader className="p-4 pb-2 text-[10px] font-bold uppercase text-destructive/70">Atrasado</CardHeader>
-          <CardContent className="p-4 pt-0 text-xl font-bold">R$ {totalOverdue.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</CardContent>
-        </Card>
-        <Card 
-          className={cn("cursor-pointer transition-all hover:shadow-md", selectedStatuses.includes('DueToday') ? "ring-2 ring-amber-500" : "bg-amber-50")}
-          onClick={() => toggleStatusFilter('DueToday')}
-        >
-          <CardHeader className="p-4 pb-2 text-[10px] font-bold uppercase text-amber-700">Hoje</CardHeader>
-          <CardContent className="p-4 pt-0 text-xl font-bold">R$ {totalDueToday.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</CardContent>
-        </Card>
-        <Card 
-          className={cn("cursor-pointer transition-all hover:shadow-md", selectedStatuses.includes('Open') ? "ring-2 ring-primary" : "bg-primary/5")}
-          onClick={() => toggleStatusFilter('Open')}
-        >
-          <CardHeader className="p-4 pb-2 text-[10px] font-bold uppercase text-primary/70">Em Aberto</CardHeader>
-          <CardContent className="p-4 pt-0 text-xl font-bold">R$ {totalOpen.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</CardContent>
-        </Card>
-        <Card 
-          className={cn("cursor-pointer transition-all hover:shadow-md", selectedStatuses.includes('Paid') ? "ring-2 ring-emerald-500" : "bg-emerald-50")}
-          onClick={() => toggleStatusFilter('Paid')}
-        >
-          <CardHeader className="p-4 pb-2 text-[10px] font-bold uppercase text-emerald-700">Total Pago</CardHeader>
-          <CardContent className="p-4 pt-0 text-xl font-bold">R$ {totalPaid.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</CardContent>
-        </Card>
+        {['Overdue', 'DueToday', 'Open', 'Paid'].map((status) => {
+          const labels: Record<string, string> = { Overdue: 'Atrasado', DueToday: 'Hoje', Open: 'Em Aberto', Paid: 'Total Pago' };
+          const values: Record<string, number> = { Overdue: totalOverdue, DueToday: totalDueToday, Open: totalOpen, Paid: totalPaid };
+          const colors: Record<string, string> = { Overdue: 'text-destructive bg-destructive/5 ring-destructive', DueToday: 'text-amber-700 bg-amber-50 ring-amber-500', Open: 'text-primary bg-primary/5 ring-primary', Paid: 'text-emerald-700 bg-emerald-50 ring-emerald-500' };
+          
+          return (
+            <Card 
+              key={status}
+              className={cn("cursor-pointer transition-all hover:shadow-md", selectedStatuses.includes(status) ? `ring-2 ${colors[status]}` : colors[status].split(' ')[1])}
+              onClick={() => toggleStatusFilter(status)}
+            >
+              <CardHeader className="p-4 pb-2 text-[10px] font-bold uppercase opacity-70">{labels[status]}</CardHeader>
+              <CardContent className="p-4 pt-0 text-xl font-bold">R$ {values[status].toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</CardContent>
+            </Card>
+          );
+        })}
       </div>
 
       <Card>
@@ -392,7 +406,7 @@ export default function AccountsPayablePage() {
                           </Badge>
                         )}
                       </div>
-                      <span className="text-sm">{entry.description} {entry.installmentInfo && `(${entry.installmentInfo})`}</span>
+                      <span className="text-sm">{entry.description} {entry.installmentInfo && <Badge variant="secondary" className="text-[9px] h-3 px-1 ml-1">{entry.installmentInfo}</Badge>}</span>
                     </div>
                   </TableCell>
                   <TableCell>
@@ -415,17 +429,8 @@ export default function AccountsPayablePage() {
                       <DropdownMenuTrigger asChild><Button variant="ghost" size="icon"><MoreHorizontal className="w-4 h-4" /></Button></DropdownMenuTrigger>
                       <DropdownMenuContent align="end">
                         {entry.status !== 'Paid' && <DropdownMenuItem onClick={() => { setEntryToPay(entry); setIsPaymentOpen(true); }} className="text-emerald-600 font-bold">Liquidar</DropdownMenuItem>}
-                        
-                        {entry.status === 'Paid' && (
-                          <DropdownMenuItem onClick={() => handleUnlinkPayment(entry)} className="text-amber-600 font-bold flex gap-2">
-                            <Undo2 className="w-4 h-4" /> Estornar Pagamento
-                          </DropdownMenuItem>
-                        )}
-
-                        <DropdownMenuItem onClick={() => handleDuplicateEntry(entry)} className="flex gap-2">
-                          <Copy className="w-4 h-4" /> Duplicar
-                        </DropdownMenuItem>
-
+                        {entry.status === 'Paid' && <DropdownMenuItem onClick={() => handleUnlinkPayment(entry)} className="text-amber-600 font-bold flex gap-2"><Undo2 className="w-4 h-4" /> Estornar</DropdownMenuItem>}
+                        <DropdownMenuItem onClick={() => handleDuplicateEntry(entry)} className="flex gap-2"><Copy className="w-4 h-4" /> Duplicar</DropdownMenuItem>
                         <DropdownMenuItem onClick={() => { 
                           setEditingEntry(entry); 
                           setFormDescription(entry.description); 
@@ -435,11 +440,11 @@ export default function AccountsPayablePage() {
                           setFormCategoryId(entry.accountCategoryId); 
                           setFormCostCenterId(entry.costCenterId || ""); 
                           setFormType(entry.entryType || "Confirmed");
+                          setIsRecurring(false);
                           setIsNewEntryOpen(true); 
                         }}>Editar</DropdownMenuItem>
-                        
                         <DropdownMenuItem onClick={() => {
-                          if (confirm("Deseja realmente excluir este lançamento permanentemente?")) {
+                          if (confirm("Excluir este lançamento permanentemente?")) {
                             deleteDocumentNonBlocking(doc(db!, "users", user!.uid, "accountsPayableEntries", entry.id));
                             toast({ title: "Lançamento excluído" });
                           }
@@ -465,44 +470,47 @@ export default function AccountsPayablePage() {
                   <Label>Tipo*</Label>
                   <Select value={formType} onValueChange={(v: any) => setFormType(v)}>
                     <SelectTrigger><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="Confirmed">Confirmado</SelectItem>
-                      <SelectItem value="Provision">Provisão</SelectItem>
-                    </SelectContent>
+                    <SelectContent><SelectItem value="Confirmed">Confirmado</SelectItem><SelectItem value="Provision">Provisão</SelectItem></SelectContent>
                   </Select>
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div className="grid gap-2"><Label>Fornecedor*</Label><Select value={formSupplierId} onValueChange={setFormSupplierId} required><SelectTrigger><SelectValue placeholder="Selecione..." /></SelectTrigger><SelectContent>{sortedSuppliers.map(s => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}</SelectContent></Select></div>
-                <div className="grid gap-2">
-                  <Label>Categoria (Despesa)*</Label>
-                  <Select value={formCategoryId} onValueChange={setFormCategoryId} required>
-                    <SelectTrigger><SelectValue placeholder="Selecione..." /></SelectTrigger>
-                    <SelectContent>{leafCategories.map(c => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}</SelectContent>
-                  </Select>
-                </div>
+                <div className="grid gap-2"><Label>Categoria (Despesa)*</Label><Select value={formCategoryId} onValueChange={setFormCategoryId} required><SelectTrigger><SelectValue placeholder="Selecione..." /></SelectTrigger><SelectContent>{leafCategories.map(c => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}</SelectContent></Select></div>
               </div>
               <div className="grid grid-cols-3 gap-4">
-                <div className="grid gap-2"><Label>Valor*</Label><Input type="number" step="0.01" value={formAmount || ""} onChange={e => setFormAmount(Number(e.target.value))} required /></div>
-                <div className="grid gap-2"><Label>Vencimento*</Label><Input type="date" value={formDueDate} onChange={e => setFormDueDate(e.target.value)} required /></div>
-                <div className="grid gap-2">
-                  <Label>Centro de Custo</Label>
-                  <Select value={formCostCenterId} onValueChange={setFormCostCenterId}>
-                    <SelectTrigger><SelectValue placeholder="Opcional..." /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="none">Nenhum</SelectItem>
-                      {activeCentersByGroup.map(group => (
-                        <SelectGroup key={group.id}>
-                          <SelectLabel className="text-[10px] uppercase text-primary font-bold">{group.name}</SelectLabel>
-                          {group.centers.map(center => (
-                            <SelectItem key={center.id} value={center.id}>{center.name}</SelectItem>
-                          ))}
-                        </SelectGroup>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
+                <div className="grid gap-2"><Label>Valor Unitário*</Label><Input type="number" step="0.01" value={formAmount || ""} onChange={e => setFormAmount(Number(e.target.value))} required /></div>
+                <div className="grid gap-2"><Label>Primeiro Vencimento*</Label><Input type="date" value={formDueDate} onChange={e => setFormDueDate(e.target.value)} required /></div>
+                <div className="grid gap-2"><Label>Centro de Custo</Label><Select value={formCostCenterId} onValueChange={setFormCostCenterId}><SelectTrigger><SelectValue placeholder="Opcional..." /></SelectTrigger><SelectContent><SelectItem value="none">Nenhum</SelectItem>{activeCentersByGroup.map(group => (<SelectGroup key={group.id}><SelectLabel className="text-[10px] uppercase text-primary font-bold">{group.name}</SelectLabel>{group.centers.map(center => (<SelectItem key={center.id} value={center.id}>{center.name}</SelectItem>))}</SelectGroup>))}</SelectContent></Select></div>
               </div>
+
+              {!editingEntry && (
+                <div className="bg-muted/50 p-4 rounded-lg space-y-4">
+                  <div className="flex items-center space-x-2">
+                    <Checkbox id="recurring" checked={isRecurring} onCheckedChange={(c) => setIsRecurring(!!c)} />
+                    <Label htmlFor="recurring" className="flex items-center gap-2 cursor-pointer"><Repeat className="w-4 h-4 text-primary" /> Esta conta se repete (Parcelamento/Recorrência)</Label>
+                  </div>
+                  
+                  {isRecurring && (
+                    <div className="grid grid-cols-2 gap-4 animate-in slide-in-from-top-2">
+                      <div className="grid gap-2">
+                        <Label>Quantidade de Parcelas</Label>
+                        <Input type="number" min={2} max={60} value={installmentsCount} onChange={e => setInstallmentsCount(Number(e.target.value))} />
+                      </div>
+                      <div className="grid gap-2">
+                        <Label>Frequência</Label>
+                        <Select value={recurrenceInterval} onValueChange={(v: any) => setRecurrenceInterval(v)}>
+                          <SelectTrigger><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="monthly">Mensal</SelectItem>
+                            <SelectItem value="weekly">Semanal</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
             <DialogFooter><Button type="submit" className="w-full">Salvar Lançamento</Button></DialogFooter>
           </form>
