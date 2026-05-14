@@ -23,7 +23,9 @@ import {
   RotateCcw,
   LayoutGrid,
   CheckCircle2,
-  Clock
+  Clock,
+  Copy,
+  Undo2
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useUser, useFirestore, useCollection, useMemoFirebase } from "@/firebase";
@@ -145,7 +147,6 @@ export default function AccountsPayablePage() {
     ).sort((a, b) => a.code.localeCompare(b.code));
   }, [categories]);
 
-  // Centros de Custo Ativos Agrupados
   const activeCentersByGroup = useMemo(() => {
     if (!groups || !centers) return [];
     return groups.sort((a,b) => a.name.localeCompare(b.name)).map(group => ({
@@ -227,9 +228,38 @@ export default function AccountsPayablePage() {
     } else {
       const id = `pay_${Date.now()}`;
       setDocumentNonBlocking(doc(db, "users", user.uid, "accountsPayableEntries", id), { ...baseData, id, status: 'Open', originalAmount: formAmount, dueDate: formDueDate, createdAt: new Date().toISOString() }, { merge: true });
-      toast({ title: "Lançamento criado" });
+      toast({ title: "Lançamento salvo com sucesso" });
     }
     setIsNewEntryOpen(false); setEditingEntry(null);
+  };
+
+  const handleUnlinkPayment = (entry: AccountsPayableEntry) => {
+    if (!db || !user) return;
+    if (!confirm("Deseja realmente estornar este pagamento? O lançamento voltará para o status Em Aberto.")) return;
+
+    updateDocumentNonBlocking(doc(db, "users", user.uid, "accountsPayableEntries", entry.id), {
+      status: 'Open',
+      paymentDate: null,
+      bankAccountId: null,
+      interest: 0,
+      fine: 0,
+      discount: 0,
+      updatedAt: new Date().toISOString()
+    });
+    toast({ title: "Pagamento estornado" });
+  };
+
+  const handleDuplicateEntry = (entry: AccountsPayableEntry) => {
+    setEditingEntry(null); 
+    setFormDescription(`${entry.description} (Cópia)`);
+    setFormAmount(entry.originalAmount);
+    setFormDueDate(entry.dueDate);
+    setFormSupplierId(entry.supplierId);
+    setFormCategoryId(entry.accountCategoryId);
+    setFormCostCenterId(entry.costCenterId || "");
+    setFormType(entry.entryType || "Confirmed");
+    setIsNewEntryOpen(true);
+    toast({ title: "Lançamento duplicado", description: "O formulário foi preenchido com os dados da cópia." });
   };
 
   if (!mounted) return <div className="flex items-center justify-center min-h-[400px]"><Loader2 className="animate-spin h-8 w-8 text-primary" /></div>;
@@ -385,6 +415,17 @@ export default function AccountsPayablePage() {
                       <DropdownMenuTrigger asChild><Button variant="ghost" size="icon"><MoreHorizontal className="w-4 h-4" /></Button></DropdownMenuTrigger>
                       <DropdownMenuContent align="end">
                         {entry.status !== 'Paid' && <DropdownMenuItem onClick={() => { setEntryToPay(entry); setIsPaymentOpen(true); }} className="text-emerald-600 font-bold">Liquidar</DropdownMenuItem>}
+                        
+                        {entry.status === 'Paid' && (
+                          <DropdownMenuItem onClick={() => handleUnlinkPayment(entry)} className="text-amber-600 font-bold flex gap-2">
+                            <Undo2 className="w-4 h-4" /> Estornar Pagamento
+                          </DropdownMenuItem>
+                        )}
+
+                        <DropdownMenuItem onClick={() => handleDuplicateEntry(entry)} className="flex gap-2">
+                          <Copy className="w-4 h-4" /> Duplicar
+                        </DropdownMenuItem>
+
                         <DropdownMenuItem onClick={() => { 
                           setEditingEntry(entry); 
                           setFormDescription(entry.description); 
@@ -396,7 +437,13 @@ export default function AccountsPayablePage() {
                           setFormType(entry.entryType || "Confirmed");
                           setIsNewEntryOpen(true); 
                         }}>Editar</DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => deleteDocumentNonBlocking(doc(db!, "users", user!.uid, "accountsPayableEntries", entry.id))} className="text-destructive">Excluir</DropdownMenuItem>
+                        
+                        <DropdownMenuItem onClick={() => {
+                          if (confirm("Deseja realmente excluir este lançamento permanentemente?")) {
+                            deleteDocumentNonBlocking(doc(db!, "users", user!.uid, "accountsPayableEntries", entry.id));
+                            toast({ title: "Lançamento excluído" });
+                          }
+                        }} className="text-destructive">Excluir</DropdownMenuItem>
                       </DropdownMenuContent>
                     </DropdownMenu>
                   </TableCell>
