@@ -1,4 +1,3 @@
-
 "use client";
 
 import { useEffect, useState } from "react";
@@ -8,7 +7,6 @@ import { initializeFirebase, FirebaseClientProvider } from "@/firebase";
 import './globals.css';
 import { Toaster } from "@/components/ui/toaster";
 import { AppSidebar } from "@/components/layout/AppSidebar";
-import { FirebaseErrorListener } from "@/components/FirebaseErrorListener";
 import { cn } from "@/lib/utils";
 
 export default function RootLayout({
@@ -30,12 +28,9 @@ export default function RootLayout({
     const unsubscribe = onAuthStateChanged(data.auth, (user) => {
       const isAuthPage = pathname === "/login" || pathname === "/register" || pathname === "/forgot-password";
       
-      // Se não houver usuário e não estiver em uma página de auth, vai para login
       if (!user && !isAuthPage) {
         router.push("/login");
-      } 
-      // Se estiver logado e tentar acessar a raiz ou login, vai para dashboard
-      else if (user && (pathname === "/" || isAuthPage)) {
+      } else if (user && (pathname === "/" || isAuthPage)) {
         router.push("/dashboard");
       }
       
@@ -47,7 +42,7 @@ export default function RootLayout({
 
   const isAuthPage = pathname === "/login" || pathname === "/register" || pathname === "/forgot-password";
 
-  // Prevenção de Hydration Mismatch: renderiza apenas o básico no servidor
+  // Prevenção de Hydration Mismatch
   if (!mounted) {
     return (
       <html lang="pt-BR">
@@ -80,7 +75,6 @@ export default function RootLayout({
               ) : children}
             </main>
           </div>
-          <FirebaseErrorListener />
           <Toaster />
         </FirebaseClientProvider>
       </body>

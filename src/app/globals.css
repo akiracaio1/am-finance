@@ -41,6 +41,14 @@
   }
 }
 
+/* 
+ * FIX: Radix UI / Shadcn Dialog stuck pointer-events: none
+ * Garante que o sistema não fique "congelado" após fechar um modal.
+ */
+body[style*="pointer-events: none"] {
+  pointer-events: auto !important;
+}
+
 /* Custom transitions for data interaction */
 .transition-data {
   @apply transition-all duration-300 ease-in-out;
