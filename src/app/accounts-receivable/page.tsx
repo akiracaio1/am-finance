@@ -1,7 +1,7 @@
 
 "use client";
 
-import { useState, useRef, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { 
   Table, 
   TableBody, 
@@ -18,8 +18,12 @@ import {
   Plus,
   Loader2,
   MoreHorizontal,
-  Download,
-  FileSpreadsheet
+  Copy,
+  Undo2,
+  Pencil,
+  Trash2,
+  CheckCircle2,
+  CalendarDays
 } from "lucide-react";
 import { useUser, useFirestore, useCollection, useMemoFirebase } from "@/firebase";
 import { collection, doc } from "firebase/firestore";
@@ -53,7 +57,20 @@ import { format, parseISO } from "date-fns";
 export default function AccountsReceivablePage() {
   const { user } = useUser();
   const db = useFirestore();
-  const [isNewEntryOpen, setIsNewEntryOpen] = useState(false);
+  const [mounted, setMounted] = useState(false);
+  const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const [editingEntry, setEditingEntry] = useState<AccountsReceivableEntry | null>(null);
+
+  // Estados do formulário
+  const [formCustomer, setFormCustomer] = useState("");
+  const [formAmount, setFormAmount] = useState<number>(0);
+  const [formDueDate, setFormDueDate] = useState("");
+  const [formCategoryId, setFormCategoryId] = useState("");
+  const [formDescription, setFormDescription] = useState("");
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   const entriesQuery = useMemoFirebase(() => {
     if (!db || !user) return null;
@@ -65,10 +82,9 @@ export default function AccountsReceivablePage() {
     return collection(db, "users", user.uid, "accountCategories");
   }, [db, user]);
 
-  const { data: entries } = useCollection<AccountsReceivableEntry>(entriesQuery);
+  const { data: entries, isLoading: loadingEntries } = useCollection<AccountsReceivableEntry>(entriesQuery);
   const { data: categories } = useCollection<AccountCategory>(categoriesQuery);
 
-  // CRITICAL: Filter only for 'Revenue' type categories for this page
   const leafCategories = useMemo(() => {
     if (!categories) return [];
     return categories.filter(cat => 
@@ -77,103 +93,288 @@ export default function AccountsReceivablePage() {
     ).sort((a, b) => a.code.localeCompare(b.code));
   }, [categories]);
 
-  const handleSaveEntry = (e: React.FormEvent<HTMLFormElement>) => {
+  const handleOpenNew = () => {
+    setEditingEntry(null);
+    setFormCustomer("");
+    setFormAmount(0);
+    setFormDueDate("");
+    setFormCategoryId("");
+    setFormDescription("");
+    setIsDialogOpen(true);
+  };
+
+  const handleOpenEdit = (entry: AccountsReceivableEntry) => {
+    setEditingEntry(entry);
+    setFormCustomer(entry.customerName);
+    setFormAmount(entry.amount);
+    setFormDueDate(entry.dueDate);
+    setFormCategoryId(entry.accountCategoryId);
+    setFormDescription(entry.description || "");
+    setIsDialogOpen(true);
+  };
+
+  const handleDuplicate = (entry: AccountsReceivableEntry) => {
+    setEditingEntry(null);
+    setFormCustomer(`${entry.customerName} (Cópia)`);
+    setFormAmount(entry.amount);
+    setFormDueDate(entry.dueDate);
+    setFormCategoryId(entry.accountCategoryId);
+    setFormDescription(entry.description || "");
+    setIsDialogOpen(true);
+    toast({ title: "Dados copiados para novo lançamento" });
+  };
+
+  const handleSaveEntry = (e: React.FormEvent) => {
     e.preventDefault();
     if (!db || !user) return;
-    const formData = new FormData(e.currentTarget);
-    const entryId = `rec_${Date.now()}`;
-    const data = {
+
+    const entryId = editingEntry ? editingEntry.id : `rec_${Date.now()}`;
+    const data: any = {
       id: entryId, 
-      customerName: formData.get("customerName"), 
-      accountCategoryId: formData.get("categoryId"),
-      description: formData.get("description"), 
-      amount: Number(formData.get("amount")), 
-      dueDate: formData.get("dueDate"),
-      status: 'Open', 
-      createdAt: new Date().toISOString(), 
+      customerName: formCustomer, 
+      accountCategoryId: formCategoryId,
+      description: formDescription, 
+      amount: Number(formAmount), 
+      dueDate: formDueDate,
+      status: editingEntry ? editingEntry.status : 'Open', 
       updatedAt: new Date().toISOString(),
     };
+
+    if (!editingEntry) {
+      data.createdAt = new Date().toISOString();
+    }
+
     setDocumentNonBlocking(doc(db, "users", user.uid, "accountsReceivableEntries", entryId), data, { merge: true });
-    setIsNewEntryOpen(false);
-    toast({ title: "Recebimento registrado!" });
+    setIsDialogOpen(false);
+    toast({ title: editingEntry ? "Recebimento atualizado!" : "Recebimento registrado!" });
+  };
+
+  const handleUnlinkPayment = (entry: AccountsReceivableEntry) => {
+    if (!db || !user) return;
+    if (!confirm("Deseja realmente estornar este recebimento? O status voltará para 'Em Aberto'.")) return;
+
+    updateDocumentNonBlocking(doc(db, "users", user.uid, "accountsReceivableEntries", entry.id), {
+      status: 'Open',
+      paymentDate: null,
+      bankAccountId: null,
+      updatedAt: new Date().toISOString()
+    });
+    toast({ title: "Recebimento estornado" });
+  };
+
+  const handleDelete = (entry: AccountsReceivableEntry) => {
+    if (!db || !user) return;
+    if (!confirm("Excluir permanentemente este registro?")) return;
+
+    deleteDocumentNonBlocking(doc(db, "users", user.uid, "accountsReceivableEntries", entry.id));
+    toast({ title: "Recebimento excluído" });
+  };
+
+  const handleMarkAsPaid = (entry: AccountsReceivableEntry) => {
+    if (!db || !user) return;
+    const today = format(new Date(), "yyyy-MM-dd");
+    updateDocumentNonBlocking(doc(db, "users", user.uid, "accountsReceivableEntries", entry.id), {
+      status: 'Paid',
+      paymentDate: today,
+      updatedAt: new Date().toISOString()
+    });
+    toast({ title: "Recebimento baixado com sucesso!" });
   };
 
   const totalOpen = entries?.filter(e => e.status === 'Open').reduce((acc, curr) => acc + curr.amount, 0) || 0;
   const totalPaid = entries?.filter(e => e.status === 'Paid').reduce((acc, curr) => acc + curr.amount, 0) || 0;
 
+  if (!mounted) return null;
+
   return (
     <div className="space-y-6 pb-10">
       <div className="flex justify-between items-end">
         <div>
-          <h1 className="text-3xl font-bold flex items-center gap-3"><ArrowUpCircle className="text-emerald-600 w-8 h-8" />Contas a Receber</h1>
+          <h1 className="text-3xl font-bold flex items-center gap-3">
+            <ArrowUpCircle className="text-emerald-600 w-8 h-8" />
+            Contas a Receber
+          </h1>
           <p className="text-muted-foreground">Gestão de entradas e faturamento por canal.</p>
         </div>
-        <Button className="gap-2 bg-emerald-600 shadow-lg hover:bg-emerald-700" onClick={() => setIsNewEntryOpen(true)}><Plus className="w-4 h-4" /> Novo Recebimento</Button>
+        <Button className="gap-2 bg-emerald-600 shadow-lg hover:bg-emerald-700" onClick={handleOpenNew}>
+          <Plus className="w-4 h-4" /> Novo Recebimento
+        </Button>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <Card className="bg-amber-50/50 border-amber-100"><CardHeader className="p-4 pb-2 text-[10px] font-bold text-amber-700 uppercase">A Receber</CardHeader><CardContent className="p-4 pt-0 text-2xl font-bold text-amber-700">R$ {totalOpen.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</CardContent></Card>
-        <Card className="bg-emerald-50/50 border-emerald-100"><CardHeader className="p-4 pb-2 text-[10px] font-bold text-emerald-700 uppercase">Total Recebido</CardHeader><CardContent className="p-4 pt-0 text-2xl font-bold text-emerald-800">R$ {totalPaid.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</CardContent></Card>
+        <Card className="bg-amber-50/50 border-amber-100">
+          <CardHeader className="p-4 pb-2 text-[10px] font-bold text-amber-700 uppercase">A Receber</CardHeader>
+          <CardContent className="p-4 pt-0 text-2xl font-bold text-amber-700">
+            R$ {totalOpen.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+          </CardContent>
+        </Card>
+        <Card className="bg-emerald-50/50 border-emerald-100">
+          <CardHeader className="p-4 pb-2 text-[10px] font-bold text-emerald-700 uppercase">Total Recebido</CardHeader>
+          <CardContent className="p-4 pt-0 text-2xl font-bold text-emerald-800">
+            R$ {totalPaid.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+          </CardContent>
+        </Card>
       </div>
 
       <Card>
         <CardContent className="pt-6">
           <Table>
-            <TableHeader><TableRow><TableHead>Vencimento</TableHead><TableHead>Origem / Cliente</TableHead><TableHead>Categoria</TableHead><TableHead>Status</TableHead><TableHead className="text-right">Valor</TableHead><TableHead className="w-[50px]"></TableHead></TableRow></TableHeader>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Vencimento</TableHead>
+                <TableHead>Origem / Cliente</TableHead>
+                <TableHead>Categoria</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead className="text-right">Valor</TableHead>
+                <TableHead className="w-[50px]"></TableHead>
+              </TableRow>
+            </TableHeader>
             <TableBody>
               {entries?.sort((a,b) => a.dueDate.localeCompare(b.dueDate)).map((entry) => (
                 <TableRow key={entry.id}>
-                  <TableCell className="text-xs">{format(new Date(entry.dueDate + 'T12:00:00'), "dd/MM/yy")}</TableCell>
-                  <TableCell className="font-medium">{entry.customerName}</TableCell>
-                  <TableCell><Badge variant="outline" className="text-[9px] uppercase">{leafCategories.find(c => c.id === entry.accountCategoryId)?.name || 'Geral'}</Badge></TableCell>
+                  <TableCell className="text-xs">
+                    <div className="flex items-center gap-2">
+                      <CalendarDays className="w-3 h-3 text-muted-foreground" />
+                      {format(new Date(entry.dueDate + 'T12:00:00'), "dd/MM/yy")}
+                    </div>
+                  </TableCell>
+                  <TableCell className="font-medium">
+                    <div className="flex flex-col">
+                      <span>{entry.customerName}</span>
+                      <span className="text-[10px] text-muted-foreground">{entry.description}</span>
+                    </div>
+                  </TableCell>
+                  <TableCell>
+                    <Badge variant="outline" className="text-[9px] uppercase font-bold border-emerald-200 text-emerald-700">
+                      {leafCategories.find(c => c.id === entry.accountCategoryId)?.name || 'Geral'}
+                    </Badge>
+                  </TableCell>
                   <TableCell>
                     {entry.status === 'Paid' ? (
                       <div className="flex flex-col">
-                        <Badge className="bg-emerald-100 text-emerald-700 border-none">Recebido</Badge>
-                        {entry.paymentDate && <span className="text-[9px] text-emerald-600 font-bold mt-1">Em {format(parseISO(entry.paymentDate), "dd/MM/yy")}</span>}
+                        <Badge className="bg-emerald-100 text-emerald-700 hover:bg-emerald-100 border-none flex items-center gap-1 w-fit">
+                          <CheckCircle2 className="w-3 h-3" /> Recebido
+                        </Badge>
+                        {entry.paymentDate && (
+                          <span className="text-[9px] text-emerald-600 font-bold mt-1 ml-1">
+                            {format(parseISO(entry.paymentDate), "dd/MM/yy")}
+                          </span>
+                        )}
                       </div>
-                    ) : <Badge variant="outline">Em Aberto</Badge>}
+                    ) : (
+                      <Badge variant="outline" className="text-amber-600 border-amber-200">Em Aberto</Badge>
+                    )}
                   </TableCell>
-                  <TableCell className="text-right font-bold text-emerald-700">R$ {entry.amount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</TableCell>
+                  <TableCell className="text-right font-bold text-emerald-700">
+                    R$ {entry.amount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                  </TableCell>
                   <TableCell>
                     <DropdownMenu>
-                      <DropdownMenuTrigger asChild><Button variant="ghost" size="icon"><MoreHorizontal className="w-4 h-4" /></Button></DropdownMenuTrigger>
+                      <DropdownMenuTrigger asChild>
+                        <Button variant="ghost" size="icon" className="h-8 w-8">
+                          <MoreHorizontal className="w-4 h-4" />
+                        </Button>
+                      </DropdownMenuTrigger>
                       <DropdownMenuContent align="end">
-                        {entry.status !== 'Paid' && <DropdownMenuItem onClick={() => {
-                          updateDocumentNonBlocking(doc(db!, "users", user!.uid, "accountsReceivableEntries", entry.id), { status: 'Paid', paymentDate: format(new Date(), "yyyy-MM-dd"), updatedAt: new Date().toISOString() });
-                          toast({ title: "Recebimento baixado" });
-                        }} className="text-emerald-600 font-bold">Baixar</DropdownMenuItem>}
-                        <DropdownMenuItem onClick={() => deleteDocumentNonBlocking(doc(db!, "users", user!.uid, "accountsReceivableEntries", entry.id))} className="text-destructive">Excluir</DropdownMenuItem>
+                        {entry.status !== 'Paid' ? (
+                          <DropdownMenuItem onClick={() => handleMarkAsPaid(entry)} className="text-emerald-600 font-bold flex gap-2">
+                            <CheckCircle2 className="w-4 h-4" /> Baixar
+                          </DropdownMenuItem>
+                        ) : (
+                          <DropdownMenuItem onClick={() => handleUnlinkPayment(entry)} className="text-amber-600 font-bold flex gap-2">
+                            <Undo2 className="w-4 h-4" /> Estornar
+                          </DropdownMenuItem>
+                        )}
+                        <DropdownMenuItem onClick={() => handleOpenEdit(entry)} className="flex gap-2">
+                          <Pencil className="w-4 h-4" /> Editar
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => handleDuplicate(entry)} className="flex gap-2">
+                          <Copy className="w-4 h-4" /> Duplicar
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => handleDelete(entry)} className="text-destructive flex gap-2">
+                          <Trash2 className="w-4 h-4" /> Excluir
+                        </DropdownMenuItem>
                       </DropdownMenuContent>
                     </DropdownMenu>
                   </TableCell>
                 </TableRow>
               ))}
+              {(!entries || entries.length === 0) && (
+                <TableRow>
+                  <TableCell colSpan={6} className="text-center py-12 text-muted-foreground italic">
+                    Nenhum recebimento encontrado.
+                  </TableCell>
+                </TableRow>
+              )}
             </TableBody>
           </Table>
         </CardContent>
       </Card>
 
-      <Dialog open={isNewEntryOpen} onOpenChange={setIsNewEntryOpen}>
-        <DialogContent>
+      <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
+        <DialogContent className="max-w-md">
           <form onSubmit={handleSaveEntry}>
-            <DialogHeader><DialogTitle>Novo Recebimento</DialogTitle></DialogHeader>
+            <DialogHeader>
+              <DialogTitle>{editingEntry ? 'Editar' : 'Novo'} Recebimento</DialogTitle>
+            </DialogHeader>
             <div className="grid gap-4 py-4">
-              <div className="grid gap-2"><Label>Origem (Canal de Venda / Cliente)*</Label><Input name="customerName" placeholder="Ex: iFood, Balcão, WhatsApp..." required /></div>
+              <div className="grid gap-2">
+                <Label>Origem (Canal de Venda / Cliente)*</Label>
+                <Input 
+                  value={formCustomer} 
+                  onChange={e => setFormCustomer(e.target.value)} 
+                  placeholder="Ex: iFood, Balcão, WhatsApp..." 
+                  required 
+                />
+              </div>
               <div className="grid grid-cols-2 gap-4">
-                <div className="grid gap-2"><Label>Valor*</Label><Input name="amount" type="number" step="0.01" required /></div>
-                <div className="grid gap-2"><Label>Vencimento*</Label><Input name="dueDate" type="date" required /></div>
+                <div className="grid gap-2">
+                  <Label>Valor*</Label>
+                  <Input 
+                    type="number" 
+                    step="0.01" 
+                    value={formAmount || ""} 
+                    onChange={e => setFormAmount(Number(e.target.value))} 
+                    required 
+                  />
+                </div>
+                <div className="grid gap-2">
+                  <Label>Vencimento*</Label>
+                  <Input 
+                    type="date" 
+                    value={formDueDate} 
+                    onChange={e => setFormDueDate(e.target.value)} 
+                    required 
+                  />
+                </div>
               </div>
               <div className="grid gap-2">
                 <Label>Categoria (Receita)*</Label>
-                <Select name="categoryId" required>
-                  <SelectTrigger><SelectValue placeholder="Selecione o canal..." /></SelectTrigger>
-                  <SelectContent>{leafCategories.map(c => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}</SelectContent>
+                <Select value={formCategoryId} onValueChange={setFormCategoryId} required>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Selecione o canal..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {leafCategories.map(c => (
+                      <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+                    ))}
+                  </SelectContent>
                 </Select>
               </div>
-              <div className="grid gap-2"><Label>Descrição</Label><Input name="description" placeholder="Opcional..." /></div>
+              <div className="grid gap-2">
+                <Label>Descrição</Label>
+                <Input 
+                  value={formDescription} 
+                  onChange={e => setFormDescription(e.target.value)} 
+                  placeholder="Opcional..." 
+                />
+              </div>
             </div>
-            <DialogFooter><Button type="submit" className="w-full">Salvar Recebimento</Button></DialogFooter>
+            <DialogFooter>
+              <Button type="submit" className="w-full bg-emerald-600 hover:bg-emerald-700">
+                Salvar Recebimento
+              </Button>
+            </DialogFooter>
           </form>
         </DialogContent>
       </Dialog>
