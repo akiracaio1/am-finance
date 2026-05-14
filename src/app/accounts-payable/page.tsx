@@ -21,7 +21,9 @@ import {
   Search,
   Loader2,
   RotateCcw,
-  LayoutGrid
+  LayoutGrid,
+  CheckCircle2,
+  Clock
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useUser, useFirestore, useCollection, useMemoFirebase } from "@/firebase";
@@ -241,7 +243,17 @@ export default function AccountsPayablePage() {
         </div>
         <div className="flex gap-2">
           <Button variant="outline" className="gap-2" onClick={() => setShowFilters(!showFilters)}><Filter className="w-4 h-4" /> Filtros</Button>
-          <Button className="gap-2 shadow-lg" onClick={() => { setEditingEntry(null); setFormCostCenterId(""); setIsNewEntryOpen(true); }}><Plus className="w-4 h-4" /> Novo Lançamento</Button>
+          <Button className="gap-2 shadow-lg" onClick={() => { 
+            setEditingEntry(null); 
+            setFormDescription("");
+            setFormAmount(0);
+            setFormDueDate("");
+            setFormSupplierId("");
+            setFormCategoryId("");
+            setFormCostCenterId(""); 
+            setFormType("Confirmed");
+            setIsNewEntryOpen(true); 
+          }}><Plus className="w-4 h-4" /> Novo Lançamento</Button>
         </div>
       </div>
 
@@ -331,13 +343,22 @@ export default function AccountsPayablePage() {
                   <TableCell className="text-xs">{format(new Date(entry.dueDate + 'T12:00:00'), "dd/MM/yy")}</TableCell>
                   <TableCell className="font-medium">{suppliers?.find(s => s.id === entry.supplierId)?.name || '-'}</TableCell>
                   <TableCell>
-                    <div className="flex flex-col">
-                      <div className="flex items-center gap-2">
+                    <div className="flex flex-col gap-1">
+                      <div className="flex flex-wrap items-center gap-1.5">
                         <span className="text-[9px] text-muted-foreground uppercase font-bold">{leafCategories.find(c => c.id === entry.accountCategoryId)?.name}</span>
                         {entry.costCenterId && (
                           <Badge variant="outline" className="text-[8px] h-4 py-0 flex items-center gap-1 bg-muted/50 border-primary/20">
                             <LayoutGrid className="w-2 h-2" />
                             {centers?.find(c => c.id === entry.costCenterId)?.name}
+                          </Badge>
+                        )}
+                        {entry.entryType === 'Confirmed' ? (
+                          <Badge variant="outline" className="text-[8px] h-4 py-0 bg-primary/5 text-primary border-primary/20 flex items-center gap-1">
+                            <CheckCircle2 className="w-2 h-2" /> Confirmado
+                          </Badge>
+                        ) : (
+                          <Badge variant="outline" className="text-[8px] h-4 py-0 bg-amber-50 text-amber-700 border-amber-200 flex items-center gap-1">
+                            <Clock className="w-2 h-2" /> Provisão
                           </Badge>
                         )}
                       </div>
@@ -364,7 +385,17 @@ export default function AccountsPayablePage() {
                       <DropdownMenuTrigger asChild><Button variant="ghost" size="icon"><MoreHorizontal className="w-4 h-4" /></Button></DropdownMenuTrigger>
                       <DropdownMenuContent align="end">
                         {entry.status !== 'Paid' && <DropdownMenuItem onClick={() => { setEntryToPay(entry); setIsPaymentOpen(true); }} className="text-emerald-600 font-bold">Liquidar</DropdownMenuItem>}
-                        <DropdownMenuItem onClick={() => { setEditingEntry(entry); setFormDescription(entry.description); setFormAmount(entry.originalAmount); setFormDueDate(entry.dueDate); setFormSupplierId(entry.supplierId); setFormCategoryId(entry.accountCategoryId); setFormCostCenterId(entry.costCenterId || ""); setIsNewEntryOpen(true); }}>Editar</DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => { 
+                          setEditingEntry(entry); 
+                          setFormDescription(entry.description); 
+                          setFormAmount(entry.originalAmount); 
+                          setFormDueDate(entry.dueDate); 
+                          setFormSupplierId(entry.supplierId); 
+                          setFormCategoryId(entry.accountCategoryId); 
+                          setFormCostCenterId(entry.costCenterId || ""); 
+                          setFormType(entry.entryType || "Confirmed");
+                          setIsNewEntryOpen(true); 
+                        }}>Editar</DropdownMenuItem>
                         <DropdownMenuItem onClick={() => deleteDocumentNonBlocking(doc(db!, "users", user!.uid, "accountsPayableEntries", entry.id))} className="text-destructive">Excluir</DropdownMenuItem>
                       </DropdownMenuContent>
                     </DropdownMenu>
@@ -381,9 +412,28 @@ export default function AccountsPayablePage() {
           <form onSubmit={handleSaveEntry}>
             <DialogHeader><DialogTitle>{editingEntry ? 'Editar' : 'Novo'} Lançamento de Despesa</DialogTitle></DialogHeader>
             <div className="grid gap-4 py-4">
+              <div className="grid grid-cols-4 gap-4">
+                <div className="grid gap-2 col-span-3"><Label>Descrição*</Label><Input value={formDescription} onChange={e => setFormDescription(e.target.value)} required /></div>
+                <div className="grid gap-2">
+                  <Label>Tipo*</Label>
+                  <Select value={formType} onValueChange={(v: any) => setFormType(v)}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="Confirmed">Confirmado</SelectItem>
+                      <SelectItem value="Provision">Provisão</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
               <div className="grid grid-cols-2 gap-4">
-                <div className="grid gap-2"><Label>Descrição*</Label><Input value={formDescription} onChange={e => setFormDescription(e.target.value)} required /></div>
                 <div className="grid gap-2"><Label>Fornecedor*</Label><Select value={formSupplierId} onValueChange={setFormSupplierId} required><SelectTrigger><SelectValue placeholder="Selecione..." /></SelectTrigger><SelectContent>{sortedSuppliers.map(s => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}</SelectContent></Select></div>
+                <div className="grid gap-2">
+                  <Label>Categoria (Despesa)*</Label>
+                  <Select value={formCategoryId} onValueChange={setFormCategoryId} required>
+                    <SelectTrigger><SelectValue placeholder="Selecione..." /></SelectTrigger>
+                    <SelectContent>{leafCategories.map(c => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}</SelectContent>
+                  </Select>
+                </div>
               </div>
               <div className="grid grid-cols-3 gap-4">
                 <div className="grid gap-2"><Label>Valor*</Label><Input type="number" step="0.01" value={formAmount || ""} onChange={e => setFormAmount(Number(e.target.value))} required /></div>
@@ -405,13 +455,6 @@ export default function AccountsPayablePage() {
                     </SelectContent>
                   </Select>
                 </div>
-              </div>
-              <div className="grid gap-2">
-                <Label>Categoria (Despesa)*</Label>
-                <Select value={formCategoryId} onValueChange={setFormCategoryId} required>
-                  <SelectTrigger><SelectValue placeholder="Selecione..." /></SelectTrigger>
-                  <SelectContent>{leafCategories.map(c => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}</SelectContent>
-                </Select>
               </div>
             </div>
             <DialogFooter><Button type="submit" className="w-full">Salvar Lançamento</Button></DialogFooter>
