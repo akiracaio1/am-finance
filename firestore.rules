@@ -46,6 +46,14 @@ service cloud.firestore {
       allow delete: if isOwner(userId);
     }
 
+    /** Rules for Cost Center Groups */
+    match /users/{userId}/costCenterGroups/{groupId} {
+      allow get, list: if isOwner(userId);
+      allow create: if isOwner(userId) && request.resource.data.id == groupId;
+      allow update: if isOwner(userId) && request.resource.data.id == resource.data.id;
+      allow delete: if isOwner(userId);
+    }
+
     /** Rules for Cost Centers */
     match /users/{userId}/costCenters/{centerId} {
       allow get, list: if isOwner(userId);
