@@ -26,7 +26,8 @@ import {
   Settings,
   FileText,
   CircleOff,
-  Calculator
+  Calculator,
+  LayoutGrid
 } from "lucide-react";
 import { useUser, useFirestore, useCollection, useMemoFirebase } from "@/firebase";
 import { collection, doc } from "firebase/firestore";
@@ -42,7 +43,9 @@ import {
 import { 
   Select, 
   SelectContent, 
+  SelectGroup,
   SelectItem, 
+  SelectLabel,
   SelectTrigger, 
   SelectValue 
 } from "@/components/ui/select";
@@ -55,7 +58,9 @@ import {
   AccountsPayableEntry, 
   AccountsReceivableEntry, 
   AccountCategory,
-  Supplier
+  Supplier,
+  CostCenter,
+  CostCenterGroup
 } from "@/lib/types";
 import { format, isBefore, parseISO, eachDayOfInterval } from "date-fns";
 import { parseOFX, OFXTransaction } from "@/lib/ofx-parser";
@@ -94,6 +99,7 @@ export default function ReconciliationPage() {
   const [formCategoryId, setFormCategoryId] = useState("");
   const [formSupplierId, setFormSupplierId] = useState("");
   const [formCustomerName, setFormCustomerName] = useState("");
+  const [formCostCenterId, setFormCostCenterId] = useState("");
 
   const accountsQuery = useMemoFirebase(() => {
     if (!db || !user) return null;
@@ -130,6 +136,16 @@ export default function ReconciliationPage() {
     return collection(db, "users", user.uid, "suppliers");
   }, [db, user]);
 
+  const groupsQuery = useMemoFirebase(() => {
+    if (!db || !user) return null;
+    return collection(db, "users", user.uid, "costCenterGroups");
+  }, [db, user]);
+
+  const centersQuery = useMemoFirebase(() => {
+    if (!db || !user) return null;
+    return collection(db, "users", user.uid, "costCenters");
+  }, [db, user]);
+
   const { data: accounts } = useCollection<BankAccount>(accountsQuery);
   const { data: allTransactions } = useCollection<BankTransaction>(transactionsQuery);
   const { data: noMovementDays } = useCollection<{date: string}>(noMovementQuery);
@@ -137,6 +153,8 @@ export default function ReconciliationPage() {
   const { data: allReceivables } = useCollection<AccountsReceivableEntry>(receivablesQuery);
   const { data: categories } = useCollection<AccountCategory>(categoriesQuery);
   const { data: suppliers } = useCollection<Supplier>(suppliersQuery);
+  const { data: costGroups } = useCollection<CostCenterGroup>(groupsQuery);
+  const { data: costCenters } = useCollection<CostCenter>(centersQuery);
 
   const filteredCategories = useMemo(() => {
     if (!categories || !matchingTransaction) return [];
@@ -146,6 +164,14 @@ export default function ReconciliationPage() {
       !categories.some(child => child.parentCategoryId === cat.id)
     ).sort((a, b) => a.code.localeCompare(b.code));
   }, [categories, matchingTransaction]);
+
+  const activeCentersByGroup = useMemo(() => {
+    if (!costGroups || !costCenters) return [];
+    return costGroups.sort((a,b) => a.name.localeCompare(b.name)).map(group => ({
+      ...group,
+      centers: costCenters.filter(c => c.groupId === group.id && c.status === 'Active').sort((a,b) => a.name.localeCompare(b.name))
+    })).filter(g => g.centers.length > 0);
+  }, [costGroups, costCenters]);
 
   useEffect(() => {
     if (accounts?.length === 1 && !selectedAccountId) setSelectedAccountId(accounts[0].id);
@@ -305,7 +331,19 @@ export default function ReconciliationPage() {
     const id = `${matchingTransaction.type === 'DEBIT' ? 'pay' : 'rec'}_${Date.now()}`;
     const isPayable = matchingTransaction.type === 'DEBIT';
     const col = isPayable ? "accountsPayableEntries" : "accountsReceivableEntries";
-    const data: any = { id, description: formDescription, [isPayable ? "originalAmount" : "amount"]: formAmount, dueDate: formDueDate, status: 'Paid', paymentDate: matchingTransaction.date, bankAccountId: selectedAccountId, accountCategoryId: formCategoryId, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
+    const data: any = { 
+      id, 
+      description: formDescription, 
+      [isPayable ? "originalAmount" : "amount"]: formAmount, 
+      dueDate: formDueDate, 
+      status: 'Paid', 
+      paymentDate: matchingTransaction.date, 
+      bankAccountId: selectedAccountId, 
+      accountCategoryId: formCategoryId, 
+      costCenterId: formCostCenterId || null,
+      createdAt: new Date().toISOString(), 
+      updatedAt: new Date().toISOString() 
+    };
     if (isPayable) { data.supplierId = formSupplierId; data.entryType = "Confirmed"; } else { data.customerName = formCustomerName; }
     setDocumentNonBlocking(doc(db, "users", user.uid, col, id), data, { merge: true });
     confirmMatch(id);
@@ -482,6 +520,7 @@ export default function ReconciliationPage() {
               setFormDescription(matchingTransaction?.description || "");
               setFormAmount(Math.abs(matchingTransaction?.amount || 0));
               setFormDueDate(matchingTransaction?.date || "");
+              setFormCostCenterId("");
               setIsDetailedCreateOpen(true);
             }}><FileText className="w-4 h-4" /> Lançamento Detalhado</Button>
           </div>
@@ -498,12 +537,31 @@ export default function ReconciliationPage() {
                 <div className="grid gap-2"><Label>Valor*</Label><Input type="number" step="0.01" value={formAmount} onChange={e => setFormAmount(Number(e.target.value))} required /></div>
                 <div className="grid gap-2"><Label>Vencimento*</Label><Input type="date" value={formDueDate} onChange={e => setFormDueDate(e.target.value)} required /></div>
               </div>
-              <div className="grid gap-2">
-                <Label>Categoria (Plano de Contas)*</Label>
-                <Select value={formCategoryId} onValueChange={setFormCategoryId} required>
-                  <SelectTrigger><SelectValue placeholder="Selecione..." /></SelectTrigger>
-                  <SelectContent>{filteredCategories.map(c => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}</SelectContent>
-                </Select>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="grid gap-2">
+                  <Label>Categoria (Plano de Contas)*</Label>
+                  <Select value={formCategoryId} onValueChange={setFormCategoryId} required>
+                    <SelectTrigger><SelectValue placeholder="Selecione..." /></SelectTrigger>
+                    <SelectContent>{filteredCategories.map(c => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}</SelectContent>
+                  </Select>
+                </div>
+                <div className="grid gap-2">
+                  <Label>Centro de Custo</Label>
+                  <Select value={formCostCenterId} onValueChange={setFormCostCenterId}>
+                    <SelectTrigger><SelectValue placeholder="Opcional..." /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">Nenhum</SelectItem>
+                      {activeCentersByGroup.map(group => (
+                        <SelectGroup key={group.id}>
+                          <SelectLabel className="text-[10px] uppercase text-primary font-bold">{group.name}</SelectLabel>
+                          {group.centers.map(center => (
+                            <SelectItem key={center.id} value={center.id}>{center.name}</SelectItem>
+                          ))}
+                        </SelectGroup>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
               </div>
               {matchingTransaction?.type === 'DEBIT' ? (
                 <div className="grid gap-2"><Label>Fornecedor*</Label><Select value={formSupplierId} onValueChange={setFormSupplierId} required><SelectTrigger><SelectValue placeholder="Selecione..." /></SelectTrigger><SelectContent>{suppliers?.map(s => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}</SelectContent></Select></div>
