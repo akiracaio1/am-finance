@@ -27,7 +27,8 @@ import {
   Copy,
   Undo2,
   CalendarDays,
-  Repeat
+  Repeat,
+  Calculator
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useUser, useFirestore, useCollection, useMemoFirebase } from "@/firebase";
@@ -81,7 +82,7 @@ export default function AccountsPayablePage() {
   const [todayStr, setTodayStr] = useState("");
   const [showFilters, setShowFilters] = useState(true);
 
-  // Estados do Formulário
+  // Estados do Formulário de Cadastro
   const [formType, setFormType] = useState<EntryType>("Confirmed");
   const [formDescription, setFormDescription] = useState("");
   const [formAmount, setFormAmount] = useState<number>(0);
@@ -95,6 +96,12 @@ export default function AccountsPayablePage() {
   const [installmentsCount, setInstallmentsCount] = useState(1);
   const [recurrenceInterval, setRecurrenceInterval] = useState<"monthly" | "weekly">("monthly");
 
+  // Estados de Liquidação (Ajustes)
+  const [payDate, setPayDate] = useState("");
+  const [payInterest, setPayInterest] = useState<number>(0);
+  const [payFine, setPayFine] = useState<number>(0);
+  const [payDiscount, setPayDiscount] = useState<number>(0);
+
   // Filtros da Tabela
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedStatuses, setSelectedStatuses] = useState<string[]>([]);
@@ -102,13 +109,12 @@ export default function AccountsPayablePage() {
   const [selectedCategoryIds, setSelectedCategoryIds] = useState<string[]>([]);
   const [filterDueDateStart, setFilterDueDateStart] = useState("");
   const [filterDueDateEnd, setFilterDueDateEnd] = useState("");
-  const [paymentDate, setPaymentDate] = useState("");
 
   useEffect(() => {
     setMounted(true);
     const now = new Date();
     setTodayStr(format(now, "yyyy-MM-dd"));
-    setPaymentDate(format(now, "yyyy-MM-dd"));
+    setPayDate(format(now, "yyyy-MM-dd"));
   }, []);
 
   const entriesQuery = useMemoFirebase(() => {
@@ -287,6 +293,24 @@ export default function AccountsPayablePage() {
     toast({ title: "Dados copiados para o formulário" });
   };
 
+  const handlePayConfirm = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!db || !user || !entryToPay) return;
+    
+    updateDocumentNonBlocking(doc(db, "users", user.uid, "accountsPayableEntries", entryToPay.id), { 
+      status: 'Paid', 
+      paymentDate: payDate,
+      interest: payInterest,
+      fine: payFine,
+      discount: payDiscount,
+      updatedAt: new Date().toISOString() 
+    });
+    
+    setIsPaymentOpen(false);
+    setEntryToPay(null);
+    toast({ title: "Conta liquidada com sucesso!" });
+  };
+
   if (!mounted) return <div className="flex items-center justify-center min-h-[400px]"><Loader2 className="animate-spin h-8 w-8 text-primary" /></div>;
 
   return (
@@ -428,7 +452,7 @@ export default function AccountsPayablePage() {
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild><Button variant="ghost" size="icon"><MoreHorizontal className="w-4 h-4" /></Button></DropdownMenuTrigger>
                       <DropdownMenuContent align="end">
-                        {entry.status !== 'Paid' && <DropdownMenuItem onClick={() => { setEntryToPay(entry); setIsPaymentOpen(true); }} className="text-emerald-600 font-bold">Liquidar</DropdownMenuItem>}
+                        {entry.status !== 'Paid' && <DropdownMenuItem onClick={() => { setEntryToPay(entry); setPayInterest(0); setPayFine(0); setPayDiscount(0); setPayDate(format(new Date(), "yyyy-MM-dd")); setIsPaymentOpen(true); }} className="text-emerald-600 font-bold">Liquidar</DropdownMenuItem>}
                         {entry.status === 'Paid' && <DropdownMenuItem onClick={() => handleUnlinkPayment(entry)} className="text-amber-600 font-bold flex gap-2"><Undo2 className="w-4 h-4" /> Estornar</DropdownMenuItem>}
                         <DropdownMenuItem onClick={() => handleDuplicateEntry(entry)} className="flex gap-2"><Copy className="w-4 h-4" /> Duplicar</DropdownMenuItem>
                         <DropdownMenuItem onClick={() => { 
@@ -518,20 +542,45 @@ export default function AccountsPayablePage() {
       </Dialog>
 
       <Dialog open={isPaymentOpen} onOpenChange={setIsPaymentOpen}>
-        <DialogContent>
+        <DialogContent className="max-w-md">
           {entryToPay && (
-            <form onSubmit={(e) => { 
-              e.preventDefault(); 
-              updateDocumentNonBlocking(doc(db!, "users", user!.uid, "accountsPayableEntries", entryToPay.id), { status: 'Paid', paymentDate, updatedAt: new Date().toISOString() }); 
-              setIsPaymentOpen(false); 
-              toast({ title: "Conta liquidada!" });
-            }}>
-              <DialogHeader><DialogTitle>Liquidar: {entryToPay.description}</DialogTitle></DialogHeader>
+            <form onSubmit={handlePayConfirm}>
+              <DialogHeader>
+                <DialogTitle>Liquidar: {entryToPay.description}</DialogTitle>
+              </DialogHeader>
               <div className="grid gap-4 py-4">
-                <div className="grid gap-2"><Label>Data de Pagamento</Label><Input type="date" value={paymentDate} onChange={e => setPaymentDate(e.target.value)} required /></div>
-                <div className="bg-primary/5 p-4 rounded text-center font-bold text-xl">Total: R$ {entryToPay.originalAmount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</div>
+                <div className="grid gap-2">
+                  <Label>Data de Pagamento</Label>
+                  <Input type="date" value={payDate} onChange={e => setPayDate(e.target.value)} required />
+                </div>
+                
+                <div className="grid grid-cols-3 gap-3">
+                  <div className="grid gap-2">
+                    <Label className="text-[10px] uppercase font-bold">Juros (+)</Label>
+                    <Input type="number" step="0.01" value={payInterest || ""} onChange={e => setPayInterest(Number(e.target.value))} placeholder="0,00" />
+                  </div>
+                  <div className="grid gap-2">
+                    <Label className="text-[10px] uppercase font-bold">Multa (+)</Label>
+                    <Input type="number" step="0.01" value={payFine || ""} onChange={e => setPayFine(Number(e.target.value))} placeholder="0,00" />
+                  </div>
+                  <div className="grid gap-2">
+                    <Label className="text-[10px] uppercase font-bold text-destructive">Desc. (-)</Label>
+                    <Input type="number" step="0.01" value={payDiscount || ""} onChange={e => setPayDiscount(Number(e.target.value))} placeholder="0,00" />
+                  </div>
+                </div>
+
+                <div className="bg-primary/5 p-4 rounded-lg border border-primary/20 flex flex-col items-center">
+                  <p className="text-[10px] uppercase font-bold text-muted-foreground mb-1">Total a Pagar</p>
+                  <div className="text-2xl font-bold flex items-center gap-2">
+                    <Calculator className="w-5 h-5 text-primary" />
+                    R$ {(entryToPay.originalAmount + payInterest + payFine - payDiscount).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                  </div>
+                  <p className="text-[10px] text-muted-foreground mt-1">Valor Original: R$ {entryToPay.originalAmount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
+                </div>
               </div>
-              <DialogFooter><Button type="submit" className="w-full">Confirmar Pagamento</Button></DialogFooter>
+              <DialogFooter>
+                <Button type="submit" className="w-full h-12 text-lg shadow-lg">Confirmar Pagamento</Button>
+              </DialogFooter>
             </form>
           )}
         </DialogContent>
