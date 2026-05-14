@@ -20,7 +20,8 @@ import {
   Plus, 
   Search,
   Loader2,
-  RotateCcw
+  RotateCcw,
+  LayoutGrid
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useUser, useFirestore, useCollection, useMemoFirebase } from "@/firebase";
@@ -42,7 +43,9 @@ import {
 import { 
   Select, 
   SelectContent, 
+  SelectGroup,
   SelectItem, 
+  SelectLabel,
   SelectTrigger, 
   SelectValue 
 } from "@/components/ui/select";
@@ -50,7 +53,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Collapsible, CollapsibleContent } from "@/components/ui/collapsible";
 import { toast } from "@/hooks/use-toast";
-import { Supplier, AccountCategory, AccountsPayableEntry, EntryType } from "@/lib/types";
+import { Supplier, AccountCategory, AccountsPayableEntry, EntryType, CostCenter, CostCenterGroup } from "@/lib/types";
 import { 
   format, 
   isBefore,
@@ -94,6 +97,7 @@ export default function AccountsPayablePage() {
   const [formDueDate, setFormDueDate] = useState("");
   const [formSupplierId, setFormSupplierId] = useState("");
   const [formCategoryId, setFormCategoryId] = useState("");
+  const [formCostCenterId, setFormCostCenterId] = useState("");
 
   const entriesQuery = useMemoFirebase(() => {
     if (!db || !user) return null;
@@ -110,9 +114,21 @@ export default function AccountsPayablePage() {
     return collection(db, "users", user.uid, "accountCategories");
   }, [db, user]);
 
+  const groupsQuery = useMemoFirebase(() => {
+    if (!db || !user) return null;
+    return collection(db, "users", user.uid, "costCenterGroups");
+  }, [db, user]);
+
+  const centersQuery = useMemoFirebase(() => {
+    if (!db || !user) return null;
+    return collection(db, "users", user.uid, "costCenters");
+  }, [db, user]);
+
   const { data: entries } = useCollection<AccountsPayableEntry>(entriesQuery);
   const { data: suppliers } = useCollection<Supplier>(suppliersQuery);
   const { data: categories } = useCollection<AccountCategory>(categoriesQuery);
+  const { data: groups } = useCollection<CostCenterGroup>(groupsQuery);
+  const { data: centers } = useCollection<CostCenter>(centersQuery);
 
   const sortedSuppliers = useMemo(() => {
     if (!suppliers) return [];
@@ -126,6 +142,15 @@ export default function AccountsPayablePage() {
       !categories.some(child => child.parentCategoryId === cat.id)
     ).sort((a, b) => a.code.localeCompare(b.code));
   }, [categories]);
+
+  // Centros de Custo Ativos Agrupados
+  const activeCentersByGroup = useMemo(() => {
+    if (!groups || !centers) return [];
+    return groups.sort((a,b) => a.name.localeCompare(b.name)).map(group => ({
+      ...group,
+      centers: centers.filter(c => c.groupId === group.id && c.status === 'Active').sort((a,b) => a.name.localeCompare(b.name))
+    })).filter(g => g.centers.length > 0);
+  }, [groups, centers]);
 
   const getDynamicStatus = (entry: AccountsPayableEntry) => {
     if (entry.status === 'Paid') return 'Paid';
@@ -188,6 +213,7 @@ export default function AccountsPayablePage() {
     const baseData: any = {
       supplierId: formSupplierId, 
       accountCategoryId: formCategoryId, 
+      costCenterId: formCostCenterId || null,
       description: formDescription, 
       entryType: formType, 
       updatedAt: new Date().toISOString(),
@@ -215,7 +241,7 @@ export default function AccountsPayablePage() {
         </div>
         <div className="flex gap-2">
           <Button variant="outline" className="gap-2" onClick={() => setShowFilters(!showFilters)}><Filter className="w-4 h-4" /> Filtros</Button>
-          <Button className="gap-2 shadow-lg" onClick={() => { setEditingEntry(null); setIsNewEntryOpen(true); }}><Plus className="w-4 h-4" /> Novo Lançamento</Button>
+          <Button className="gap-2 shadow-lg" onClick={() => { setEditingEntry(null); setFormCostCenterId(""); setIsNewEntryOpen(true); }}><Plus className="w-4 h-4" /> Novo Lançamento</Button>
         </div>
       </div>
 
@@ -298,7 +324,7 @@ export default function AccountsPayablePage() {
       <Card>
         <CardContent className="pt-6">
           <Table>
-            <TableHeader><TableRow><TableHead>Vencimento</TableHead><TableHead>Fornecedor</TableHead><TableHead>Descrição / Categoria</TableHead><TableHead>Status</TableHead><TableHead className="text-right">Valor</TableHead><TableHead className="w-[50px]"></TableHead></TableRow></TableHeader>
+            <TableHeader><TableRow><TableHead>Vencimento</TableHead><TableHead>Fornecedor</TableHead><TableHead>Descrição / Centro de Custo</TableHead><TableHead>Status</TableHead><TableHead className="text-right">Valor</TableHead><TableHead className="w-[50px]"></TableHead></TableRow></TableHeader>
             <TableBody>
               {allFilteredEntries.map((entry) => (
                 <TableRow key={entry.id}>
@@ -306,7 +332,15 @@ export default function AccountsPayablePage() {
                   <TableCell className="font-medium">{suppliers?.find(s => s.id === entry.supplierId)?.name || '-'}</TableCell>
                   <TableCell>
                     <div className="flex flex-col">
-                      <span className="text-[9px] text-muted-foreground uppercase font-bold">{leafCategories.find(c => c.id === entry.accountCategoryId)?.name}</span>
+                      <div className="flex items-center gap-2">
+                        <span className="text-[9px] text-muted-foreground uppercase font-bold">{leafCategories.find(c => c.id === entry.accountCategoryId)?.name}</span>
+                        {entry.costCenterId && (
+                          <Badge variant="outline" className="text-[8px] h-4 py-0 flex items-center gap-1 bg-muted/50 border-primary/20">
+                            <LayoutGrid className="w-2 h-2" />
+                            {centers?.find(c => c.id === entry.costCenterId)?.name}
+                          </Badge>
+                        )}
+                      </div>
                       <span className="text-sm">{entry.description} {entry.installmentInfo && `(${entry.installmentInfo})`}</span>
                     </div>
                   </TableCell>
@@ -330,7 +364,7 @@ export default function AccountsPayablePage() {
                       <DropdownMenuTrigger asChild><Button variant="ghost" size="icon"><MoreHorizontal className="w-4 h-4" /></Button></DropdownMenuTrigger>
                       <DropdownMenuContent align="end">
                         {entry.status !== 'Paid' && <DropdownMenuItem onClick={() => { setEntryToPay(entry); setIsPaymentOpen(true); }} className="text-emerald-600 font-bold">Liquidar</DropdownMenuItem>}
-                        <DropdownMenuItem onClick={() => { setEditingEntry(entry); setFormDescription(entry.description); setFormAmount(entry.originalAmount); setFormDueDate(entry.dueDate); setFormSupplierId(entry.supplierId); setFormCategoryId(entry.accountCategoryId); setIsNewEntryOpen(true); }}>Editar</DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => { setEditingEntry(entry); setFormDescription(entry.description); setFormAmount(entry.originalAmount); setFormDueDate(entry.dueDate); setFormSupplierId(entry.supplierId); setFormCategoryId(entry.accountCategoryId); setFormCostCenterId(entry.costCenterId || ""); setIsNewEntryOpen(true); }}>Editar</DropdownMenuItem>
                         <DropdownMenuItem onClick={() => deleteDocumentNonBlocking(doc(db!, "users", user!.uid, "accountsPayableEntries", entry.id))} className="text-destructive">Excluir</DropdownMenuItem>
                       </DropdownMenuContent>
                     </DropdownMenu>
@@ -355,12 +389,29 @@ export default function AccountsPayablePage() {
                 <div className="grid gap-2"><Label>Valor*</Label><Input type="number" step="0.01" value={formAmount || ""} onChange={e => setFormAmount(Number(e.target.value))} required /></div>
                 <div className="grid gap-2"><Label>Vencimento*</Label><Input type="date" value={formDueDate} onChange={e => setFormDueDate(e.target.value)} required /></div>
                 <div className="grid gap-2">
-                  <Label>Categoria (Despesa)*</Label>
-                  <Select value={formCategoryId} onValueChange={setFormCategoryId} required>
-                    <SelectTrigger><SelectValue placeholder="Selecione..." /></SelectTrigger>
-                    <SelectContent>{leafCategories.map(c => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}</SelectContent>
+                  <Label>Centro de Custo</Label>
+                  <Select value={formCostCenterId} onValueChange={setFormCostCenterId}>
+                    <SelectTrigger><SelectValue placeholder="Opcional..." /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">Nenhum</SelectItem>
+                      {activeCentersByGroup.map(group => (
+                        <SelectGroup key={group.id}>
+                          <SelectLabel className="text-[10px] uppercase text-primary font-bold">{group.name}</SelectLabel>
+                          {group.centers.map(center => (
+                            <SelectItem key={center.id} value={center.id}>{center.name}</SelectItem>
+                          ))}
+                        </SelectGroup>
+                      ))}
+                    </SelectContent>
                   </Select>
                 </div>
+              </div>
+              <div className="grid gap-2">
+                <Label>Categoria (Despesa)*</Label>
+                <Select value={formCategoryId} onValueChange={setFormCategoryId} required>
+                  <SelectTrigger><SelectValue placeholder="Selecione..." /></SelectTrigger>
+                  <SelectContent>{leafCategories.map(c => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}</SelectContent>
+                </Select>
               </div>
             </div>
             <DialogFooter><Button type="submit" className="w-full">Salvar Lançamento</Button></DialogFooter>

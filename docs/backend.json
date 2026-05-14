@@ -39,18 +39,33 @@
       },
       "required": ["id", "name", "type", "createdAt", "updatedAt"]
     },
+    "CostCenterGroup": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "CostCenterGroup",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "description": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "name", "createdAt"]
+    },
     "CostCenter": {
       "$schema": "http://json-schema.org/draft-07/schema#",
       "title": "CostCenter",
       "type": "object",
       "properties": {
         "id": { "type": "string" },
+        "groupId": { "type": "string" },
         "name": { "type": "string" },
         "description": { "type": "string" },
+        "status": { "type": "string", "enum": ["Active", "Archived"] },
+        "archivedAt": { "type": "string", "format": "date-time" },
         "createdAt": { "type": "string", "format": "date-time" },
         "updatedAt": { "type": "string", "format": "date-time" }
       },
-      "required": ["id", "name", "createdAt", "updatedAt"]
+      "required": ["id", "groupId", "name", "status", "createdAt", "updatedAt"]
     },
     "AccountsPayableEntry": {
       "$schema": "http://json-schema.org/draft-07/schema#",
@@ -149,6 +164,14 @@
           "entityName": "AccountCategory",
           "schema": { "$ref": "#/backend/entities/AccountCategory" },
           "description": "Stores account categories."
+        }
+      },
+      {
+        "path": "/users/{userId}/costCenterGroups/{groupId}",
+        "definition": {
+          "entityName": "CostCenterGroup",
+          "schema": { "$ref": "#/backend/entities/CostCenterGroup" },
+          "description": "Stores groups of cost centers."
         }
       },
       {

@@ -4,6 +4,7 @@ export type AccountType = 'payable' | 'receivable';
 export type PersonType = 'Pessoa Física' | 'Pessoa Jurídica';
 export type EntryType = 'Provision' | 'Confirmed';
 export type BankAccountType = 'Corrente' | 'Poupança' | 'Investimento' | 'Caixinha';
+export type CostCenterStatus = 'Active' | 'Archived';
 
 export interface Supplier {
   id: string;
@@ -29,10 +30,20 @@ export interface AccountCategory {
   updatedAt: string;
 }
 
-export interface CostCenter {
+export interface CostCenterGroup {
   id: string;
   name: string;
   description?: string;
+  createdAt: string;
+}
+
+export interface CostCenter {
+  id: string;
+  groupId: string;
+  name: string;
+  description?: string;
+  status: CostCenterStatus;
+  archivedAt?: string;
   createdAt: string;
   updatedAt: string;
 }
