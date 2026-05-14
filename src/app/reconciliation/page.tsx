@@ -25,7 +25,8 @@ import {
   AlertTriangle,
   Settings,
   FileText,
-  CircleOff
+  CircleOff,
+  Calculator
 } from "lucide-react";
 import { useUser, useFirestore, useCollection, useMemoFirebase } from "@/firebase";
 import { collection, doc } from "firebase/firestore";
@@ -56,7 +57,7 @@ import {
   AccountCategory,
   Supplier
 } from "@/lib/types";
-import { format, isBefore, parseISO, eachDayOfInterval, max } from "date-fns";
+import { format, isBefore, parseISO, eachDayOfInterval } from "date-fns";
 import { parseOFX, OFXTransaction } from "@/lib/ofx-parser";
 import { cn } from "@/lib/utils";
 
@@ -68,8 +69,16 @@ export default function ReconciliationPage() {
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
   const [isMatchModalOpen, setIsMatchModalOpen] = useState(false);
   const [isDetailedCreateOpen, setIsDetailedCreateOpen] = useState(false);
-  const [matchingTransaction, setMatchingTransaction] = useState<BankTransaction | null>(null);
+  const [isAdjustmentModalOpen, setIsAdjustmentModalOpen] = useState(false);
   
+  const [matchingTransaction, setMatchingTransaction] = useState<BankTransaction | null>(null);
+  const [entryToAdjust, setEntryToAdjust] = useState<any>(null);
+  
+  // States for adjustment
+  const [adjInterest, setAdjInterest] = useState<number>(0);
+  const [adjFine, setAdjFine] = useState<number>(0);
+  const [adjDiscount, setAdjDiscount] = useState<number>(0);
+
   const [ofxPreview, setOfxPreview] = useState<OFXTransaction[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -175,13 +184,13 @@ export default function ReconciliationPage() {
       }
       if (matchDateStart && e.dueDate < matchDateStart) return false;
       if (matchDateEnd && e.dueDate > matchDateEnd) return false;
-      const val = e.amount || (e as any).originalAmount || 0;
+      const val = (e as any).amount || (e as any).originalAmount || 0;
       if (matchMinValue && val < Number(matchMinValue)) return false;
       if (matchMaxValue && val > Number(matchMaxValue)) return false;
       return true;
     }).sort((a, b) => {
-      const aVal = a.amount || (a as any).originalAmount || 0;
-      const bVal = b.amount || (b as any).originalAmount || 0;
+      const aVal = (a as any).amount || (a as any).originalAmount || 0;
+      const bVal = (b as any).amount || (b as any).originalAmount || 0;
       const targetVal = Math.abs(matchingTransaction.amount);
       const aMatchVal = Math.abs(aVal - targetVal) < 0.01;
       const bMatchVal = Math.abs(bVal - targetVal) < 0.01;
@@ -193,24 +202,39 @@ export default function ReconciliationPage() {
 
   const pendingDays = useMemo(() => {
     if (!selectedAccountId || !allTransactions || !noMovementDays || !allPayables || !allReceivables) return [];
+    
+    // Marco inicial: 01/05/2026
     const start = new Date("2026-05-01T12:00:00");
     const today = new Date();
-    let latestActivity = parseISO(selectedDate);
-    if (isBefore(latestActivity, today)) latestActivity = today;
     
-    const interval = eachDayOfInterval({ start, end: latestActivity });
+    // Auditar até o maior valor entre hoje e a data selecionada
+    const selDate = parseISO(selectedDate);
+    let end = isBefore(selDate, today) ? today : selDate;
+    
+    const interval = eachDayOfInterval({ start, end });
+    
     return interval.filter(day => {
       const dateStr = format(day, "yyyy-MM-dd");
+      
+      // Se está marcado como sem movimento, ignora
       if (noMovementDays.some(d => d.date === dateStr)) return false;
+      
       const dayTransactions = allTransactions.filter(t => t.date === dateStr);
+      
+      // CRÍTICO: Se não tem transações OFX, é pendente (precisa de OFX ou marcação)
+      if (dayTransactions.length === 0) return true;
+
+      // Se tem transações mas alguma não está conciliada ou ignorada, é pendente
+      if (dayTransactions.some(t => !t.reconciled && !t.ignored)) return true;
+
+      // Se tudo está conciliado, confere o saldo total (Balanço do dia)
       const daySystemIn = allReceivables.filter(r => r.paymentDate === dateStr && r.bankAccountId === selectedAccountId).reduce((acc, e) => acc + e.amount, 0);
       const daySystemOut = allPayables.filter(p => p.paymentDate === dateStr && p.bankAccountId === selectedAccountId).reduce((acc, p) => acc + (p.originalAmount + (p.interest || 0) + (p.fine || 0) - (p.discount || 0)), 0);
       
       const statementIn = dayTransactions.filter(t => t.type === 'CREDIT' && !t.ignored).reduce((acc, t) => acc + t.amount, 0);
       const statementOut = Math.abs(dayTransactions.filter(t => t.type === 'DEBIT' && !t.ignored).reduce((acc, t) => acc + t.amount, 0));
 
-      if (dayTransactions.length === 0 && daySystemIn === 0 && daySystemOut === 0) return false;
-      if (dayTransactions.some(t => !t.reconciled && !t.ignored)) return true;
+      // Se a diferença for maior que 1 centavo
       return Math.abs(statementIn - daySystemIn) > 0.01 || Math.abs(statementOut - daySystemOut) > 0.01;
     }).map(day => format(day, "yyyy-MM-dd")).reverse();
   }, [allTransactions, noMovementDays, allPayables, allReceivables, selectedAccountId, selectedDate]);
@@ -218,7 +242,7 @@ export default function ReconciliationPage() {
   const summary = useMemo(() => {
     const statementIn = dailyTransactions.filter(t => t.type === 'CREDIT' && !t.ignored).reduce((acc, t) => acc + t.amount, 0);
     const statementOut = Math.abs(dailyTransactions.filter(t => t.type === 'DEBIT' && !t.ignored).reduce((acc, t) => acc + t.amount, 0));
-    const systemIn = dailySystemEntries.filter(e => e.type === 'CREDIT').reduce((acc, e) => acc + (e.amount || (e as any).originalAmount || 0), 0);
+    const systemIn = dailySystemEntries.filter(e => e.type === 'CREDIT').reduce((acc, e) => acc + ((e as any).amount || (e as any).originalAmount || 0), 0);
     const systemOut = dailySystemEntries.filter(e => e.type === 'DEBIT').reduce((acc, e) => {
       const p = e as any;
       return acc + (p.originalAmount !== undefined ? (p.originalAmount + (p.interest || 0) + (p.fine || 0) - (p.discount || 0)) : (p.amount || 0));
@@ -251,12 +275,27 @@ export default function ReconciliationPage() {
     toast({ title: "Conciliação desfeita" });
   };
 
-  const confirmMatch = (entryId: string) => {
+  const confirmMatch = (entryId: string, adjustments?: { interest: number, fine: number, discount: number }) => {
     if (!db || !user || !selectedAccountId || !matchingTransaction) return;
     updateDocumentNonBlocking(doc(db, "users", user.uid, "bankAccounts", selectedAccountId, "bankTransactions", matchingTransaction.id), { reconciled: true, reconciledEntryId: entryId });
     const col = matchingTransaction.type === 'DEBIT' ? "accountsPayableEntries" : "accountsReceivableEntries";
-    updateDocumentNonBlocking(doc(db, "users", user.uid, col, entryId), { status: 'Paid', paymentDate: matchingTransaction.date, bankAccountId: selectedAccountId });
+    
+    const updateData: any = { 
+      status: 'Paid', 
+      paymentDate: matchingTransaction.date, 
+      bankAccountId: selectedAccountId,
+      updatedAt: new Date().toISOString()
+    };
+    
+    if (adjustments) {
+      updateData.interest = adjustments.interest;
+      updateData.fine = adjustments.fine;
+      updateData.discount = adjustments.discount;
+    }
+
+    updateDocumentNonBlocking(doc(db, "users", user.uid, col, entryId), updateData);
     setIsMatchModalOpen(false);
+    setIsAdjustmentModalOpen(false);
     toast({ title: "Conciliado com sucesso!" });
   };
 
@@ -272,6 +311,22 @@ export default function ReconciliationPage() {
     confirmMatch(id);
     setIsDetailedCreateOpen(false);
   };
+
+  // Logic to handle clicking an entry in the list
+  const handleEntryClick = (entry: any) => {
+    if (entry.isPayable) {
+      setEntryToAdjust(entry);
+      setAdjInterest(entry.interest || 0);
+      setAdjFine(entry.fine || 0);
+      setAdjDiscount(entry.discount || 0);
+      setIsAdjustmentModalOpen(true);
+    } else {
+      confirmMatch(entry.id);
+    }
+  };
+
+  const totalAdjusted = entryToAdjust ? (entryToAdjust.originalAmount + adjInterest + adjFine - adjDiscount) : 0;
+  const matchDiff = matchingTransaction ? (Math.abs(matchingTransaction.amount) - totalAdjusted) : 0;
 
   return (
     <div className="space-y-6 pb-12 animate-in fade-in duration-700">
@@ -296,9 +351,9 @@ export default function ReconciliationPage() {
             <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-1" />
             <div className="space-y-1">
               <h4 className="text-sm font-bold text-amber-900">Pendências Detectadas (Desde 01/05/2026)</h4>
-              <p className="text-xs text-amber-700">Ajuste o Resultado Geral dos dias abaixo:</p>
+              <p className="text-xs text-amber-700">Auditoria por calendário absoluto. Foram detectados {pendingDays.length} dias pendentes:</p>
               <div className="flex flex-wrap gap-2 mt-2">
-                {pendingDays.slice(0, 20).map(date => (
+                {pendingDays.slice(0, 30).map(date => (
                   <Badge key={date} variant="secondary" className="cursor-pointer hover:bg-amber-200" onClick={() => setSelectedDate(date)}>{format(parseISO(date), "dd/MM")}</Badge>
                 ))}
               </div>
@@ -361,7 +416,7 @@ export default function ReconciliationPage() {
                     {dailySystemEntries.map(entry => (
                       <TableRow key={entry.id} className="bg-emerald-50/50">
                         <TableCell className="p-3"><div className="flex flex-col"><span className="text-xs font-bold line-clamp-1">{entry.description}</span><span className="text-[10px] text-muted-foreground">{(entry as any).customerName || suppliers?.find(s => s.id === (entry as any).supplierId)?.name || 'Fornecedor'}</span></div></TableCell>
-                        <TableCell className={cn("p-3 text-right font-bold text-xs", entry.type === 'CREDIT' ? "text-emerald-600" : "text-destructive")}>R$ {(entry.amount || (entry as any).originalAmount).toLocaleString('pt-BR')}</TableCell>
+                        <TableCell className={cn("p-3 text-right font-bold text-xs", entry.type === 'CREDIT' ? "text-emerald-600" : "text-destructive")}>R$ {((entry as any).amount || (entry as any).originalAmount).toLocaleString('pt-BR')}</TableCell>
                         <TableCell className="p-3 text-right"><Badge variant="outline" className="text-[9px] border-emerald-200 text-emerald-700">OK</Badge></TableCell>
                       </TableRow>
                     ))}
@@ -378,7 +433,7 @@ export default function ReconciliationPage() {
           <div className="p-6 border-b bg-muted/20">
             <DialogHeader>
               <DialogTitle className="flex items-center gap-2"><ArrowRightLeft className="w-5 h-5 text-primary" />Conciliar: {matchingTransaction?.description}</DialogTitle>
-              <DialogDescription className="font-bold text-primary">Valor: R$ {Math.abs(matchingTransaction?.amount || 0).toLocaleString('pt-BR')}</DialogDescription>
+              <DialogDescription className="font-bold text-primary">Valor no Extrato: R$ {Math.abs(matchingTransaction?.amount || 0).toLocaleString('pt-BR')}</DialogDescription>
             </DialogHeader>
             <div className="grid grid-cols-1 md:grid-cols-5 gap-3 mt-4">
               <div className="md:col-span-2 relative">
@@ -400,13 +455,13 @@ export default function ReconciliationPage() {
                 : (entry as any).customerName;
                 
               return (
-                <div key={entry.id} className="flex items-center justify-between p-3 border rounded-lg hover:bg-primary/5 cursor-pointer" onClick={() => confirmMatch(entry.id)}>
+                <div key={entry.id} className="flex items-center justify-between p-3 border rounded-lg hover:bg-primary/5 cursor-pointer" onClick={() => handleEntryClick(entry)}>
                   <div className="flex flex-col">
                     <span className="text-sm font-bold">{entry.description}</span>
                     <span className="text-xs text-muted-foreground font-medium">{partyName}</span>
                     <span className="text-[10px] text-muted-foreground mt-1">Vencimento: {format(parseISO(entry.dueDate), "dd/MM/yy")}</span>
                   </div>
-                  <div className="text-right font-bold text-sm">R$ {(entry.amount || (entry as any).originalAmount).toLocaleString('pt-BR')}</div>
+                  <div className="text-right font-bold text-sm">R$ {((entry as any).amount || (entry as any).originalAmount).toLocaleString('pt-BR')}</div>
                 </div>
               );
             })}
@@ -458,6 +513,36 @@ export default function ReconciliationPage() {
             </div>
             <DialogFooter><Button type="submit" className="w-full">Salvar e Conciliar</Button></DialogFooter>
           </form>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={isAdjustmentModalOpen} onOpenChange={setIsAdjustmentModalOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2"><Calculator className="w-5 h-5 text-primary" /> Ajuste de Liquidação</DialogTitle>
+            <DialogDescription>Ajuste juros, multa e desconto para bater com o valor do banco.</DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-4 py-4">
+            <div className="bg-muted p-3 rounded-lg space-y-2">
+              <div className="flex justify-between text-xs"><span>Valor Original:</span><span className="font-bold">R$ {entryToAdjust?.originalAmount.toLocaleString('pt-BR')}</span></div>
+              <div className="flex justify-between text-xs text-primary"><span>No Banco:</span><span className="font-bold">R$ {Math.abs(matchingTransaction?.amount || 0).toLocaleString('pt-BR')}</span></div>
+            </div>
+            <div className="grid grid-cols-3 gap-3">
+              <div className="grid gap-1.5"><Label className="text-[10px] uppercase">Juros (+)</Label><Input type="number" step="0.01" value={adjInterest} onChange={e => setAdjInterest(Number(e.target.value))} /></div>
+              <div className="grid gap-1.5"><Label className="text-[10px] uppercase">Multa (+)</Label><Input type="number" step="0.01" value={adjFine} onChange={e => setAdjFine(Number(e.target.value))} /></div>
+              <div className="grid gap-1.5"><Label className="text-[10px] uppercase">Desconto (-)</Label><Input type="number" step="0.01" value={adjDiscount} onChange={e => setAdjDiscount(Number(e.target.value))} /></div>
+            </div>
+            <div className={cn("p-4 rounded-lg border-2 text-center transition-colors", Math.abs(matchDiff) < 0.01 ? "bg-emerald-50 border-emerald-200" : "bg-amber-50 border-amber-200")}>
+              <p className="text-[10px] uppercase font-bold text-muted-foreground">Total Liquidado</p>
+              <p className="text-2xl font-bold">R$ {totalAdjusted.toLocaleString('pt-BR')}</p>
+              <p className={cn("text-xs font-bold mt-1", Math.abs(matchDiff) < 0.01 ? "text-emerald-700" : "text-amber-700")}>
+                {Math.abs(matchDiff) < 0.01 ? "✓ Valor exato!" : `Diferença: R$ ${matchDiff.toLocaleString('pt-BR')}`}
+              </p>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button className="w-full" onClick={() => confirmMatch(entryToAdjust.id, { interest: adjInterest, fine: adjFine, discount: adjDiscount })}>Confirmar Conciliação</Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 
