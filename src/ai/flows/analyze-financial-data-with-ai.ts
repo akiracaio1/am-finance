@@ -43,11 +43,11 @@ const AnalyzeFinancialDataWithAIInputSchema = z.object({
 export type AnalyzeFinancialDataWithAIInput = z.infer<typeof AnalyzeFinancialDataWithAIInputSchema>;
 
 const AnalyzeFinancialDataWithAIOutputSchema = z.object({
-  overallSummary: z.string().describe('Resumo do desempenho financeiro.'),
-  keyInsights: z.array(z.string()).describe('Insights chave.'),
-  strategicRecommendations: z.array(z.string()).describe('Recomendações estratégicas.'),
-  potentialRisks: z.array(z.string()).describe('Riscos identificados.'),
-  opportunities: z.array(z.string()).describe('Oportunidades identificadas.'),
+  overallSummary: z.string().describe('Resumo executivo do desempenho financeiro.'),
+  keyInsights: z.array(z.string()).describe('Insights chave baseados em anomalias ou tendências.'),
+  strategicRecommendations: z.array(z.string()).describe('Recomendações estratégicas para o empresário.'),
+  potentialRisks: z.array(z.string()).describe('Riscos financeiros identificados (ex: queima de caixa).'),
+  opportunities: z.array(z.string()).describe('Oportunidades identificadas para aumentar margem.'),
 });
 export type AnalyzeFinancialDataWithAIOutput = z.infer<typeof AnalyzeFinancialDataWithAIOutputSchema>;
 
@@ -58,32 +58,38 @@ export async function analyzeFinancialDataWithAI(input: AnalyzeFinancialDataWith
 const analyzeFinancialDataPrompt = ai.definePrompt({
   name: 'analyzeFinancialDataPrompt',
   input: {schema: AnalyzeFinancialDataWithAIInputSchema},
-  output: {schema: AnalyzeFinancialDataWithAIOutputSchema},
-  prompt: `Você é o assistente de inteligência do AM Finance. Seu objetivo é analisar os dados financeiros e gerar insights estratégicos.
+  output: {schema: AnalyzeProfessionalAIOutputSchema}, // Using output schema for structured response
+  prompt: `Você é o Diretor Financeiro (CFO) do AM Finance, um sistema de gestão financeira profissional.
+Seu objetivo é analisar os dados financeiros e fornecer uma consultoria estratégica de alto nível.
 
-DRE:
-Receita: {{{simplifiedDRE.revenue}}}
-Despesas: {{{simplifiedDRE.expenses}}}
-Resultado Líquido: {{{simplifiedDRE.netResult}}}
-
-Fluxo de Caixa:
+CONTEXTO DOS DADOS:
+- DRE: Receita: R$ {{{simplifiedDRE.revenue}}} | Despesas: R$ {{{simplifiedDRE.expenses}}} | Resultado: R$ {{{simplifiedDRE.netResult}}}
+- EVOLUÇÃO TEMPORAL:
 {{#each cashFlowStatement}}
-Período: {{{period}}} | Saldo: {{{netFlow}}}
+* Período: {{{period}}} | Saldo Operacional: R$ {{{netFlow}}}
 {{/each}}
 
-Contas em Atraso:
+- CONTAS EM ATRASO CRÍTICAS:
 {{#each overdueAccounts}}
-- {{{description}}}: R$ {{{amount}}} ({{{daysOverdue}}} dias)
+* {{{description}}}: R$ {{{amount}}} (Vencido em: {{{dueDate}}})
 {{/each}}
 
-Forneça uma análise detalhada e recomendações para o negócio. Responda em PORTUGUÊS (Brasil).`,
+TAREFAS:
+1. Avalie a margem operacional e o burn rate.
+2. Identifique tendências de crescimento ou queda nos últimos meses.
+3. Aponte riscos de liquidez baseados nos atrasos.
+4. Sugira ações para reduzir custos fixos ou aumentar a margem bruta.
+
+Forneça uma análise detalhada e recomendações acionáveis. Responda em PORTUGUÊS (Brasil).`,
 });
+
+const AnalyzeProfessionalAIOutputSchema = AnalyzeFinancialDataWithAIOutputSchema;
 
 const analyzeFinancialDataWithAIFlow = ai.defineFlow(
   {
     name: 'analyzeFinancialDataWithAIFlow',
     inputSchema: AnalyzeFinancialDataWithAIInputSchema,
-    outputSchema: AnalyzeFinancialDataWithAIOutputSchema,
+    outputSchema: AnalyzeProfessionalAIOutputSchema,
   },
   async input => {
     const {output} = await analyzeFinancialDataPrompt(input);

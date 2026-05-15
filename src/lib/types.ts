@@ -82,6 +82,7 @@ export interface AccountsReceivableEntry {
   bankAccountId?: string;
   createdAt: string;
   updatedAt: string;
+  costCenterId?: string;
 }
 
 export interface BankAccount {

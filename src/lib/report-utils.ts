@@ -1,6 +1,6 @@
 
 import { utils, writeFile } from 'xlsx';
-import { format, parseISO } from 'date-fns';
+import { format, parseISO, subMonths, isWithinInterval, startOfMonth, endOfMonth } from 'date-fns';
 import { AccountsPayableEntry, AccountsReceivableEntry, AccountCategory, Supplier, CostCenter } from './types';
 
 /**
@@ -26,7 +26,6 @@ interface ExportData {
 export const exportToExcel = ({ data, filename, sheetName, summary }: ExportData) => {
   const ws = utils.json_to_sheet(data);
   
-  // Adiciona linha de sumário se houver
   if (summary) {
     utils.sheet_add_json(ws, [summary], { skipHeader: true, origin: -1 });
   }
@@ -38,44 +37,93 @@ export const exportToExcel = ({ data, filename, sheetName, summary }: ExportData
 };
 
 /**
- * Calcula a DRE baseada nos lançamentos e categorias
+ * Calcula a DRE Profissional baseada no Plano de Contas
  */
-export const calculateDRE = (
+export const calculateProfessionalDRE = (
   payables: AccountsPayableEntry[],
   receivables: AccountsReceivableEntry[],
   categories: AccountCategory[]
 ) => {
-  const revenueEntries = receivables.filter(r => r.status === 'Paid');
-  const expenseEntries = payables.filter(p => p.status === 'Paid');
+  const paidReceivables = receivables.filter(r => r.status === 'Paid');
+  const paidPayables = payables.filter(p => p.status === 'Paid');
 
-  // Agrupamento por Categoria Raiz ou Pai
-  const getTopLevelName = (catId: string) => {
+  // Auxiliar para pegar nome e código da categoria raiz
+  const getCategoryGroup = (catId: string) => {
     const cat = categories.find(c => c.id === catId);
-    if (!cat) return 'Outros';
-    if (!cat.parentCategoryId) return cat.name;
-    const parent = categories.find(p => p.id === cat.parentCategoryId);
-    return parent ? parent.name : cat.name;
+    if (!cat) return { id: 'other', name: 'Outros', code: '0' };
+    
+    let root = cat;
+    while (root.parentCategoryId) {
+      const parent = categories.find(p => p.id === root.parentCategoryId);
+      if (!parent) break;
+      root = parent;
+    }
+    return { id: root.id, name: root.name, code: root.code };
   };
 
-  const revenueTotal = revenueEntries.reduce((acc, curr) => acc + curr.amount, 0);
-  const expenseTotal = expenseEntries.reduce((acc, curr) => 
-    acc + (curr.originalAmount + (curr.interest || 0) + (curr.fine || 0) - (curr.discount || 0)), 0
-  );
+  // 1. Receita Bruta (Categorias de Receita)
+  const revenueByGroup: Record<string, number> = {};
+  paidReceivables.forEach(r => {
+    const group = getCategoryGroup(r.accountCategoryId).name;
+    revenueByGroup[group] = (revenueByGroup[group] || 0) + r.amount;
+  });
+  const grossRevenue = Object.values(revenueByGroup).reduce((a, b) => a + b, 0);
+
+  // 2. Custos Variáveis (Geralmente grupo 1.0 no padrão AM Finance)
+  const variableCostsByGroup: Record<string, number> = {};
+  const variableEntries = paidPayables.filter(p => {
+    const group = getCategoryGroup(p.accountCategoryId);
+    return group.code.startsWith('1');
+  });
+  variableEntries.forEach(p => {
+    const group = getCategoryGroup(p.accountCategoryId).name;
+    variableCostsByGroup[group] = (variableCostsByGroup[group] || 0) + (p.originalAmount + (p.interest || 0) + (p.fine || 0) - (p.discount || 0));
+  });
+  const totalVariableCosts = Object.values(variableCostsByGroup).reduce((a, b) => a + b, 0);
+
+  // 3. Margem de Contribuição
+  const contributionMargin = grossRevenue - totalVariableCosts;
+
+  // 4. Despesas Fixas (Geralmente grupo 2.0 no padrão AM Finance)
+  const fixedExpensesByGroup: Record<string, number> = {};
+  const fixedEntries = paidPayables.filter(p => {
+    const group = getCategoryGroup(p.accountCategoryId);
+    return group.code.startsWith('2');
+  });
+  fixedEntries.forEach(p => {
+    const group = getCategoryGroup(p.accountCategoryId).name;
+    fixedExpensesByGroup[group] = (fixedExpensesByGroup[group] || 0) + (p.originalAmount + (p.interest || 0) + (p.fine || 0) - (p.discount || 0));
+  });
+  const totalFixedExpenses = Object.values(fixedExpensesByGroup).reduce((a, b) => a + b, 0);
+
+  // 5. EBITDA / Resultado Operacional
+  const ebitda = contributionMargin - totalFixedExpenses;
+
+  // 6. Resultado Financeiro (Juros e Multas pagos)
+  const financialResult = paidPayables.reduce((acc, p) => acc + (p.interest || 0) + (p.fine || 0), 0);
+
+  // 7. Resultado Líquido
+  const netResult = ebitda - financialResult;
 
   return {
-    grossRevenue: revenueTotal,
-    operatingExpenses: expenseTotal,
-    netResult: revenueTotal - expenseTotal,
-    revenueByGroup: revenueEntries.reduce((acc: any, curr) => {
-      const group = getTopLevelName(curr.accountCategoryId);
-      acc[group] = (acc[group] || 0) + curr.amount;
-      return acc;
-    }, {}),
-    expenseByGroup: expenseEntries.reduce((acc: any, curr) => {
-      const group = getTopLevelName(curr.accountCategoryId);
-      const val = (curr.originalAmount + (curr.interest || 0) + (curr.fine || 0) - (curr.discount || 0));
-      acc[group] = (acc[group] || 0) + val;
-      return acc;
-    }, {})
+    grossRevenue,
+    revenueByGroup,
+    totalVariableCosts,
+    variableCostsByGroup,
+    contributionMargin,
+    totalFixedExpenses,
+    fixedExpensesByGroup,
+    ebitda,
+    financialResult,
+    netResult,
+    marginPerc: grossRevenue > 0 ? (netResult / grossRevenue) * 100 : 0
   };
+};
+
+/**
+ * Calcula variação percentual entre dois valores
+ */
+export const calculateGrowth = (current: number, previous: number) => {
+  if (previous === 0) return current > 0 ? 100 : 0;
+  return ((current - previous) / Math.abs(previous)) * 100;
 };
