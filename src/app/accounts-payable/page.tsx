@@ -28,7 +28,9 @@ import {
   Undo2,
   CalendarDays,
   Repeat,
-  Calculator
+  Calculator,
+  UserPlus,
+  ArrowRight
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useUser, useFirestore, useCollection, useMemoFirebase } from "@/firebase";
@@ -39,7 +41,8 @@ import {
   DialogContent, 
   DialogHeader, 
   DialogTitle, 
-  DialogFooter
+  DialogFooter,
+  DialogDescription
 } from "@/components/ui/dialog";
 import { 
   DropdownMenu, 
@@ -60,6 +63,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Collapsible, CollapsibleContent } from "@/components/ui/collapsible";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "@/hooks/use-toast";
 import { Supplier, AccountCategory, AccountsPayableEntry, EntryType, CostCenter, CostCenterGroup } from "@/lib/types";
 import { 
@@ -68,7 +72,8 @@ import {
   isSameDay,
   parseISO,
   addMonths,
-  addWeeks
+  addWeeks,
+  addDays
 } from "date-fns";
 
 export default function AccountsPayablePage() {
@@ -76,6 +81,7 @@ export default function AccountsPayablePage() {
   const db = useFirestore();
   const [mounted, setMounted] = useState(false);
   const [isNewEntryOpen, setIsNewEntryOpen] = useState(false);
+  const [isQuickSupplierOpen, setIsQuickSupplierOpen] = useState(false);
   const [editingEntry, setEditingEntry] = useState<AccountsPayableEntry | null>(null);
   const [isPaymentOpen, setIsPaymentOpen] = useState(false);
   const [entryToPay, setEntryToPay] = useState<AccountsPayableEntry | null>(null);
@@ -91,10 +97,13 @@ export default function AccountsPayablePage() {
   const [formCategoryId, setFormCategoryId] = useState("");
   const [formCostCenterId, setFormCostCenterId] = useState("");
   
-  // Estados de Parcelamento
+  // Estados de Parcelamento/Recorrência Avançado
   const [isRecurring, setIsRecurring] = useState(false);
   const [installmentsCount, setInstallmentsCount] = useState(1);
-  const [recurrenceInterval, setRecurrenceInterval] = useState<"monthly" | "weekly">("monthly");
+  const [recurrenceInterval, setRecurrenceInterval] = useState<"monthly" | "weekly" | "fortnightly" | "daily">("monthly");
+
+  // Estado de Cadastro Rápido de Fornecedor
+  const [quickSupName, setQuickSupplierName] = useState("");
 
   // Estados de Liquidação (Ajustes)
   const [payDate, setPayDate] = useState("");
@@ -203,20 +212,22 @@ export default function AccountsPayablePage() {
   const totalOpen = allFilteredEntries.filter(e => e.dynamicStatus === 'Open').reduce((acc, curr) => acc + curr.originalAmount, 0);
   const totalPaid = allFilteredEntries.filter(e => e.dynamicStatus === 'Paid').reduce((acc, curr) => acc + (curr.originalAmount + (curr.interest || 0) + (curr.fine || 0) - (curr.discount || 0)), 0);
 
-  const toggleStatusFilter = (status: string) => {
-    setSelectedStatuses(prev => 
-      prev.includes(status) ? prev.filter(s => s !== status) : [...prev, status]
-    );
-  };
-
-  const clearFilters = () => {
-    setSearchTerm("");
-    setSelectedStatuses([]);
-    setSelectedSupplierIds([]);
-    setSelectedCategoryIds([]);
-    setFilterDueDateStart("");
-    setFilterDueDateEnd("");
-    toast({ title: "Filtros limpos" });
+  const handleSaveQuickSupplier = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!db || !user || !quickSupName) return;
+    const id = `sup_${Date.now()}`;
+    const data: Supplier = {
+      id,
+      name: quickSupName,
+      personType: 'Pessoa Jurídica',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+    setDocumentNonBlocking(doc(db, "users", user.uid, "suppliers", id), data, { merge: true });
+    setFormSupplierId(id);
+    setQuickSupplierName("");
+    setIsQuickSupplierOpen(false);
+    toast({ title: "Fornecedor criado e selecionado!" });
   };
 
   const handleSaveEntry = (e: React.FormEvent) => {
@@ -226,7 +237,7 @@ export default function AccountsPayablePage() {
     const baseData: any = {
       supplierId: formSupplierId, 
       accountCategoryId: formCategoryId, 
-      costCenterId: formCostCenterId || null,
+      costCenterId: formCostCenterId === "none" || !formCostCenterId ? null : formCostCenterId,
       description: formDescription, 
       entryType: formType, 
       updatedAt: new Date().toISOString(),
@@ -241,7 +252,14 @@ export default function AccountsPayablePage() {
 
       for (let i = 0; i < count; i++) {
         const id = `pay_${Date.now()}_${i}`;
-        const currentDueDate = recurrenceInterval === 'monthly' ? addMonths(startDate, i) : addWeeks(startDate, i);
+        let currentDueDate: Date;
+        switch(recurrenceInterval) {
+          case 'weekly': currentDueDate = addWeeks(startDate, i); break;
+          case 'fortnightly': currentDueDate = addDays(startDate, i * 14); break;
+          case 'daily': currentDueDate = addDays(startDate, i); break;
+          default: currentDueDate = addMonths(startDate, i);
+        }
+        
         const installmentInfo = count > 1 ? `${i + 1}/${count}` : "";
         
         setDocumentNonBlocking(
@@ -258,7 +276,7 @@ export default function AccountsPayablePage() {
           { merge: true }
         );
       }
-      toast({ title: count > 1 ? `${count} parcelas geradas` : "Lançamento salvo" });
+      toast({ title: count > 1 ? `${count} lançamentos gerados` : "Lançamento salvo" });
     }
     setIsNewEntryOpen(false); setEditingEntry(null);
   };
@@ -372,8 +390,8 @@ export default function AccountsPayablePage() {
                   <Input type="date" value={filterDueDateEnd} onChange={e => setFilterDueDateEnd(e.target.value)} />
                 </div>
                 <div>
-                  <Button variant="ghost" className="w-full gap-2 text-muted-foreground hover:text-primary" onClick={clearFilters}>
-                    <RotateCcw className="w-4 h-4" /> Limpar Filtros
+                  <Button variant="ghost" className="w-full gap-2 text-muted-foreground hover:text-primary" onClick={() => { setSearchTerm(""); setSelectedStatuses([]); setSelectedSupplierIds([]); setSelectedCategoryIds([]); setFilterDueDateStart(""); setFilterDueDateEnd(""); }}>
+                    <RotateCcw className="w-4 h-4" /> Limpar
                   </Button>
                 </div>
               </div>
@@ -392,7 +410,7 @@ export default function AccountsPayablePage() {
             <Card 
               key={status}
               className={cn("cursor-pointer transition-all hover:shadow-md", selectedStatuses.includes(status) ? `ring-2 ${colors[status]}` : colors[status].split(' ')[1])}
-              onClick={() => toggleStatusFilter(status)}
+              onClick={() => setSelectedStatuses(prev => prev.includes(status) ? prev.filter(s => s !== status) : [...prev, status])}
             >
               <CardHeader className="p-4 pb-2 text-[10px] font-bold uppercase opacity-70">{labels[status]}</CardHeader>
               <CardContent className="p-4 pt-0 text-xl font-bold">R$ {values[status].toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</CardContent>
@@ -483,60 +501,146 @@ export default function AccountsPayablePage() {
         </CardContent>
       </Card>
 
+      {/* MODAL DE NOVO LANÇAMENTO COM ABAS */}
       <Dialog open={isNewEntryOpen} onOpenChange={setIsNewEntryOpen}>
-        <DialogContent className="max-w-2xl">
+        <DialogContent className="max-w-2xl p-0 overflow-hidden">
           <form onSubmit={handleSaveEntry}>
-            <DialogHeader><DialogTitle>{editingEntry ? 'Editar' : 'Novo'} Lançamento de Despesa</DialogTitle></DialogHeader>
-            <div className="grid gap-4 py-4">
-              <div className="grid grid-cols-4 gap-4">
-                <div className="grid gap-2 col-span-3"><Label>Descrição*</Label><Input value={formDescription} onChange={e => setFormDescription(e.target.value)} required /></div>
-                <div className="grid gap-2">
-                  <Label>Tipo*</Label>
-                  <Select value={formType} onValueChange={(v: any) => setFormType(v)}>
-                    <SelectTrigger><SelectValue /></SelectTrigger>
-                    <SelectContent><SelectItem value="Confirmed">Confirmado</SelectItem><SelectItem value="Provision">Provisão</SelectItem></SelectContent>
-                  </Select>
-                </div>
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div className="grid gap-2"><Label>Fornecedor*</Label><Select value={formSupplierId} onValueChange={setFormSupplierId} required><SelectTrigger><SelectValue placeholder="Selecione..." /></SelectTrigger><SelectContent>{sortedSuppliers.map(s => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}</SelectContent></Select></div>
-                <div className="grid gap-2"><Label>Categoria (Despesa)*</Label><Select value={formCategoryId} onValueChange={setFormCategoryId} required><SelectTrigger><SelectValue placeholder="Selecione..." /></SelectTrigger><SelectContent>{leafCategories.map(c => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}</SelectContent></Select></div>
-              </div>
-              <div className="grid grid-cols-3 gap-4">
-                <div className="grid gap-2"><Label>Valor Unitário*</Label><Input type="number" step="0.01" value={formAmount || ""} onChange={e => setFormAmount(Number(e.target.value))} required /></div>
-                <div className="grid gap-2"><Label>Primeiro Vencimento*</Label><Input type="date" value={formDueDate} onChange={e => setFormDueDate(e.target.value)} required /></div>
-                <div className="grid gap-2"><Label>Centro de Custo</Label><Select value={formCostCenterId} onValueChange={setFormCostCenterId}><SelectTrigger><SelectValue placeholder="Opcional..." /></SelectTrigger><SelectContent><SelectItem value="none">Nenhum</SelectItem>{activeCentersByGroup.map(group => (<SelectGroup key={group.id}><SelectLabel className="text-[10px] uppercase text-primary font-bold">{group.name}</SelectLabel>{group.centers.map(center => (<SelectItem key={center.id} value={center.id}>{center.name}</SelectItem>))}</SelectGroup>))}</SelectContent></Select></div>
+            <div className="p-6 border-b bg-muted/20">
+              <DialogHeader>
+                <DialogTitle>{editingEntry ? 'Editar' : 'Novo'} Lançamento de Despesa</DialogTitle>
+                <DialogDescription>Preencha os dados básicos ou configure o parcelamento nas abas abaixo.</DialogDescription>
+              </DialogHeader>
+            </div>
+
+            <Tabs defaultValue="basic" className="w-full">
+              <div className="px-6 pt-4">
+                <TabsList className="grid w-full grid-cols-2 h-11">
+                  <TabsTrigger value="basic" className="gap-2"><CalendarDays className="w-4 h-4" /> Informações da Conta</TabsTrigger>
+                  <TabsTrigger value="recurrence" disabled={!!editingEntry} className="gap-2"><Repeat className="w-4 h-4" /> Parcelamento / Recorrência</TabsTrigger>
+                </TabsList>
               </div>
 
-              {!editingEntry && (
-                <div className="bg-muted/50 p-4 rounded-lg space-y-4">
-                  <div className="flex items-center space-x-2">
-                    <Checkbox id="recurring" checked={isRecurring} onCheckedChange={(c) => setIsRecurring(!!c)} />
-                    <Label htmlFor="recurring" className="flex items-center gap-2 cursor-pointer"><Repeat className="w-4 h-4 text-primary" /> Esta conta se repete (Parcelamento/Recorrência)</Label>
+              <TabsContent value="basic" className="p-6 pt-4 space-y-4">
+                <div className="grid grid-cols-4 gap-4">
+                  <div className="grid gap-2 col-span-3"><Label>Descrição*</Label><Input value={formDescription} onChange={e => setFormDescription(e.target.value)} required /></div>
+                  <div className="grid gap-2">
+                    <Label>Tipo*</Label>
+                    <Select value={formType} onValueChange={(v: any) => setFormType(v)}>
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent><SelectItem value="Confirmed">Confirmado</SelectItem><SelectItem value="Provision">Provisão</SelectItem></SelectContent>
+                    </Select>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="grid gap-2">
+                    <Label className="flex justify-between items-center">Fornecedor* <Button type="button" variant="ghost" className="h-5 px-1.5 text-[10px] text-primary" onClick={() => setIsQuickSupplierOpen(true)}><UserPlus className="w-3 h-3 mr-1" /> Novo</Button></Label>
+                    <Select value={formSupplierId} onValueChange={setFormSupplierId} required>
+                      <SelectTrigger><SelectValue placeholder="Selecione..." /></SelectTrigger>
+                      <SelectContent>{sortedSuppliers.map(s => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}</SelectContent>
+                    </Select>
+                  </div>
+                  <div className="grid gap-2">
+                    <Label>Categoria (Despesa)*</Label>
+                    <Select value={formCategoryId} onValueChange={setFormCategoryId} required>
+                      <SelectTrigger><SelectValue placeholder="Selecione..." /></SelectTrigger>
+                      <SelectContent>{leafCategories.map(c => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}</SelectContent>
+                    </Select>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-3 gap-4">
+                  <div className="grid gap-2"><Label>Valor Unitário*</Label><Input type="number" step="0.01" value={formAmount || ""} onChange={e => setFormAmount(Number(e.target.value))} required /></div>
+                  <div className="grid gap-2"><Label>{editingEntry ? 'Vencimento*' : 'Primeiro Vencimento*'}</Label><Input type="date" value={formDueDate} onChange={e => setFormDueDate(e.target.value)} required /></div>
+                  <div className="grid gap-2">
+                    <Label>Centro de Custo</Label>
+                    <Select value={formCostCenterId} onValueChange={setFormCostCenterId}>
+                      <SelectTrigger><SelectValue placeholder="Opcional..." /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="none">Nenhum</SelectItem>
+                        {activeCentersByGroup.map(group => (
+                          <SelectGroup key={group.id}>
+                            <SelectLabel className="text-[10px] uppercase text-primary font-bold">{group.name}</SelectLabel>
+                            {group.centers.map(center => (<SelectItem key={center.id} value={center.id}>{center.name}</SelectItem>))}
+                          </SelectGroup>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+              </TabsContent>
+
+              <TabsContent value="recurrence" className="p-6 pt-4">
+                <div className="bg-primary/5 p-6 rounded-xl border border-primary/10 space-y-6">
+                  <div className="flex items-center space-x-3">
+                    <Checkbox id="recurring" checked={isRecurring} onCheckedChange={(c) => setIsRecurring(!!c)} className="w-5 h-5" />
+                    <div className="grid gap-0.5 leading-none">
+                      <Label htmlFor="recurring" className="text-sm font-bold cursor-pointer">Ativar Parcelamento ou Recorrência</Label>
+                      <p className="text-xs text-muted-foreground">Gere automaticamente várias contas para os próximos períodos.</p>
+                    </div>
                   </div>
                   
                   {isRecurring && (
-                    <div className="grid grid-cols-2 gap-4 animate-in slide-in-from-top-2">
+                    <div className="grid grid-cols-2 gap-6 animate-in slide-in-from-top-2">
                       <div className="grid gap-2">
-                        <Label>Quantidade de Parcelas</Label>
-                        <Input type="number" min={2} max={60} value={installmentsCount} onChange={e => setInstallmentsCount(Number(e.target.value))} />
+                        <Label>Quantidade total de Lançamentos</Label>
+                        <div className="flex items-center gap-3">
+                          <Input type="number" min={2} max={120} value={installmentsCount} onChange={e => setInstallmentsCount(Number(e.target.value))} className="bg-background" />
+                          <span className="text-xs text-muted-foreground font-medium">vezes</span>
+                        </div>
                       </div>
                       <div className="grid gap-2">
-                        <Label>Frequência</Label>
+                        <Label>Frequência / Intervalo</Label>
                         <Select value={recurrenceInterval} onValueChange={(v: any) => setRecurrenceInterval(v)}>
-                          <SelectTrigger><SelectValue /></SelectTrigger>
+                          <SelectTrigger className="bg-background"><SelectValue /></SelectTrigger>
                           <SelectContent>
-                            <SelectItem value="monthly">Mensal</SelectItem>
-                            <SelectItem value="weekly">Semanal</SelectItem>
+                            <SelectItem value="monthly">Mensal (Todo mês)</SelectItem>
+                            <SelectItem value="fortnightly">Quinzenal (A cada 14 dias)</SelectItem>
+                            <SelectItem value="weekly">Semanal (Toda semana)</SelectItem>
+                            <SelectItem value="daily">Diário (Todo dia)</SelectItem>
                           </SelectContent>
                         </Select>
                       </div>
+                      <div className="col-span-2 p-3 bg-white/50 rounded-lg border border-primary/5 text-xs text-primary font-medium flex items-center gap-2">
+                        <ArrowRight className="w-3 h-3" />
+                        O sistema criará {installmentsCount} contas de R$ {formAmount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })} cada, totalizando R$ {(formAmount * installmentsCount).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}.
+                      </div>
+                    </div>
+                  )}
+
+                  {!isRecurring && (
+                    <div className="py-10 text-center opacity-40">
+                      <Repeat className="w-10 h-10 mx-auto mb-2 text-muted-foreground" />
+                      <p className="text-sm">Selecione o checkbox acima para configurar parcelas.</p>
                     </div>
                   )}
                 </div>
-              )}
+              </TabsContent>
+            </Tabs>
+
+            <DialogFooter className="p-6 border-t bg-muted/10">
+              <Button type="button" variant="outline" onClick={() => setIsNewEntryOpen(false)}>Cancelar</Button>
+              <Button type="submit" className="px-10">Salvar Lançamento</Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* MODAL CADASTRO RÁPIDO DE FORNECEDOR */}
+      <Dialog open={isQuickSupplierOpen} onOpenChange={setIsQuickSupplierOpen}>
+        <DialogContent className="max-w-sm">
+          <form onSubmit={handleSaveQuickSupplier}>
+            <DialogHeader>
+              <DialogTitle>Novo Fornecedor Rápido</DialogTitle>
+              <DialogDescription>Cadastre apenas o nome para avançar.</DialogDescription>
+            </DialogHeader>
+            <div className="py-4">
+              <Label>Nome do Fornecedor</Label>
+              <Input value={quickSupName} onChange={e => setQuickSupplierName(e.target.value)} placeholder="Ex: Mercado Central" autoFocus required />
             </div>
-            <DialogFooter><Button type="submit" className="w-full">Salvar Lançamento</Button></DialogFooter>
+            <DialogFooter>
+              <Button type="submit" className="w-full">Criar e Selecionar</Button>
+            </DialogFooter>
           </form>
         </DialogContent>
       </Dialog>

@@ -27,7 +27,8 @@ import {
   FileText,
   CircleOff,
   Calculator,
-  LayoutGrid
+  LayoutGrid,
+  UserPlus
 } from "lucide-react";
 import { useUser, useFirestore, useCollection, useMemoFirebase } from "@/firebase";
 import { collection, doc } from "firebase/firestore";
@@ -75,6 +76,7 @@ export default function ReconciliationPage() {
   const [isMatchModalOpen, setIsMatchModalOpen] = useState(false);
   const [isDetailedCreateOpen, setIsDetailedCreateOpen] = useState(false);
   const [isAdjustmentModalOpen, setIsAdjustmentModalOpen] = useState(false);
+  const [isQuickSupplierOpen, setIsQuickSupplierOpen] = useState(false);
   
   const [matchingTransaction, setMatchingTransaction] = useState<BankTransaction | null>(null);
   const [entryToAdjust, setEntryToAdjust] = useState<any>(null);
@@ -100,6 +102,8 @@ export default function ReconciliationPage() {
   const [formSupplierId, setFormSupplierId] = useState("");
   const [formCustomerName, setFormCustomerName] = useState("");
   const [formCostCenterId, setFormCostCenterId] = useState("");
+
+  const [quickSupName, setQuickSupName] = useState("");
 
   const accountsQuery = useMemoFirebase(() => {
     if (!db || !user) return null;
@@ -228,39 +232,22 @@ export default function ReconciliationPage() {
 
   const pendingDays = useMemo(() => {
     if (!selectedAccountId || !allTransactions || !noMovementDays || !allPayables || !allReceivables) return [];
-    
-    // Marco inicial: 01/05/2026
     const start = new Date("2026-05-01T12:00:00");
     const today = new Date();
-    
-    // Auditar até o maior valor entre hoje e a data selecionada
     const selDate = parseISO(selectedDate);
     let end = isBefore(selDate, today) ? today : selDate;
-    
     const interval = eachDayOfInterval({ start, end });
     
     return interval.filter(day => {
       const dateStr = format(day, "yyyy-MM-dd");
-      
-      // Se está marcado como sem movimento, ignora
       if (noMovementDays.some(d => d.date === dateStr)) return false;
-      
       const dayTransactions = allTransactions.filter(t => t.date === dateStr);
-      
-      // CRÍTICO: Se não tem transações OFX, é pendente (precisa de OFX ou marcação)
       if (dayTransactions.length === 0) return true;
-
-      // Se tem transações mas alguma não está conciliada ou ignorada, é pendente
       if (dayTransactions.some(t => !t.reconciled && !t.ignored)) return true;
-
-      // Se tudo está conciliado, confere o saldo total (Balanço do dia)
       const daySystemIn = allReceivables.filter(r => r.paymentDate === dateStr && r.bankAccountId === selectedAccountId).reduce((acc, e) => acc + e.amount, 0);
       const daySystemOut = allPayables.filter(p => p.paymentDate === dateStr && p.bankAccountId === selectedAccountId).reduce((acc, p) => acc + (p.originalAmount + (p.interest || 0) + (p.fine || 0) - (p.discount || 0)), 0);
-      
       const statementIn = dayTransactions.filter(t => t.type === 'CREDIT' && !t.ignored).reduce((acc, t) => acc + t.amount, 0);
       const statementOut = Math.abs(dayTransactions.filter(t => t.type === 'DEBIT' && !t.ignored).reduce((acc, t) => acc + t.amount, 0));
-
-      // Se a diferença for maior que 1 centavo
       return Math.abs(statementIn - daySystemIn) > 0.01 || Math.abs(statementOut - daySystemOut) > 0.01;
     }).map(day => format(day, "yyyy-MM-dd")).reverse();
   }, [allTransactions, noMovementDays, allPayables, allReceivables, selectedAccountId, selectedDate]);
@@ -305,20 +292,8 @@ export default function ReconciliationPage() {
     if (!db || !user || !selectedAccountId || !matchingTransaction) return;
     updateDocumentNonBlocking(doc(db, "users", user.uid, "bankAccounts", selectedAccountId, "bankTransactions", matchingTransaction.id), { reconciled: true, reconciledEntryId: entryId });
     const col = matchingTransaction.type === 'DEBIT' ? "accountsPayableEntries" : "accountsReceivableEntries";
-    
-    const updateData: any = { 
-      status: 'Paid', 
-      paymentDate: matchingTransaction.date, 
-      bankAccountId: selectedAccountId,
-      updatedAt: new Date().toISOString()
-    };
-    
-    if (adjustments) {
-      updateData.interest = adjustments.interest;
-      updateData.fine = adjustments.fine;
-      updateData.discount = adjustments.discount;
-    }
-
+    const updateData: any = { status: 'Paid', paymentDate: matchingTransaction.date, bankAccountId: selectedAccountId, updatedAt: new Date().toISOString() };
+    if (adjustments) { updateData.interest = adjustments.interest; updateData.fine = adjustments.fine; updateData.discount = adjustments.discount; }
     updateDocumentNonBlocking(doc(db, "users", user.uid, col, entryId), updateData);
     setIsMatchModalOpen(false);
     setIsAdjustmentModalOpen(false);
@@ -340,7 +315,7 @@ export default function ReconciliationPage() {
       paymentDate: matchingTransaction.date, 
       bankAccountId: selectedAccountId, 
       accountCategoryId: formCategoryId, 
-      costCenterId: formCostCenterId || null,
+      costCenterId: formCostCenterId === "none" || !formCostCenterId ? null : formCostCenterId,
       createdAt: new Date().toISOString(), 
       updatedAt: new Date().toISOString() 
     };
@@ -350,7 +325,18 @@ export default function ReconciliationPage() {
     setIsDetailedCreateOpen(false);
   };
 
-  // Logic to handle clicking an entry in the list
+  const handleSaveQuickSupplier = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!db || !user || !quickSupName) return;
+    const id = `sup_${Date.now()}`;
+    const data: Supplier = { id, name: quickSupName, personType: 'Pessoa Jurídica', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
+    setDocumentNonBlocking(doc(db, "users", user.uid, "suppliers", id), data, { merge: true });
+    setFormSupplierId(id);
+    setQuickSupName("");
+    setIsQuickSupplierOpen(false);
+    toast({ title: "Fornecedor criado!" });
+  };
+
   const handleEntryClick = (entry: any) => {
     if (entry.isPayable) {
       setEntryToAdjust(entry);
@@ -564,12 +550,37 @@ export default function ReconciliationPage() {
                 </div>
               </div>
               {matchingTransaction?.type === 'DEBIT' ? (
-                <div className="grid gap-2"><Label>Fornecedor*</Label><Select value={formSupplierId} onValueChange={setFormSupplierId} required><SelectTrigger><SelectValue placeholder="Selecione..." /></SelectTrigger><SelectContent>{suppliers?.map(s => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}</SelectContent></Select></div>
+                <div className="grid gap-2">
+                  <Label className="flex justify-between items-center">Fornecedor* <Button type="button" variant="ghost" className="h-5 px-1.5 text-[10px] text-primary" onClick={() => setIsQuickSupplierOpen(true)}><UserPlus className="w-3 h-3 mr-1" /> Novo</Button></Label>
+                  <Select value={formSupplierId} onValueChange={setFormSupplierId} required>
+                    <SelectTrigger><SelectValue placeholder="Selecione..." /></SelectTrigger>
+                    <SelectContent>{suppliers?.map(s => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}</SelectContent>
+                  </Select>
+                </div>
               ) : (
                 <div className="grid gap-2"><Label>Origem / Cliente*</Label><Input value={formCustomerName} onChange={e => setFormCustomerName(e.target.value)} placeholder="Ex: iFood, Cliente X" required /></div>
               )}
             </div>
             <DialogFooter><Button type="submit" className="w-full">Salvar e Conciliar</Button></DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* MODAL CADASTRO RÁPIDO DE FORNECEDOR (RECONCILIATION) */}
+      <Dialog open={isQuickSupplierOpen} onOpenChange={setIsQuickSupplierOpen}>
+        <DialogContent className="max-w-sm">
+          <form onSubmit={handleSaveQuickSupplier}>
+            <DialogHeader>
+              <DialogTitle>Novo Fornecedor Rápido</DialogTitle>
+              <DialogDescription>Cadastre para avançar na conciliação.</DialogDescription>
+            </DialogHeader>
+            <div className="py-4">
+              <Label>Nome do Fornecedor</Label>
+              <Input value={quickSupName} onChange={e => setQuickSupName(e.target.value)} placeholder="Ex: Mercado Central" autoFocus required />
+            </div>
+            <DialogFooter>
+              <Button type="submit" className="w-full">Criar e Selecionar</Button>
+            </DialogFooter>
           </form>
         </DialogContent>
       </Dialog>
