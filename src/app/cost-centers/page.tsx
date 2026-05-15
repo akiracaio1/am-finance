@@ -435,7 +435,7 @@ export default function CostCentersPage() {
         </CardHeader>
         <CardContent className="text-xs text-muted-foreground space-y-3">
           <p>
-            <strong>Sub-subgrupos:</strong> Agora você pode criar níveis infinitos de organização. Por exemplo: <em>Eventos > Sociais > Casamentos > Noiva X</em>.
+            <strong>Sub-subgrupos:</strong> Agora você pode criar níveis infinitos de organização. Por exemplo: <em>Eventos &gt; Sociais &gt; Casamentos &gt; Noiva X</em>.
           </p>
           <p>
             <strong>Flexibilidade:</strong> Use os botões de edição para mover grupos ou centros de lugar conforme sua operação evolui. 
