@@ -1,4 +1,3 @@
-
 'use server';
 /**
  * @fileOverview Agente de IA AM Finance para analisar dados financeiros e fornecer insights.
@@ -51,6 +50,9 @@ const AnalyzeFinancialDataWithAIOutputSchema = z.object({
 });
 export type AnalyzeFinancialDataWithAIOutput = z.infer<typeof AnalyzeFinancialDataWithAIOutputSchema>;
 
+// Fix: Defining schema before using it in definePrompt
+const AnalyzeProfessionalAIOutputSchema = AnalyzeFinancialDataWithAIOutputSchema;
+
 export async function analyzeFinancialDataWithAI(input: AnalyzeFinancialDataWithAIInput): Promise<AnalyzeFinancialDataWithAIOutput> {
   return analyzeFinancialDataWithAIFlow(input);
 }
@@ -58,7 +60,7 @@ export async function analyzeFinancialDataWithAI(input: AnalyzeFinancialDataWith
 const analyzeFinancialDataPrompt = ai.definePrompt({
   name: 'analyzeFinancialDataPrompt',
   input: {schema: AnalyzeFinancialDataWithAIInputSchema},
-  output: {schema: AnalyzeProfessionalAIOutputSchema}, // Using output schema for structured response
+  output: {schema: AnalyzeProfessionalAIOutputSchema}, // Now schema is defined before access
   prompt: `Você é o Diretor Financeiro (CFO) do AM Finance, um sistema de gestão financeira profissional.
 Seu objetivo é analisar os dados financeiros e fornecer uma consultoria estratégica de alto nível.
 
@@ -82,8 +84,6 @@ TAREFAS:
 
 Forneça uma análise detalhada e recomendações acionáveis. Responda em PORTUGUÊS (Brasil).`,
 });
-
-const AnalyzeProfessionalAIOutputSchema = AnalyzeFinancialDataWithAIOutputSchema;
 
 const analyzeFinancialDataWithAIFlow = ai.defineFlow(
   {
