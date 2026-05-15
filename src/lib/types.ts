@@ -34,7 +34,9 @@ export interface CostCenterGroup {
   id: string;
   name: string;
   description?: string;
+  parentGroupId?: string;
   createdAt: string;
+  updatedAt?: string;
 }
 
 export interface CostCenter {
