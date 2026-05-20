@@ -28,7 +28,8 @@ import {
   CircleOff,
   Calculator,
   LayoutGrid,
-  UserPlus
+  UserPlus,
+  Plus
 } from "lucide-react";
 import { useUser, useFirestore, useCollection, useMemoFirebase } from "@/firebase";
 import { collection, doc } from "firebase/firestore";
@@ -61,7 +62,8 @@ import {
   AccountCategory,
   Supplier,
   CostCenter,
-  CostCenterGroup
+  CostCenterGroup,
+  BankAccountType
 } from "@/lib/types";
 import { format, isBefore, parseISO, eachDayOfInterval } from "date-fns";
 import { parseOFX, OFXTransaction } from "@/lib/ofx-parser";
@@ -77,6 +79,7 @@ export default function ReconciliationPage() {
   const [isDetailedCreateOpen, setIsDetailedCreateOpen] = useState(false);
   const [isAdjustmentModalOpen, setIsAdjustmentModalOpen] = useState(false);
   const [isQuickSupplierOpen, setIsQuickSupplierOpen] = useState(false);
+  const [isNewAccountModalOpen, setIsNewAccountModalOpen] = useState(false);
   
   const [matchingTransaction, setMatchingTransaction] = useState<BankTransaction | null>(null);
   const [entryToAdjust, setEntryToAdjust] = useState<any>(null);
@@ -104,6 +107,12 @@ export default function ReconciliationPage() {
   const [formCostCenterId, setFormCostCenterId] = useState("");
 
   const [quickSupName, setQuickSupName] = useState("");
+
+  // Bank Account Form
+  const [accName, setAccName] = useState("");
+  const [accBank, setAccBank] = useState("");
+  const [accType, setAccType] = useState<BankAccountType>("Corrente");
+  const [accBalance, setAccBalance] = useState(0);
 
   const accountsQuery = useMemoFirebase(() => {
     if (!db || !user) return null;
@@ -337,6 +346,26 @@ export default function ReconciliationPage() {
     toast({ title: "Fornecedor criado!" });
   };
 
+  const handleSaveNewAccount = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!db || !user || !accName || !accBank) return;
+    const id = `acc_${Date.now()}`;
+    const data: BankAccount = { 
+      id, 
+      name: accName, 
+      bank: accBank, 
+      type: accType, 
+      initialBalance: accBalance, 
+      openingDate: format(new Date(), "yyyy-MM-dd"),
+      createdAt: new Date().toISOString() 
+    };
+    setDocumentNonBlocking(doc(db, "users", user.uid, "bankAccounts", id), data, { merge: true });
+    setSelectedAccountId(id);
+    setAccName(""); setAccBank(""); setAccBalance(0);
+    setIsNewAccountModalOpen(false);
+    toast({ title: "Conta bancária criada!" });
+  };
+
   const handleEntryClick = (entry: any) => {
     if (entry.isPayable) {
       setEntryToAdjust(entry);
@@ -360,10 +389,13 @@ export default function ReconciliationPage() {
           <p className="text-muted-foreground">Sincronize seu extrato com o plano de contas.</p>
         </div>
         <div className="flex flex-wrap gap-2 w-full md:w-auto">
-          <Select value={selectedAccountId} onValueChange={setSelectedAccountId}>
-            <SelectTrigger className="w-[200px]"><SelectValue placeholder="Selecione a conta" /></SelectTrigger>
-            <SelectContent>{accounts?.map(acc => <SelectItem key={acc.id} value={acc.id}>{acc.name} ({acc.bank})</SelectItem>)}</SelectContent>
-          </Select>
+          <div className="flex items-center gap-1">
+            <Select value={selectedAccountId} onValueChange={setSelectedAccountId}>
+              <SelectTrigger className="w-[200px]"><SelectValue placeholder="Selecione a conta" /></SelectTrigger>
+              <SelectContent>{accounts?.map(acc => <SelectItem key={acc.id} value={acc.id}>{acc.name} ({acc.bank})</SelectItem>)}</SelectContent>
+            </Select>
+            <Button variant="outline" size="icon" onClick={() => setIsNewAccountModalOpen(true)} title="Nova Conta"><Plus className="w-4 h-4" /></Button>
+          </div>
           <Button disabled={!selectedAccountId} onClick={() => fileInputRef.current?.click()} className="gap-2"><Upload className="w-4 h-4" /> Importar OFX</Button>
           <input type="file" accept=".ofx" className="hidden" ref={fileInputRef} onChange={handleOFXFileChange} />
         </div>
@@ -580,6 +612,38 @@ export default function ReconciliationPage() {
             </div>
             <DialogFooter>
               <Button type="submit" className="w-full">Criar e Selecionar</Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* MODAL NOVA CONTA BANCÁRIA */}
+      <Dialog open={isNewAccountModalOpen} onOpenChange={setIsNewAccountModalOpen}>
+        <DialogContent className="max-w-sm">
+          <form onSubmit={handleSaveNewAccount}>
+            <DialogHeader>
+              <DialogTitle>Nova Conta Bancária</DialogTitle>
+              <DialogDescription>Cadastre a conta para realizar conciliações.</DialogDescription>
+            </DialogHeader>
+            <div className="grid gap-4 py-4">
+              <div className="grid gap-2"><Label>Nome Identificador (Apelido)</Label><Input value={accName} onChange={e => setAccName(e.target.value)} placeholder="Ex: Conta Principal PJ" required /></div>
+              <div className="grid gap-2"><Label>Banco</Label><Input value={accBank} onChange={e => setAccBank(e.target.value)} placeholder="Ex: Itaú, Nubank, Safra" required /></div>
+              <div className="grid gap-2">
+                <Label>Tipo de Conta</Label>
+                <Select value={accType} onValueChange={(v: any) => setAccType(v)}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="Corrente">Corrente</SelectItem>
+                    <SelectItem value="Poupança">Poupança</SelectItem>
+                    <SelectItem value="Investimento">Investimento</SelectItem>
+                    <SelectItem value="Caixinha">Caixinha</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="grid gap-2"><Label>Saldo Inicial (Ajuste)</Label><Input type="number" step="0.01" value={accBalance} onChange={e => setAccBalance(Number(e.target.value))} /></div>
+            </div>
+            <DialogFooter>
+              <Button type="submit" className="w-full">Criar Conta</Button>
             </DialogFooter>
           </form>
         </DialogContent>

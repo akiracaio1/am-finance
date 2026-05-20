@@ -30,7 +30,9 @@ import {
   Repeat,
   Calculator,
   UserPlus,
-  ArrowRight
+  ArrowRight,
+  Trash2,
+  AlertCircle
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useUser, useFirestore, useCollection, useMemoFirebase } from "@/firebase";
@@ -76,6 +78,11 @@ import {
   addDays
 } from "date-fns";
 
+type InstallmentDraft = {
+  date: string;
+  amount: number;
+};
+
 export default function AccountsPayablePage() {
   const { user } = useUser();
   const db = useFirestore();
@@ -101,6 +108,7 @@ export default function AccountsPayablePage() {
   const [isRecurring, setIsRecurring] = useState(false);
   const [installmentsCount, setInstallmentsCount] = useState(1);
   const [recurrenceInterval, setRecurrenceInterval] = useState<"monthly" | "weekly" | "fortnightly" | "daily">("monthly");
+  const [installmentsDraft, setInstallmentsDraft] = useState<InstallmentDraft[]>([]);
 
   // Estado de Cadastro Rápido de Fornecedor
   const [quickSupName, setQuickSupplierName] = useState("");
@@ -125,6 +133,50 @@ export default function AccountsPayablePage() {
     setTodayStr(format(now, "yyyy-MM-dd"));
     setPayDate(format(now, "yyyy-MM-dd"));
   }, []);
+
+  // Efeito para gerar rascunho de parcelas
+  useEffect(() => {
+    if (!isRecurring || installmentsCount <= 1 || !formDueDate || formAmount <= 0) {
+      setInstallmentsDraft([]);
+      return;
+    }
+
+    const drafts: InstallmentDraft[] = [];
+    const startDate = parseISO(formDueDate);
+    const baseValue = Number((formAmount / installmentsCount).toFixed(2));
+    let totalAssigned = 0;
+
+    for (let i = 0; i < installmentsCount; i++) {
+      let currentDueDate: Date;
+      switch(recurrenceInterval) {
+        case 'weekly': currentDueDate = addWeeks(startDate, i); break;
+        case 'fortnightly': currentDueDate = addDays(startDate, i * 14); break;
+        case 'daily': currentDueDate = addDays(startDate, i); break;
+        default: currentDueDate = addMonths(startDate, i);
+      }
+
+      // Ajuste de arredondamento na última parcela
+      const installmentValue = i === installmentsCount - 1 
+        ? Number((formAmount - totalAssigned).toFixed(2)) 
+        : baseValue;
+      
+      totalAssigned += installmentValue;
+
+      drafts.push({
+        date: format(currentDueDate, "yyyy-MM-dd"),
+        amount: installmentValue
+      });
+    }
+    setInstallmentsDraft(drafts);
+  }, [isRecurring, installmentsCount, recurrenceInterval, formAmount, formDueDate]);
+
+  const updateDraftItem = (index: number, field: keyof InstallmentDraft, value: any) => {
+    const newDrafts = [...installmentsDraft];
+    newDrafts[index] = { ...newDrafts[index], [field]: value };
+    setInstallmentsDraft(newDrafts);
+  };
+
+  const totalDraftValue = installmentsDraft.reduce((acc, curr) => acc + curr.amount, 0);
 
   const entriesQuery = useMemoFirebase(() => {
     if (!db || !user) return null;
@@ -247,21 +299,28 @@ export default function AccountsPayablePage() {
       updateDocumentNonBlocking(doc(db, "users", user.uid, "accountsPayableEntries", editingEntry.id), { ...baseData, originalAmount: formAmount, dueDate: formDueDate });
       toast({ title: "Lançamento atualizado" });
     } else {
-      const count = isRecurring ? installmentsCount : 1;
-      const startDate = parseISO(formDueDate);
-
-      for (let i = 0; i < count; i++) {
-        const id = `pay_${Date.now()}_${i}`;
-        let currentDueDate: Date;
-        switch(recurrenceInterval) {
-          case 'weekly': currentDueDate = addWeeks(startDate, i); break;
-          case 'fortnightly': currentDueDate = addDays(startDate, i * 14); break;
-          case 'daily': currentDueDate = addDays(startDate, i); break;
-          default: currentDueDate = addMonths(startDate, i);
-        }
-        
-        const installmentInfo = count > 1 ? `${i + 1}/${count}` : "";
-        
+      if (isRecurring && installmentsDraft.length > 1) {
+        // Salvar via rascunho de parcelas
+        installmentsDraft.forEach((draft, i) => {
+          const id = `pay_${Date.now()}_${i}`;
+          setDocumentNonBlocking(
+            doc(db, "users", user.uid, "accountsPayableEntries", id), 
+            { 
+              ...baseData, 
+              id, 
+              status: 'Open', 
+              originalAmount: draft.amount, 
+              dueDate: draft.date, 
+              installmentInfo: `${i + 1}/${installmentsDraft.length}`,
+              createdAt: new Date().toISOString() 
+            }, 
+            { merge: true }
+          );
+        });
+        toast({ title: `${installmentsDraft.length} parcelas geradas!` });
+      } else {
+        // Salvar lançamento único
+        const id = `pay_${Date.now()}`;
         setDocumentNonBlocking(
           doc(db, "users", user.uid, "accountsPayableEntries", id), 
           { 
@@ -269,14 +328,13 @@ export default function AccountsPayablePage() {
             id, 
             status: 'Open', 
             originalAmount: formAmount, 
-            dueDate: format(currentDueDate, "yyyy-MM-dd"), 
-            installmentInfo,
+            dueDate: formDueDate, 
             createdAt: new Date().toISOString() 
           }, 
           { merge: true }
         );
+        toast({ title: "Lançamento salvo!" });
       }
-      toast({ title: count > 1 ? `${count} lançamentos gerados` : "Lançamento salvo" });
     }
     setIsNewEntryOpen(false); setEditingEntry(null);
   };
@@ -350,6 +408,7 @@ export default function AccountsPayablePage() {
             setFormCostCenterId(""); 
             setFormType("Confirmed");
             setIsRecurring(false);
+            setInstallmentsCount(1);
             setIsNewEntryOpen(true); 
           }}><Plus className="w-4 h-4" /> Novo Lançamento</Button>
         </div>
@@ -503,7 +562,7 @@ export default function AccountsPayablePage() {
 
       {/* MODAL DE NOVO LANÇAMENTO COM ABAS */}
       <Dialog open={isNewEntryOpen} onOpenChange={setIsNewEntryOpen}>
-        <DialogContent className="max-w-2xl p-0 overflow-hidden">
+        <DialogContent className="max-w-3xl p-0 overflow-hidden">
           <form onSubmit={handleSaveEntry}>
             <div className="p-6 border-b bg-muted/20">
               <DialogHeader>
@@ -550,7 +609,7 @@ export default function AccountsPayablePage() {
                 </div>
 
                 <div className="grid grid-cols-3 gap-4">
-                  <div className="grid gap-2"><Label>Valor Unitário*</Label><Input type="number" step="0.01" value={formAmount || ""} onChange={e => setFormAmount(Number(e.target.value))} required /></div>
+                  <div className="grid gap-2"><Label>Valor {isRecurring ? 'Total' : 'Unitário'}*</Label><Input type="number" step="0.01" value={formAmount || ""} onChange={e => setFormAmount(Number(e.target.value))} required /></div>
                   <div className="grid gap-2"><Label>{editingEntry ? 'Vencimento*' : 'Primeiro Vencimento*'}</Label><Input type="date" value={formDueDate} onChange={e => setFormDueDate(e.target.value)} required /></div>
                   <div className="grid gap-2">
                     <Label>Centro de Custo</Label>
@@ -581,30 +640,79 @@ export default function AccountsPayablePage() {
                   </div>
                   
                   {isRecurring && (
-                    <div className="grid grid-cols-2 gap-6 animate-in slide-in-from-top-2">
-                      <div className="grid gap-2">
-                        <Label>Quantidade total de Lançamentos</Label>
-                        <div className="flex items-center gap-3">
-                          <Input type="number" min={2} max={120} value={installmentsCount} onChange={e => setInstallmentsCount(Number(e.target.value))} className="bg-background" />
-                          <span className="text-xs text-muted-foreground font-medium">vezes</span>
+                    <div className="space-y-6 animate-in slide-in-from-top-2">
+                      <div className="grid grid-cols-2 gap-6">
+                        <div className="grid gap-2">
+                          <Label>Quantidade total de Parcelas</Label>
+                          <div className="flex items-center gap-3">
+                            <Input type="number" min={2} max={120} value={installmentsCount} onChange={e => setInstallmentsCount(Number(e.target.value))} className="bg-background" />
+                            <span className="text-xs text-muted-foreground font-medium">vezes</span>
+                          </div>
+                        </div>
+                        <div className="grid gap-2">
+                          <Label>Frequência / Intervalo</Label>
+                          <Select value={recurrenceInterval} onValueChange={(v: any) => setRecurrenceInterval(v)}>
+                            <SelectTrigger className="bg-background"><SelectValue /></SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="monthly">Mensal (Todo mês)</SelectItem>
+                              <SelectItem value="fortnightly">Quinzenal (A cada 14 dias)</SelectItem>
+                              <SelectItem value="weekly">Semanal (Toda semana)</SelectItem>
+                              <SelectItem value="daily">Diário (Todo dia)</SelectItem>
+                            </SelectContent>
+                          </Select>
                         </div>
                       </div>
-                      <div className="grid gap-2">
-                        <Label>Frequência / Intervalo</Label>
-                        <Select value={recurrenceInterval} onValueChange={(v: any) => setRecurrenceInterval(v)}>
-                          <SelectTrigger className="bg-background"><SelectValue /></SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="monthly">Mensal (Todo mês)</SelectItem>
-                            <SelectItem value="fortnightly">Quinzenal (A cada 14 dias)</SelectItem>
-                            <SelectItem value="weekly">Semanal (Toda semana)</SelectItem>
-                            <SelectItem value="daily">Diário (Todo dia)</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
-                      <div className="col-span-2 p-3 bg-white/50 rounded-lg border border-primary/5 text-xs text-primary font-medium flex items-center gap-2">
-                        <ArrowRight className="w-3 h-3" />
-                        O sistema criará {installmentsCount} contas de R$ {formAmount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })} cada, totalizando R$ {(formAmount * installmentsCount).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}.
-                      </div>
+
+                      {installmentsDraft.length > 0 && (
+                        <div className="space-y-3">
+                          <div className="flex justify-between items-center">
+                            <Label className="text-xs uppercase font-bold text-primary">Prévia das Parcelas (Editável)</Label>
+                            <div className={cn("text-xs font-bold px-2 py-1 rounded", Math.abs(totalDraftValue - formAmount) < 0.01 ? "bg-emerald-100 text-emerald-700" : "bg-destructive/10 text-destructive")}>
+                              Soma: R$ {totalDraftValue.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                              {Math.abs(totalDraftValue - formAmount) >= 0.01 && <span className="ml-1 flex items-center gap-1 inline-flex"><AlertCircle className="w-3 h-3" /> Divergente do Total</span>}
+                            </div>
+                          </div>
+                          
+                          <div className="max-h-[250px] overflow-y-auto border rounded-lg bg-background">
+                            <Table>
+                              <TableHeader className="bg-muted/50">
+                                <TableRow>
+                                  <TableHead className="w-12 text-center h-8">#</TableHead>
+                                  <TableHead className="h-8">Vencimento</TableHead>
+                                  <TableHead className="h-8 text-right">Valor da Parcela</TableHead>
+                                </TableRow>
+                              </TableHeader>
+                              <TableBody>
+                                {installmentsDraft.map((draft, idx) => (
+                                  <TableRow key={idx} className="hover:bg-muted/20">
+                                    <TableCell className="text-center py-1 text-xs font-bold text-muted-foreground">{idx + 1}</TableCell>
+                                    <TableCell className="py-1">
+                                      <Input 
+                                        type="date" 
+                                        value={draft.date} 
+                                        onChange={(e) => updateDraftItem(idx, 'date', e.target.value)}
+                                        className="h-8 text-xs border-none shadow-none focus-visible:ring-1"
+                                      />
+                                    </TableCell>
+                                    <TableCell className="py-1 text-right">
+                                      <div className="flex items-center justify-end gap-2">
+                                        <span className="text-xs text-muted-foreground">R$</span>
+                                        <Input 
+                                          type="number" 
+                                          step="0.01" 
+                                          value={draft.amount} 
+                                          onChange={(e) => updateDraftItem(idx, 'amount', Number(e.target.value))}
+                                          className="h-8 text-xs w-24 text-right border-none shadow-none focus-visible:ring-1 font-bold"
+                                        />
+                                      </div>
+                                    </TableCell>
+                                  </TableRow>
+                                ))}
+                              </TableBody>
+                            </Table>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   )}
 
@@ -620,7 +728,9 @@ export default function AccountsPayablePage() {
 
             <DialogFooter className="p-6 border-t bg-muted/10">
               <Button type="button" variant="outline" onClick={() => setIsNewEntryOpen(false)}>Cancelar</Button>
-              <Button type="submit" className="px-10">Salvar Lançamento</Button>
+              <Button type="submit" className="px-10" disabled={isRecurring && Math.abs(totalDraftValue - formAmount) >= 0.01}>
+                {isRecurring ? `Salvar ${installmentsCount} Parcelas` : 'Salvar Lançamento'}
+              </Button>
             </DialogFooter>
           </form>
         </DialogContent>
