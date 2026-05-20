@@ -32,7 +32,9 @@ import {
   UserPlus,
   ArrowRight,
   Trash2,
-  AlertCircle
+  AlertCircle,
+  Divide,
+  Layers
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useUser, useFirestore, useCollection, useMemoFirebase } from "@/firebase";
@@ -66,6 +68,7 @@ import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Collapsible, CollapsibleContent } from "@/components/ui/collapsible";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { toast } from "@/hooks/use-toast";
 import { Supplier, AccountCategory, AccountsPayableEntry, EntryType, CostCenter, CostCenterGroup } from "@/lib/types";
 import { 
@@ -105,7 +108,8 @@ export default function AccountsPayablePage() {
   const [formCostCenterId, setFormCostCenterId] = useState("");
   
   // Estados de Parcelamento/Recorrência Avançado
-  const [isRecurring, setIsRecurring] = useState(false);
+  const [isMultiEntry, setIsMultiEntry] = useState(false);
+  const [multiMode, setMultiMode] = useState<"installment" | "recurrence">("installment");
   const [installmentsCount, setInstallmentsCount] = useState(1);
   const [recurrenceInterval, setRecurrenceInterval] = useState<"monthly" | "weekly" | "fortnightly" | "daily">("monthly");
   const [installmentsDraft, setInstallmentsDraft] = useState<InstallmentDraft[]>([]);
@@ -134,16 +138,24 @@ export default function AccountsPayablePage() {
     setPayDate(format(now, "yyyy-MM-dd"));
   }, []);
 
-  // Efeito para gerar rascunho de parcelas
+  // Efeito para gerar rascunho de parcelas/recorrência
   useEffect(() => {
-    if (!isRecurring || installmentsCount <= 1 || !formDueDate || formAmount <= 0) {
+    if (!isMultiEntry || installmentsCount <= 1 || !formDueDate || formAmount <= 0) {
       setInstallmentsDraft([]);
       return;
     }
 
     const drafts: InstallmentDraft[] = [];
     const startDate = parseISO(formDueDate);
-    const baseValue = Number((formAmount / installmentsCount).toFixed(2));
+    
+    // Lógica de Diferenciação
+    let baseValue = 0;
+    if (multiMode === 'installment') {
+      baseValue = Number((formAmount / installmentsCount).toFixed(2));
+    } else {
+      baseValue = formAmount;
+    }
+
     let totalAssigned = 0;
 
     for (let i = 0; i < installmentsCount; i++) {
@@ -155,10 +167,13 @@ export default function AccountsPayablePage() {
         default: currentDueDate = addMonths(startDate, i);
       }
 
-      // Ajuste de arredondamento na última parcela
-      const installmentValue = i === installmentsCount - 1 
-        ? Number((formAmount - totalAssigned).toFixed(2)) 
-        : baseValue;
+      // No parcelamento, ajustamos a última parcela pelo arredondamento
+      let installmentValue = baseValue;
+      if (multiMode === 'installment') {
+        installmentValue = i === installmentsCount - 1 
+          ? Number((formAmount - totalAssigned).toFixed(2)) 
+          : baseValue;
+      }
       
       totalAssigned += installmentValue;
 
@@ -168,7 +183,7 @@ export default function AccountsPayablePage() {
       });
     }
     setInstallmentsDraft(drafts);
-  }, [isRecurring, installmentsCount, recurrenceInterval, formAmount, formDueDate]);
+  }, [isMultiEntry, multiMode, installmentsCount, recurrenceInterval, formAmount, formDueDate]);
 
   const updateDraftItem = (index: number, field: keyof InstallmentDraft, value: any) => {
     const newDrafts = [...installmentsDraft];
@@ -299,8 +314,8 @@ export default function AccountsPayablePage() {
       updateDocumentNonBlocking(doc(db, "users", user.uid, "accountsPayableEntries", editingEntry.id), { ...baseData, originalAmount: formAmount, dueDate: formDueDate });
       toast({ title: "Lançamento atualizado" });
     } else {
-      if (isRecurring && installmentsDraft.length > 1) {
-        // Salvar via rascunho de parcelas
+      if (isMultiEntry && installmentsDraft.length > 1) {
+        // Salvar via rascunho de parcelas/recorrência
         installmentsDraft.forEach((draft, i) => {
           const id = `pay_${Date.now()}_${i}`;
           setDocumentNonBlocking(
@@ -317,7 +332,7 @@ export default function AccountsPayablePage() {
             { merge: true }
           );
         });
-        toast({ title: `${installmentsDraft.length} parcelas geradas!` });
+        toast({ title: `${installmentsDraft.length} lançamentos gerados!` });
       } else {
         // Salvar lançamento único
         const id = `pay_${Date.now()}`;
@@ -364,7 +379,7 @@ export default function AccountsPayablePage() {
     setFormCategoryId(entry.accountCategoryId);
     setFormCostCenterId(entry.costCenterId || "");
     setFormType(entry.entryType || "Confirmed");
-    setIsRecurring(false);
+    setIsMultiEntry(false);
     setIsNewEntryOpen(true);
     toast({ title: "Dados copiados para o formulário" });
   };
@@ -407,8 +422,9 @@ export default function AccountsPayablePage() {
             setFormCategoryId("");
             setFormCostCenterId(""); 
             setFormType("Confirmed");
-            setIsRecurring(false);
+            setIsMultiEntry(false);
             setInstallmentsCount(1);
+            setMultiMode("installment");
             setIsNewEntryOpen(true); 
           }}><Plus className="w-4 h-4" /> Novo Lançamento</Button>
         </div>
@@ -541,7 +557,7 @@ export default function AccountsPayablePage() {
                           setFormCategoryId(entry.accountCategoryId); 
                           setFormCostCenterId(entry.costCenterId || ""); 
                           setFormType(entry.entryType || "Confirmed");
-                          setIsRecurring(false);
+                          setIsMultiEntry(false);
                           setIsNewEntryOpen(true); 
                         }}>Editar</DropdownMenuItem>
                         <DropdownMenuItem onClick={() => {
@@ -567,7 +583,7 @@ export default function AccountsPayablePage() {
             <div className="p-6 border-b bg-muted/20">
               <DialogHeader>
                 <DialogTitle>{editingEntry ? 'Editar' : 'Novo'} Lançamento de Despesa</DialogTitle>
-                <DialogDescription>Preencha os dados básicos ou configure o parcelamento nas abas abaixo.</DialogDescription>
+                <DialogDescription>Preencha os dados básicos ou configure lançamentos múltiplos nas abas abaixo.</DialogDescription>
               </DialogHeader>
             </div>
 
@@ -575,7 +591,7 @@ export default function AccountsPayablePage() {
               <div className="px-6 pt-4">
                 <TabsList className="grid w-full grid-cols-2 h-11">
                   <TabsTrigger value="basic" className="gap-2"><CalendarDays className="w-4 h-4" /> Informações da Conta</TabsTrigger>
-                  <TabsTrigger value="recurrence" disabled={!!editingEntry} className="gap-2"><Repeat className="w-4 h-4" /> Parcelamento / Recorrência</TabsTrigger>
+                  <TabsTrigger value="recurrence" disabled={!!editingEntry} className="gap-2"><Repeat className="w-4 h-4" /> Parcelas / Recorrência</TabsTrigger>
                 </TabsList>
               </div>
 
@@ -609,7 +625,10 @@ export default function AccountsPayablePage() {
                 </div>
 
                 <div className="grid grid-cols-3 gap-4">
-                  <div className="grid gap-2"><Label>Valor {isRecurring ? 'Total' : 'Unitário'}*</Label><Input type="number" step="0.01" value={formAmount || ""} onChange={e => setFormAmount(Number(e.target.value))} required /></div>
+                  <div className="grid gap-2">
+                    <Label>{isMultiEntry && multiMode === 'installment' ? 'Valor Total da Compra*' : 'Valor da Parcela/Conta*'}</Label>
+                    <Input type="number" step="0.01" value={formAmount || ""} onChange={e => setFormAmount(Number(e.target.value))} required />
+                  </div>
                   <div className="grid gap-2"><Label>{editingEntry ? 'Vencimento*' : 'Primeiro Vencimento*'}</Label><Input type="date" value={formDueDate} onChange={e => setFormDueDate(e.target.value)} required /></div>
                   <div className="grid gap-2">
                     <Label>Centro de Custo</Label>
@@ -632,18 +651,52 @@ export default function AccountsPayablePage() {
               <TabsContent value="recurrence" className="p-6 pt-4">
                 <div className="bg-primary/5 p-6 rounded-xl border border-primary/10 space-y-6">
                   <div className="flex items-center space-x-3">
-                    <Checkbox id="recurring" checked={isRecurring} onCheckedChange={(c) => setIsRecurring(!!c)} className="w-5 h-5" />
+                    <Checkbox id="recurring" checked={isMultiEntry} onCheckedChange={(c) => setIsMultiEntry(!!c)} className="w-5 h-5" />
                     <div className="grid gap-0.5 leading-none">
-                      <Label htmlFor="recurring" className="text-sm font-bold cursor-pointer">Ativar Parcelamento ou Recorrência</Label>
+                      <Label htmlFor="recurring" className="text-sm font-bold cursor-pointer">Ativar Lançamento Múltiplo</Label>
                       <p className="text-xs text-muted-foreground">Gere automaticamente várias contas para os próximos períodos.</p>
                     </div>
                   </div>
                   
-                  {isRecurring && (
+                  {isMultiEntry && (
                     <div className="space-y-6 animate-in slide-in-from-top-2">
+                      <div className="grid gap-4">
+                        <Label className="text-xs uppercase font-bold text-muted-foreground">Escolha o Modo</Label>
+                        <RadioGroup value={multiMode} onValueChange={(v: any) => setMultiMode(v)} className="grid grid-cols-2 gap-4">
+                          <Label
+                            htmlFor="opt-installment"
+                            className={cn(
+                              "flex flex-col items-center justify-between rounded-md border-2 border-muted bg-background p-4 hover:bg-muted/50 cursor-pointer",
+                              multiMode === 'installment' && "border-primary"
+                            )}
+                          >
+                            <RadioGroupItem value="installment" id="opt-installment" className="sr-only" />
+                            <Divide className="mb-3 h-6 w-6" />
+                            <div className="text-center">
+                              <p className="text-sm font-bold">Parcelamento</p>
+                              <p className="text-[10px] text-muted-foreground">Divide o valor total em X partes.</p>
+                            </div>
+                          </Label>
+                          <Label
+                            htmlFor="opt-recurrence"
+                            className={cn(
+                              "flex flex-col items-center justify-between rounded-md border-2 border-muted bg-background p-4 hover:bg-muted/50 cursor-pointer",
+                              multiMode === 'recurrence' && "border-primary"
+                            )}
+                          >
+                            <RadioGroupItem value="recurrence" id="opt-recurrence" className="sr-only" />
+                            <Layers className="mb-3 h-6 w-6" />
+                            <div className="text-center">
+                              <p className="text-sm font-bold">Recorrência</p>
+                              <p className="text-[10px] text-muted-foreground">Repete o valor unitário X vezes.</p>
+                            </div>
+                          </Label>
+                        </RadioGroup>
+                      </div>
+
                       <div className="grid grid-cols-2 gap-6">
                         <div className="grid gap-2">
-                          <Label>Quantidade total de Parcelas</Label>
+                          <Label>Quantidade total de Lançamentos</Label>
                           <div className="flex items-center gap-3">
                             <Input type="number" min={2} max={120} value={installmentsCount} onChange={e => setInstallmentsCount(Number(e.target.value))} className="bg-background" />
                             <span className="text-xs text-muted-foreground font-medium">vezes</span>
@@ -666,11 +719,18 @@ export default function AccountsPayablePage() {
                       {installmentsDraft.length > 0 && (
                         <div className="space-y-3">
                           <div className="flex justify-between items-center">
-                            <Label className="text-xs uppercase font-bold text-primary">Prévia das Parcelas (Editável)</Label>
-                            <div className={cn("text-xs font-bold px-2 py-1 rounded", Math.abs(totalDraftValue - formAmount) < 0.01 ? "bg-emerald-100 text-emerald-700" : "bg-destructive/10 text-destructive")}>
-                              Soma: R$ {totalDraftValue.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-                              {Math.abs(totalDraftValue - formAmount) >= 0.01 && <span className="ml-1 flex items-center gap-1 inline-flex"><AlertCircle className="w-3 h-3" /> Divergente do Total</span>}
-                            </div>
+                            <Label className="text-xs uppercase font-bold text-primary">Prévia dos Lançamentos (Editável)</Label>
+                            {multiMode === 'installment' && (
+                              <div className={cn("text-xs font-bold px-2 py-1 rounded", Math.abs(totalDraftValue - formAmount) < 0.01 ? "bg-emerald-100 text-emerald-700" : "bg-destructive/10 text-destructive")}>
+                                Soma: R$ {totalDraftValue.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                                {Math.abs(totalDraftValue - formAmount) >= 0.01 && <span className="ml-1 flex items-center gap-1 inline-flex"><AlertCircle className="w-3 h-3" /> Divergente do Total</span>}
+                              </div>
+                            )}
+                            {multiMode === 'recurrence' && (
+                              <div className="text-xs font-bold px-2 py-1 rounded bg-muted">
+                                Total Acumulado: R$ {totalDraftValue.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                              </div>
+                            )}
                           </div>
                           
                           <div className="max-h-[250px] overflow-y-auto border rounded-lg bg-background">
@@ -679,7 +739,7 @@ export default function AccountsPayablePage() {
                                 <TableRow>
                                   <TableHead className="w-12 text-center h-8">#</TableHead>
                                   <TableHead className="h-8">Vencimento</TableHead>
-                                  <TableHead className="h-8 text-right">Valor da Parcela</TableHead>
+                                  <TableHead className="h-8 text-right">Valor</TableHead>
                                 </TableRow>
                               </TableHeader>
                               <TableBody>
@@ -716,10 +776,10 @@ export default function AccountsPayablePage() {
                     </div>
                   )}
 
-                  {!isRecurring && (
+                  {!isMultiEntry && (
                     <div className="py-10 text-center opacity-40">
                       <Repeat className="w-10 h-10 mx-auto mb-2 text-muted-foreground" />
-                      <p className="text-sm">Selecione o checkbox acima para configurar parcelas.</p>
+                      <p className="text-sm">Selecione o checkbox acima para configurar parcelas ou recorrência.</p>
                     </div>
                   )}
                 </div>
@@ -728,8 +788,8 @@ export default function AccountsPayablePage() {
 
             <DialogFooter className="p-6 border-t bg-muted/10">
               <Button type="button" variant="outline" onClick={() => setIsNewEntryOpen(false)}>Cancelar</Button>
-              <Button type="submit" className="px-10" disabled={isRecurring && Math.abs(totalDraftValue - formAmount) >= 0.01}>
-                {isRecurring ? `Salvar ${installmentsCount} Parcelas` : 'Salvar Lançamento'}
+              <Button type="submit" className="px-10" disabled={isMultiEntry && multiMode === 'installment' && Math.abs(totalDraftValue - formAmount) >= 0.01}>
+                {isMultiEntry ? `Salvar ${installmentsCount} Lançamentos` : 'Salvar Lançamento'}
               </Button>
             </DialogFooter>
           </form>
