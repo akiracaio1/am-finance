@@ -29,7 +29,8 @@ import {
   Calculator,
   LayoutGrid,
   UserPlus,
-  Plus
+  Plus,
+  CheckCircle2
 } from "lucide-react";
 import { useUser, useFirestore, useCollection, useMemoFirebase } from "@/firebase";
 import { collection, doc } from "firebase/firestore";
@@ -82,6 +83,8 @@ export default function ReconciliationPage() {
   const [isNewAccountModalOpen, setIsNewAccountModalOpen] = useState(false);
   
   const [matchingTransaction, setMatchingTransaction] = useState<BankTransaction | null>(null);
+  const [selectedMatchEntryIds, setSelectedMatchEntries] = useState<string[]>([]);
+  
   const [entryToAdjust, setEntryToAdjust] = useState<any>(null);
   
   // States for adjustment
@@ -239,6 +242,15 @@ export default function ReconciliationPage() {
     });
   }, [openSystemEntries, matchingTransaction, matchSearchTerm, matchDateStart, matchDateEnd, matchMinValue, matchMaxValue, suppliers]);
 
+  // Logic for multi-match total
+  const totalSelectedInMatch = useMemo(() => {
+    return filteredOpenEntries
+      .filter(e => selectedMatchEntryIds.includes(e.id))
+      .reduce((acc, e) => acc + ((e as any).amount || (e as any).originalAmount || 0), 0);
+  }, [filteredOpenEntries, selectedMatchEntryIds]);
+
+  const diffInMatch = matchingTransaction ? (Math.abs(matchingTransaction.amount) - totalSelectedInMatch) : 0;
+
   const pendingDays = useMemo(() => {
     if (!selectedAccountId || !allTransactions || !noMovementDays || !allPayables || !allReceivables) return [];
     const start = new Date("2026-05-01T12:00:00");
@@ -291,22 +303,55 @@ export default function ReconciliationPage() {
 
   const undoMatch = (transaction: BankTransaction) => {
     if (!db || !user || !selectedAccountId || !transaction.reconciledEntryId) return;
+    
+    const entryIds = transaction.reconciledEntryId.split(',');
     const col = transaction.type === 'DEBIT' ? "accountsPayableEntries" : "accountsReceivableEntries";
+    
     updateDocumentNonBlocking(doc(db, "users", user.uid, "bankAccounts", selectedAccountId, "bankTransactions", transaction.id), { reconciled: false, reconciledEntryId: null });
-    updateDocumentNonBlocking(doc(db, "users", user.uid, col, transaction.reconciledEntryId), { status: 'Open', paymentDate: null, bankAccountId: null });
-    toast({ title: "Conciliação desfeita" });
+    
+    entryIds.forEach(eid => {
+      updateDocumentNonBlocking(doc(db, "users", user.uid, col, eid), { status: 'Open', paymentDate: null, bankAccountId: null });
+    });
+    
+    toast({ title: `Conciliação desfeita (${entryIds.length} itens)` });
   };
 
-  const confirmMatch = (entryId: string, adjustments?: { interest: number, fine: number, discount: number }) => {
+  const confirmMatch = (entryIds: string[], adjustments?: { interest: number, fine: number, discount: number }) => {
     if (!db || !user || !selectedAccountId || !matchingTransaction) return;
-    updateDocumentNonBlocking(doc(db, "users", user.uid, "bankAccounts", selectedAccountId, "bankTransactions", matchingTransaction.id), { reconciled: true, reconciledEntryId: entryId });
-    const col = matchingTransaction.type === 'DEBIT' ? "accountsPayableEntries" : "accountsReceivableEntries";
-    const updateData: any = { status: 'Paid', paymentDate: matchingTransaction.date, bankAccountId: selectedAccountId, updatedAt: new Date().toISOString() };
-    if (adjustments) { updateData.interest = adjustments.interest; updateData.fine = adjustments.fine; updateData.discount = adjustments.discount; }
-    updateDocumentNonBlocking(doc(db, "users", user.uid, col, entryId), updateData);
+    
+    // For simplicity, store multiple IDs as comma separated string in the single field
+    const reconciledIdString = entryIds.join(',');
+    
+    updateDocumentNonBlocking(doc(db, "users", user.uid, "bankAccounts", selectedAccountId, "bankTransactions", matchingTransaction.id), { 
+      reconciled: true, 
+      reconciledEntryId: reconciledIdString 
+    });
+    
+    const isPayable = matchingTransaction.type === 'DEBIT';
+    const col = isPayable ? "accountsPayableEntries" : "accountsReceivableEntries";
+    
+    entryIds.forEach(entryId => {
+      const updateData: any = { 
+        status: 'Paid', 
+        paymentDate: matchingTransaction.date, 
+        bankAccountId: selectedAccountId, 
+        updatedAt: new Date().toISOString() 
+      };
+      
+      // If single item with adjustment
+      if (entryIds.length === 1 && adjustments) { 
+        updateData.interest = adjustments.interest; 
+        updateData.fine = adjustments.fine; 
+        updateData.discount = adjustments.discount; 
+      }
+      
+      updateDocumentNonBlocking(doc(db, "users", user.uid, col, entryId), updateData);
+    });
+    
     setIsMatchModalOpen(false);
     setIsAdjustmentModalOpen(false);
-    toast({ title: "Conciliado com sucesso!" });
+    setSelectedMatchEntries([]);
+    toast({ title: `Conciliado com sucesso (${entryIds.length} itens)!` });
   };
 
   const saveDetailedEntry = (e: React.FormEvent) => {
@@ -330,7 +375,7 @@ export default function ReconciliationPage() {
     };
     if (isPayable) { data.supplierId = formSupplierId; data.entryType = "Confirmed"; } else { data.customerName = formCustomerName; }
     setDocumentNonBlocking(doc(db, "users", user.uid, col, id), data, { merge: true });
-    confirmMatch(id);
+    confirmMatch([id]);
     setIsDetailedCreateOpen(false);
   };
 
@@ -366,20 +411,29 @@ export default function ReconciliationPage() {
     toast({ title: "Conta bancária criada!" });
   };
 
+  const toggleEntrySelection = (entryId: string) => {
+    setSelectedMatchEntries(prev => 
+      prev.includes(entryId) ? prev.filter(id => id !== entryId) : [...prev, entryId]
+    );
+  };
+
   const handleEntryClick = (entry: any) => {
-    if (entry.isPayable) {
+    // If it's a single payable match and user hasn't selected others, show adjustment modal
+    // But for simplicity, we first toggle selection. If user wants adjustment, we'll keep the single flow.
+    if (selectedMatchEntryIds.length === 0 && entry.isPayable) {
+      // Logic for single item adjustment
       setEntryToAdjust(entry);
       setAdjInterest(entry.interest || 0);
       setAdjFine(entry.fine || 0);
       setAdjDiscount(entry.discount || 0);
       setIsAdjustmentModalOpen(true);
     } else {
-      confirmMatch(entry.id);
+      toggleEntrySelection(entry.id);
     }
   };
 
-  const totalAdjusted = entryToAdjust ? (entryToAdjust.originalAmount + adjInterest + adjFine - adjDiscount) : 0;
-  const matchDiff = matchingTransaction ? (Math.abs(matchingTransaction.amount) - totalAdjusted) : 0;
+  const totalAdjustedSingle = entryToAdjust ? (entryToAdjust.originalAmount + adjInterest + adjFine - adjDiscount) : 0;
+  const matchDiffSingle = matchingTransaction ? (Math.abs(matchingTransaction.amount) - totalAdjustedSingle) : 0;
 
   return (
     <div className="space-y-6 pb-12 animate-in fade-in duration-700">
@@ -452,7 +506,7 @@ export default function ReconciliationPage() {
                         <TableCell className={cn("p-3 text-right font-bold text-xs", txn.type === 'CREDIT' ? "text-emerald-600" : "text-destructive")}>R$ {Math.abs(txn.amount).toLocaleString('pt-BR')}</TableCell>
                         <TableCell className="p-3 text-right">
                           {!txn.reconciled ? (
-                            <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => { setMatchingTransaction(txn); setIsMatchModalOpen(true); }}><ArrowRightLeft className="w-3 h-3" /></Button>
+                            <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => { setMatchingTransaction(txn); setSelectedMatchEntries([]); setIsMatchModalOpen(true); }}><ArrowRightLeft className="w-3 h-3" /></Button>
                           ) : (
                             <Button size="icon" variant="ghost" className="h-7 w-7 text-destructive" onClick={() => undoMatch(txn)}><X className="w-3 h-3" /></Button>
                           )}
@@ -488,8 +542,12 @@ export default function ReconciliationPage() {
         <DialogContent className="max-w-4xl max-h-[90vh] flex flex-col p-0 overflow-hidden">
           <div className="p-6 border-b bg-muted/20">
             <DialogHeader>
-              <DialogTitle className="flex items-center gap-2"><ArrowRightLeft className="w-5 h-5 text-primary" />Conciliar: {matchingTransaction?.description}</DialogTitle>
-              <DialogDescription className="font-bold text-primary">Valor no Extrato: R$ {Math.abs(matchingTransaction?.amount || 0).toLocaleString('pt-BR')}</DialogDescription>
+              <DialogTitle className="flex items-center gap-2"><ArrowRightLeft className="w-5 h-5 text-primary" />Conciliar Lançamentos</DialogTitle>
+              <DialogDescription className="font-bold text-primary">
+                Transação no Extrato: <span className="text-foreground">{matchingTransaction?.description}</span>
+                <br />
+                Valor a Conciliar: <span className="text-xl">R$ {Math.abs(matchingTransaction?.amount || 0).toLocaleString('pt-BR')}</span>
+              </DialogDescription>
             </DialogHeader>
             <div className="grid grid-cols-1 md:grid-cols-5 gap-3 mt-4">
               <div className="md:col-span-2 relative">
@@ -504,43 +562,86 @@ export default function ReconciliationPage() {
               </div>
             </div>
           </div>
-          <div className="flex-1 overflow-y-auto p-6 space-y-4">
+          
+          <div className="flex-1 overflow-y-auto p-6 space-y-3">
+            <div className="text-[10px] uppercase font-bold text-muted-foreground mb-2">Selecione um ou mais itens para compor o valor:</div>
             {filteredOpenEntries.map(entry => {
               const partyName = entry.isPayable 
                 ? suppliers?.find(s => s.id === (entry as any).supplierId)?.name || "Fornecedor não encontrado"
                 : (entry as any).customerName;
+              
+              const isSelected = selectedMatchEntryIds.includes(entry.id);
                 
               return (
-                <div key={entry.id} className="flex items-center justify-between p-3 border rounded-lg hover:bg-primary/5 cursor-pointer" onClick={() => handleEntryClick(entry)}>
-                  <div className="flex flex-col">
-                    <span className="text-sm font-bold">{entry.description}</span>
-                    <span className="text-xs text-muted-foreground font-medium">{partyName}</span>
-                    <span className="text-[10px] text-muted-foreground mt-1">Vencimento: {format(parseISO(entry.dueDate), "dd/MM/yy")}</span>
+                <div 
+                  key={entry.id} 
+                  className={cn(
+                    "flex items-center justify-between p-3 border rounded-lg hover:border-primary/50 transition-all cursor-pointer",
+                    isSelected ? "bg-primary/5 border-primary shadow-sm ring-1 ring-primary/20" : "bg-card"
+                  )} 
+                  onClick={() => toggleEntrySelection(entry.id)}
+                >
+                  <div className="flex items-center gap-3">
+                    <div className={cn(
+                      "w-5 h-5 rounded-full border flex items-center justify-center transition-colors",
+                      isSelected ? "bg-primary border-primary text-primary-foreground" : "bg-background border-muted-foreground/30"
+                    )}>
+                      {isSelected && <Check className="w-3 h-3" />}
+                    </div>
+                    <div className="flex flex-col">
+                      <span className="text-sm font-bold">{entry.description}</span>
+                      <span className="text-xs text-muted-foreground font-medium">{partyName}</span>
+                      <span className="text-[10px] text-muted-foreground mt-0.5">Vencimento: {format(parseISO(entry.dueDate), "dd/MM/yy")}</span>
+                    </div>
                   </div>
-                  <div className="text-right font-bold text-sm">R$ {((entry as any).amount || (entry as any).originalAmount).toLocaleString('pt-BR')}</div>
+                  <div className="text-right flex flex-col items-end">
+                    <div className="font-bold text-sm">R$ {((entry as any).amount || (entry as any).originalAmount).toLocaleString('pt-BR')}</div>
+                    {isSelected && <Badge className="text-[8px] h-3 bg-primary/20 text-primary hover:bg-primary/20 border-none">Selecionado</Badge>}
+                  </div>
                 </div>
               );
             })}
             {filteredOpenEntries.length === 0 && <p className="text-center py-10 text-muted-foreground text-xs">Nenhum lançamento em aberto encontrado.</p>}
           </div>
-          <div className="p-6 border-t bg-muted/10 flex gap-2">
-            <Button className="flex-1" variant="outline" onClick={() => {
-              if (!matchingTransaction) return;
-              const id = `${matchingTransaction.type === 'DEBIT' ? 'pay' : 'rec'}_${Date.now()}`;
-              const isPayable = matchingTransaction.type === 'DEBIT';
-              const col = isPayable ? "accountsPayableEntries" : "accountsReceivableEntries";
-              const data: any = { id, description: matchingTransaction.description, [isPayable ? "originalAmount" : "amount"]: Math.abs(matchingTransaction.amount), dueDate: matchingTransaction.date, status: 'Paid', paymentDate: matchingTransaction.date, bankAccountId: selectedAccountId, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), accountCategoryId: "none" };
-              if (isPayable) { data.supplierId = "none"; data.entryType = "Confirmed"; } else { data.customerName = "Venda Rápida"; }
-              setDocumentNonBlocking(doc(db!, "users", user!.uid, col, id), data, { merge: true });
-              confirmMatch(id);
-            }}><PlusCircle className="w-4 h-4" /> Lançamento Rápido</Button>
-            <Button className="flex-1" onClick={() => {
-              setFormDescription(matchingTransaction?.description || "");
-              setFormAmount(Math.abs(matchingTransaction?.amount || 0));
-              setFormDueDate(matchingTransaction?.date || "");
-              setFormCostCenterId("");
-              setIsDetailedCreateOpen(true);
-            }}><FileText className="w-4 h-4" /> Lançamento Detalhado</Button>
+
+          <div className="p-6 border-t bg-muted/20">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 items-center">
+              <div className="space-y-1">
+                <p className="text-[10px] uppercase font-bold text-muted-foreground">Itens Selecionados</p>
+                <div className="text-lg font-bold text-primary flex items-center gap-2">
+                  <Calculator className="w-4 h-4" />
+                  R$ {totalSelectedInMatch.toLocaleString('pt-BR')}
+                </div>
+                <p className="text-[10px] text-muted-foreground">{selectedMatchEntryIds.length} item(ns) marcados</p>
+              </div>
+
+              <div className={cn(
+                "p-3 rounded-lg border-2 text-center animate-in zoom-in-95",
+                Math.abs(diffInMatch) < 0.01 ? "bg-emerald-50 border-emerald-200" : "bg-amber-50 border-amber-200"
+              )}>
+                <p className="text-[10px] uppercase font-bold text-muted-foreground">Diferença Restante</p>
+                <p className={cn("text-xl font-black", Math.abs(diffInMatch) < 0.01 ? "text-emerald-700" : "text-amber-700")}>
+                  R$ {diffInMatch.toLocaleString('pt-BR')}
+                </p>
+                <p className="text-[9px] font-medium mt-0.5">
+                  {Math.abs(diffInMatch) < 0.01 ? "✓ O valor bate perfeitamente!" : "Selecione itens para zerar o saldo."}
+                </p>
+              </div>
+
+              <div className="flex flex-col gap-2">
+                <Button 
+                  className="w-full h-12 gap-2 text-lg shadow-lg" 
+                  disabled={selectedMatchEntryIds.length === 0 || Math.abs(diffInMatch) >= 0.01}
+                  onClick={() => confirmMatch(selectedMatchEntryIds)}
+                >
+                  <CheckCircle2 className="w-5 h-5" /> Confirmar Match
+                </Button>
+                <div className="flex gap-2">
+                  <Button variant="outline" className="flex-1 text-[10px] h-8" onClick={() => setIsDetailedCreateOpen(true)}>+ Novo Detalhado</Button>
+                  <Button variant="ghost" className="flex-1 text-[10px] h-8" onClick={() => setSelectedMatchEntries([])}>Limpar Tudo</Button>
+                </div>
+              </div>
+            </div>
           </div>
         </DialogContent>
       </Dialog>
@@ -665,16 +766,16 @@ export default function ReconciliationPage() {
               <div className="grid gap-1.5"><Label className="text-[10px] uppercase">Multa (+)</Label><Input type="number" step="0.01" value={adjFine} onChange={e => setAdjFine(Number(e.target.value))} /></div>
               <div className="grid gap-1.5"><Label className="text-[10px] uppercase">Desconto (-)</Label><Input type="number" step="0.01" value={adjDiscount} onChange={e => setAdjDiscount(Number(e.target.value))} /></div>
             </div>
-            <div className={cn("p-4 rounded-lg border-2 text-center transition-colors", Math.abs(matchDiff) < 0.01 ? "bg-emerald-50 border-emerald-200" : "bg-amber-50 border-amber-200")}>
+            <div className={cn("p-4 rounded-lg border-2 text-center transition-colors", Math.abs(matchDiffSingle) < 0.01 ? "bg-emerald-50 border-emerald-200" : "bg-amber-50 border-amber-200")}>
               <p className="text-[10px] uppercase font-bold text-muted-foreground">Total Liquidado</p>
-              <p className="text-2xl font-bold">R$ {totalAdjusted.toLocaleString('pt-BR')}</p>
-              <p className={cn("text-xs font-bold mt-1", Math.abs(matchDiff) < 0.01 ? "text-emerald-700" : "text-amber-700")}>
-                {Math.abs(matchDiff) < 0.01 ? "✓ Valor exato!" : `Diferença: R$ ${matchDiff.toLocaleString('pt-BR')}`}
+              <p className="text-2xl font-bold">R$ {totalAdjustedSingle.toLocaleString('pt-BR')}</p>
+              <p className={cn("text-xs font-bold mt-1", Math.abs(matchDiffSingle) < 0.01 ? "text-emerald-700" : "text-amber-700")}>
+                {Math.abs(matchDiffSingle) < 0.01 ? "✓ Valor exato!" : `Diferença: R$ ${matchDiffSingle.toLocaleString('pt-BR')}`}
               </p>
             </div>
           </div>
           <DialogFooter>
-            <Button className="w-full" onClick={() => confirmMatch(entryToAdjust.id, { interest: adjInterest, fine: adjFine, discount: adjDiscount })}>Confirmar Conciliação</Button>
+            <Button className="w-full" onClick={() => confirmMatch([entryToAdjust.id], { interest: adjInterest, fine: adjFine, discount: adjDiscount })}>Confirmar Conciliação</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
