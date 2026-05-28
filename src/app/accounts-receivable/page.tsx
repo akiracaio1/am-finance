@@ -23,17 +23,21 @@ import {
   Pencil,
   Trash2,
   CheckCircle2,
-  CalendarDays
+  CalendarDays,
+  History,
+  Info,
+  Layers
 } from "lucide-react";
 import { useUser, useFirestore, useCollection, useMemoFirebase } from "@/firebase";
-import { collection, doc } from "firebase/firestore";
+import { collection, doc, query, where } from "firebase/firestore";
 import { setDocumentNonBlocking, deleteDocumentNonBlocking, updateDocumentNonBlocking } from "@/firebase/non-blocking-updates";
 import { 
   Dialog, 
   DialogContent, 
   DialogHeader, 
   DialogTitle, 
-  DialogFooter
+  DialogFooter,
+  DialogDescription
 } from "@/components/ui/dialog";
 import { 
   DropdownMenu, 
@@ -53,12 +57,15 @@ import { Label } from "@/components/ui/label";
 import { toast } from "@/hooks/use-toast";
 import { AccountsReceivableEntry, AccountCategory } from "@/lib/types";
 import { format, parseISO } from "date-fns";
+import { cn } from "@/lib/utils";
 
 export default function AccountsReceivablePage() {
   const { user } = useUser();
   const db = useFirestore();
   const [mounted, setMounted] = useState(false);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const [isHistoryOpen, setIsHistoryOpen] = useState(false);
+  const [rootIdForHistory, setRootIdForHistory] = useState<string | null>(null);
   const [editingEntry, setEditingEntry] = useState<AccountsReceivableEntry | null>(null);
 
   // Estados do formulário
@@ -77,12 +84,21 @@ export default function AccountsReceivablePage() {
     return collection(db, "users", user.uid, "accountsReceivableEntries");
   }, [db, user]);
 
+  const historyQuery = useMemoFirebase(() => {
+    if (!db || !user || !rootIdForHistory) return null;
+    return query(
+      collection(db, "users", user.uid, "accountsReceivableEntries"),
+      where("rootEntryId", "==", rootIdForHistory)
+    );
+  }, [db, user, rootIdForHistory]);
+
   const categoriesQuery = useMemoFirebase(() => {
     if (!db || !user) return null;
     return collection(db, "users", user.uid, "accountCategories");
   }, [db, user]);
 
   const { data: entries, isLoading: loadingEntries } = useCollection<AccountsReceivableEntry>(entriesQuery);
+  const { data: historyItems } = useCollection<AccountsReceivableEntry>(historyQuery);
   const { data: categories } = useCollection<AccountCategory>(categoriesQuery);
 
   const leafCategories = useMemo(() => {
@@ -240,7 +256,14 @@ export default function AccountsReceivablePage() {
                   </TableCell>
                   <TableCell className="font-medium">
                     <div className="flex flex-col">
-                      <span>{entry.customerName}</span>
+                      <div className="flex items-center gap-2">
+                        <span>{entry.customerName}</span>
+                        {entry.rootEntryId && (
+                          <Badge variant="outline" className="text-[8px] h-4 py-0 bg-amber-50 text-amber-700 border-amber-200 flex items-center gap-1">
+                            <Layers className="w-2 h-2" /> Parcial
+                          </Badge>
+                        )}
+                      </div>
                       <span className="text-[10px] text-muted-foreground">{entry.description}</span>
                     </div>
                   </TableCell>
@@ -285,6 +308,9 @@ export default function AccountsReceivablePage() {
                             <Undo2 className="w-4 h-4" /> Estornar
                           </DropdownMenuItem>
                         )}
+                        <DropdownMenuItem onClick={() => { setRootIdForHistory(entry.rootEntryId || entry.id); setIsHistoryOpen(true); }} className="flex gap-2">
+                          <History className="w-4 h-4" /> Ver Histórico
+                        </DropdownMenuItem>
                         <DropdownMenuItem onClick={() => handleOpenEdit(entry)} className="flex gap-2">
                           <Pencil className="w-4 h-4" /> Editar
                         </DropdownMenuItem>
@@ -310,6 +336,54 @@ export default function AccountsReceivablePage() {
           </Table>
         </CardContent>
       </Card>
+
+      {/* MODAL DE HISTÓRICO DE PAGAMENTOS */}
+      <Dialog open={isHistoryOpen} onOpenChange={setIsHistoryOpen}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2"><History className="w-5 h-5 text-emerald-600" /> Histórico de Recebimentos</DialogTitle>
+            <DialogDescription>Relação de todas as entradas vinculadas a este item.</DialogDescription>
+          </DialogHeader>
+          <div className="py-4">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Data / Venc.</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead className="text-right">Valor</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {historyItems?.sort((a,b) => b.updatedAt.localeCompare(a.updatedAt)).map((item) => (
+                  <TableRow key={item.id}>
+                    <TableCell className="text-xs">
+                      <div className="flex flex-col">
+                        <span>Venc: {format(parseISO(item.dueDate), "dd/MM/yy")}</span>
+                        {item.paymentDate && <span className="text-[10px] text-emerald-600 font-bold">Rec: {format(parseISO(item.paymentDate), "dd/MM/yy")}</span>}
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      <Badge variant={item.status === 'Paid' ? 'default' : 'outline'} className={cn(item.status === 'Paid' ? "bg-emerald-100 text-emerald-700 hover:bg-emerald-100 border-none" : "")}>
+                        {item.status === 'Paid' ? 'Recebido' : 'A Receber'}
+                      </Badge>
+                    </TableCell>
+                    <TableCell className="text-right font-bold text-emerald-700">
+                      R$ {item.amount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+          <div className="bg-emerald-50 p-4 rounded-lg flex items-start gap-3">
+            <Info className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+            <p className="text-xs text-muted-foreground leading-relaxed">
+              O histórico mostra o desmembramento de um recebimento original quando ele é liquidado parcialmente. 
+              As partes marcadas como "Recebido" já foram conciliadas no banco.
+            </p>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
         <DialogContent className="max-w-md">

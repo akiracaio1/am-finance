@@ -70,6 +70,7 @@ export interface AccountsPayableEntry {
   fine?: number;
   discount?: number;
   installmentInfo?: string;
+  rootEntryId?: string; // Vínculo para pagamentos parciais
 }
 
 export interface AccountsReceivableEntry {
@@ -85,6 +86,7 @@ export interface AccountsReceivableEntry {
   createdAt: string;
   updatedAt: string;
   costCenterId?: string;
+  rootEntryId?: string; // Vínculo para pagamentos parciais
 }
 
 export interface BankAccount {

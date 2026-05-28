@@ -31,7 +31,8 @@ import {
   UserPlus,
   Plus,
   CheckCircle2,
-  Pencil
+  Pencil,
+  Split
 } from "lucide-react";
 import { useUser, useFirestore, useCollection, useMemoFirebase } from "@/firebase";
 import { collection, doc } from "firebase/firestore";
@@ -49,7 +50,7 @@ import {
   SelectContent, 
   SelectGroup,
   SelectItem, 
-  SelectLabel,
+  SelectLabel, 
   SelectTrigger, 
   SelectValue 
 } from "@/components/ui/select";
@@ -75,6 +76,7 @@ type AdjustmentData = {
   interest: number;
   fine: number;
   discount: number;
+  settlementAmount: number; // Valor base a ser liquidado (para pagamentos parciais)
 };
 
 export default function ReconciliationPage() {
@@ -100,6 +102,7 @@ export default function ReconciliationPage() {
   const [tempAdjInterest, setTempAdjInterest] = useState<number>(0);
   const [tempAdjFine, setTempAdjFine] = useState<number>(0);
   const [tempAdjDiscount, setTempAdjDiscount] = useState<number>(0);
+  const [tempSettlementAmount, setTempSettlementAmount] = useState<number>(0);
 
   const [ofxPreview, setOfxPreview] = useState<OFXTransaction[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -256,8 +259,9 @@ export default function ReconciliationPage() {
       .filter(e => selectedMatchEntryIds.includes(e.id))
       .reduce((acc, e) => {
         const base = ((e as any).amount || (e as any).originalAmount || 0);
-        const adj = entryAdjustments[e.id] || { interest: 0, fine: 0, discount: 0 };
-        return acc + (base + adj.interest + adj.fine - adj.discount);
+        const adj = entryAdjustments[e.id];
+        if (!adj) return acc + base;
+        return acc + (adj.settlementAmount + adj.interest + adj.fine - adj.discount);
       }, 0);
   }, [filteredOpenEntries, selectedMatchEntryIds, entryAdjustments]);
 
@@ -317,11 +321,15 @@ export default function ReconciliationPage() {
     if (!db || !user || !selectedAccountId || !transaction.reconciledEntryId) return;
     
     const entryIds = transaction.reconciledEntryId.split(',');
-    const col = transaction.type === 'DEBIT' ? "accountsPayableEntries" : "accountsReceivableEntries";
+    const isPayable = transaction.type === 'DEBIT';
+    const col = isPayable ? "accountsPayableEntries" : "accountsReceivableEntries";
     
     updateDocumentNonBlocking(doc(db, "users", user.uid, "bankAccounts", selectedAccountId, "bankTransactions", transaction.id), { reconciled: false, reconciledEntryId: null });
     
     entryIds.forEach(eid => {
+      // Nota: Se for um split, o estorno é complexo. 
+      // Em um MVP, voltamos o status para Open. 
+      // Idealmente, se fosse um split_part, deveríamos reintegrar ao root ou apenas reabrir.
       updateDocumentNonBlocking(doc(db, "users", user.uid, col, eid), { status: 'Open', paymentDate: null, bankAccountId: null });
     });
     
@@ -331,36 +339,76 @@ export default function ReconciliationPage() {
   const confirmMatch = (entryIds: string[]) => {
     if (!db || !user || !selectedAccountId || !matchingTransaction) return;
     
-    const reconciledIdString = entryIds.join(',');
-    
-    updateDocumentNonBlocking(doc(db, "users", user.uid, "bankAccounts", selectedAccountId, "bankTransactions", matchingTransaction.id), { 
-      reconciled: true, 
-      reconciledEntryId: reconciledIdString 
-    });
-    
+    const finalEntryIds: string[] = [];
     const isPayable = matchingTransaction.type === 'DEBIT';
     const col = isPayable ? "accountsPayableEntries" : "accountsReceivableEntries";
     
     entryIds.forEach(entryId => {
-      const adjs = entryAdjustments[entryId] || { interest: 0, fine: 0, discount: 0 };
-      const updateData: any = { 
-        status: 'Paid', 
-        paymentDate: matchingTransaction.date, 
-        bankAccountId: selectedAccountId, 
-        updatedAt: new Date().toISOString(),
-        interest: adjs.interest,
-        fine: adjs.fine,
-        discount: adjs.discount
-      };
+      const originalEntry = filteredOpenEntries.find(e => e.id === entryId);
+      if (!originalEntry) return;
+
+      const currentAmount = (originalEntry as any).amount || (originalEntry as any).originalAmount || 0;
+      const adjs = entryAdjustments[entryId] || { interest: 0, fine: 0, discount: 0, settlementAmount: currentAmount };
       
-      updateDocumentNonBlocking(doc(db, "users", user.uid, col, entryId), updateData);
+      const rootId = originalEntry.rootEntryId || originalEntry.id;
+
+      // Caso 1: Pagamento Parcial (Split)
+      if (adjs.settlementAmount < currentAmount) {
+        const partId = `${entryId}_part_${Date.now()}`;
+        const newPaidEntry: any = {
+          ...originalEntry,
+          id: partId,
+          status: 'Paid',
+          [isPayable ? "originalAmount" : "amount"]: adjs.settlementAmount,
+          paymentDate: matchingTransaction.date,
+          bankAccountId: selectedAccountId,
+          interest: adjs.interest,
+          fine: adjs.fine,
+          discount: adjs.discount,
+          rootEntryId: rootId,
+          updatedAt: new Date().toISOString()
+        };
+        
+        // Salva a parte paga
+        setDocumentNonBlocking(doc(db, "users", user.uid, col, partId), newPaidEntry, { merge: true });
+        
+        // Atualiza a original com o saldo restante
+        updateDocumentNonBlocking(doc(db, "users", user.uid, col, entryId), {
+          [isPayable ? "originalAmount" : "amount"]: currentAmount - adjs.settlementAmount,
+          rootEntryId: rootId,
+          updatedAt: new Date().toISOString()
+        });
+        
+        finalEntryIds.push(partId);
+      } 
+      // Caso 2: Pagamento Total
+      else {
+        const updateData: any = { 
+          status: 'Paid', 
+          paymentDate: matchingTransaction.date, 
+          bankAccountId: selectedAccountId, 
+          updatedAt: new Date().toISOString(),
+          interest: adjs.interest,
+          fine: adjs.fine,
+          discount: adjs.discount,
+          rootEntryId: rootId
+        };
+        updateDocumentNonBlocking(doc(db, "users", user.uid, col, entryId), updateData);
+        finalEntryIds.push(entryId);
+      }
+    });
+    
+    // Vincula a transação do banco aos IDs finais (incluindo as novas partes criadas)
+    updateDocumentNonBlocking(doc(db, "users", user.uid, "bankAccounts", selectedAccountId, "bankTransactions", matchingTransaction.id), { 
+      reconciled: true, 
+      reconciledEntryId: finalEntryIds.join(',') 
     });
     
     setIsMatchModalOpen(false);
     setIsAdjustmentModalOpen(false);
     setSelectedMatchEntries([]);
     setEntryAdjustments({});
-    toast({ title: `Conciliado com sucesso (${entryIds.length} itens)!` });
+    toast({ title: `Conciliado com sucesso!` });
   };
 
   const saveDetailedEntry = (e: React.FormEvent) => {
@@ -427,12 +475,14 @@ export default function ReconciliationPage() {
   };
 
   const handleOpenAdjustment = (e: React.MouseEvent, entry: any) => {
-    e.stopPropagation(); // Não desmarcar o item ao clicar no ajuste
-    const currentAdjs = entryAdjustments[entry.id] || { interest: 0, fine: 0, discount: 0 };
+    e.stopPropagation();
+    const currentVal = entry.amount || entry.originalAmount || 0;
+    const currentAdjs = entryAdjustments[entry.id] || { interest: 0, fine: 0, discount: 0, settlementAmount: currentVal };
     setEntryToAdjust(entry);
     setTempAdjInterest(currentAdjs.interest);
     setTempAdjFine(currentAdjs.fine);
     setTempAdjDiscount(currentAdjs.discount);
+    setTempSettlementAmount(currentAdjs.settlementAmount);
     setIsAdjustmentModalOpen(true);
   };
 
@@ -443,11 +493,11 @@ export default function ReconciliationPage() {
       [entryToAdjust.id]: {
         interest: tempAdjInterest,
         fine: tempAdjFine,
-        discount: tempAdjDiscount
+        discount: tempAdjDiscount,
+        settlementAmount: tempSettlementAmount
       }
     }));
     setIsAdjustmentModalOpen(false);
-    // Garantir que o item esteja selecionado se for ajustado
     if (!selectedMatchEntryIds.includes(entryToAdjust.id)) {
       setSelectedMatchEntries(prev => [...prev, entryToAdjust.id]);
     }
@@ -591,9 +641,9 @@ export default function ReconciliationPage() {
               
               const isSelected = selectedMatchEntryIds.includes(entry.id);
               const baseVal = ((entry as any).amount || (entry as any).originalAmount || 0);
-              const adj = entryAdjustments[entry.id] || { interest: 0, fine: 0, discount: 0 };
-              const finalVal = baseVal + adj.interest + adj.fine - adj.discount;
-              const hasAdj = adj.interest > 0 || adj.fine > 0 || adj.discount > 0;
+              const adj = entryAdjustments[entry.id];
+              const finalVal = adj ? (adj.settlementAmount + adj.interest + adj.fine - adj.discount) : baseVal;
+              const hasAdj = adj && (adj.interest > 0 || adj.fine > 0 || adj.discount > 0 || adj.settlementAmount < baseVal);
                 
               return (
                 <div 
@@ -616,7 +666,8 @@ export default function ReconciliationPage() {
                       <span className="text-xs text-muted-foreground font-medium">{partyName}</span>
                       <div className="flex items-center gap-2 mt-0.5">
                         <span className="text-[10px] text-muted-foreground">Venc: {format(parseISO(entry.dueDate), "dd/MM/yy")}</span>
-                        {hasAdj && <Badge variant="secondary" className="text-[8px] h-3 px-1">Com Ajustes</Badge>}
+                        {hasAdj && <Badge variant="secondary" className="text-[8px] h-3 px-1 flex items-center gap-1"><Settings className="w-2 h-2" /> Com Ajustes</Badge>}
+                        {adj && adj.settlementAmount < baseVal && <Badge className="text-[8px] h-3 px-1 bg-amber-100 text-amber-700 border-none">Parcial</Badge>}
                       </div>
                     </div>
                   </div>
@@ -625,7 +676,7 @@ export default function ReconciliationPage() {
                       <div className={cn("font-bold text-sm", hasAdj ? "text-primary" : "")}>
                         R$ {finalVal.toLocaleString('pt-BR')}
                       </div>
-                      {hasAdj && <span className="text-[9px] text-muted-foreground line-through">Orig: R$ {baseVal.toLocaleString('pt-BR')}</span>}
+                      {hasAdj && <span className="text-[9px] text-muted-foreground line-through">Total: R$ {baseVal.toLocaleString('pt-BR')}</span>}
                     </div>
                     <Button 
                       size="icon" 
@@ -662,7 +713,7 @@ export default function ReconciliationPage() {
                   R$ {diffInMatch.toLocaleString('pt-BR')}
                 </p>
                 <p className="text-[9px] font-medium mt-0.5">
-                  {Math.abs(diffInMatch) < 0.01 ? "✓ O valor bate perfeitamente!" : "Ajuste os itens para zerar o saldo."}
+                  {Math.abs(diffInMatch) < 0.01 ? "✓ O valor bate perfeitamente!" : "Ajuste os itens ou use pagamentos parciais."}
                 </p>
               </div>
 
@@ -684,30 +735,45 @@ export default function ReconciliationPage() {
         </DialogContent>
       </Dialog>
 
-      {/* MODAL DE AJUSTE DE ITEM */}
+      {/* MODAL DE AJUSTE DE ITEM E LIQUIDAÇÃO PARCIAL */}
       <Dialog open={isAdjustmentModalOpen} onOpenChange={setIsAdjustmentModalOpen}>
         <DialogContent className="max-w-sm">
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-2"><Calculator className="w-5 h-5 text-primary" /> Ajustar Lançamento</DialogTitle>
-            <DialogDescription>Informe variações de juros, multa ou descontos para este item específico.</DialogDescription>
+            <DialogTitle className="flex items-center gap-2"><Calculator className="w-5 h-5 text-primary" /> Ajustar e Liquidar</DialogTitle>
+            <DialogDescription>Configure variações ou pagamentos parciais para este item.</DialogDescription>
           </DialogHeader>
           <div className="grid gap-4 py-4">
             <div className="bg-muted/50 p-3 rounded-lg">
               <p className="text-xs font-bold text-muted-foreground mb-1">{entryToAdjust?.description}</p>
-              <div className="flex justify-between text-sm"><span>Valor Original:</span><span className="font-bold">R$ {((entryToAdjust?.amount || entryToAdjust?.originalAmount || 0)).toLocaleString('pt-BR')}</span></div>
+              <div className="flex justify-between text-sm"><span>Valor Total:</span><span className="font-bold">R$ {((entryToAdjust?.amount || entryToAdjust?.originalAmount || 0)).toLocaleString('pt-BR')}</span></div>
             </div>
-            <div className="grid grid-cols-1 gap-4">
+
+            <div className="grid gap-2">
+              <Label className="text-[10px] uppercase font-bold text-amber-700 flex items-center gap-1"><Split className="w-3 h-3" /> Valor a Liquidar Agora (Parcial)</Label>
+              <Input 
+                type="number" 
+                step="0.01" 
+                value={tempSettlementAmount || ""} 
+                onChange={e => setTempSettlementAmount(Number(e.target.value))} 
+                placeholder="Valor base" 
+                className="border-amber-200 focus-visible:ring-amber-500"
+              />
+              <p className="text-[9px] text-muted-foreground italic">O saldo restante (R$ {((entryToAdjust?.amount || entryToAdjust?.originalAmount || 0) - tempSettlementAmount).toLocaleString('pt-BR')}) continuará em aberto.</p>
+            </div>
+
+            <div className="grid grid-cols-1 gap-4 pt-2 border-t">
               <div className="grid gap-1.5"><Label className="text-[10px] uppercase font-bold">Juros (+)</Label><Input type="number" step="0.01" value={tempAdjInterest || ""} onChange={e => setTempAdjInterest(Number(e.target.value))} placeholder="0,00" /></div>
               <div className="grid gap-1.5"><Label className="text-[10px] uppercase font-bold">Multa (+)</Label><Input type="number" step="0.01" value={tempAdjFine || ""} onChange={e => setTempAdjFine(Number(e.target.value))} placeholder="0,00" /></div>
               <div className="grid gap-1.5"><Label className="text-[10px] uppercase font-bold text-destructive">Desconto (-)</Label><Input type="number" step="0.01" value={tempAdjDiscount || ""} onChange={e => setTempAdjDiscount(Number(e.target.value))} placeholder="0,00" /></div>
             </div>
+            
             <div className="bg-primary/5 p-4 rounded-lg border border-primary/20 text-center">
-              <p className="text-[10px] uppercase font-bold text-muted-foreground">Novo Valor do Item</p>
-              <p className="text-2xl font-black text-primary">R$ {((entryToAdjust?.amount || entryToAdjust?.originalAmount || 0) + tempAdjInterest + tempAdjFine - tempAdjDiscount).toLocaleString('pt-BR')}</p>
+              <p className="text-[10px] uppercase font-bold text-muted-foreground">Valor Efetivo para Conciliação</p>
+              <p className="text-2xl font-black text-primary">R$ {(tempSettlementAmount + tempAdjInterest + tempAdjFine - tempAdjDiscount).toLocaleString('pt-BR')}</p>
             </div>
           </div>
           <DialogFooter>
-            <Button className="w-full h-11" onClick={saveSingleAdjustment}>Aplicar Ajuste</Button>
+            <Button className="w-full h-11" onClick={saveSingleAdjustment}>Aplicar Ajustes</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

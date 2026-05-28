@@ -34,11 +34,13 @@ import {
   Trash2,
   AlertCircle,
   Divide,
-  Layers
+  Layers,
+  History,
+  Info
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useUser, useFirestore, useCollection, useMemoFirebase } from "@/firebase";
-import { collection, doc } from "firebase/firestore";
+import { collection, doc, query, where } from "firebase/firestore";
 import { setDocumentNonBlocking, deleteDocumentNonBlocking, updateDocumentNonBlocking } from "@/firebase/non-blocking-updates";
 import { 
   Dialog, 
@@ -95,6 +97,8 @@ export default function AccountsPayablePage() {
   const [editingEntry, setEditingEntry] = useState<AccountsPayableEntry | null>(null);
   const [isPaymentOpen, setIsPaymentOpen] = useState(false);
   const [entryToPay, setEntryToPay] = useState<AccountsPayableEntry | null>(null);
+  const [isHistoryOpen, setIsHistoryOpen] = useState(false);
+  const [rootIdForHistory, setRootIdForHistory] = useState<string | null>(null);
   const [todayStr, setTodayStr] = useState("");
   const [showFilters, setShowFilters] = useState(true);
 
@@ -198,6 +202,14 @@ export default function AccountsPayablePage() {
     return collection(db, "users", user.uid, "accountsPayableEntries");
   }, [db, user]);
 
+  const historyQuery = useMemoFirebase(() => {
+    if (!db || !user || !rootIdForHistory) return null;
+    return query(
+      collection(db, "users", user.uid, "accountsPayableEntries"),
+      where("rootEntryId", "==", rootIdForHistory)
+    );
+  }, [db, user, rootIdForHistory]);
+
   const suppliersQuery = useMemoFirebase(() => {
     if (!db || !user) return null;
     return collection(db, "users", user.uid, "suppliers");
@@ -219,6 +231,7 @@ export default function AccountsPayablePage() {
   }, [db, user]);
 
   const { data: entries } = useCollection<AccountsPayableEntry>(entriesQuery);
+  const { data: historyItems } = useCollection<AccountsPayableEntry>(historyQuery);
   const { data: suppliers } = useCollection<Supplier>(suppliersQuery);
   const { data: categories } = useCollection<AccountCategory>(categoriesQuery);
   const { data: groups } = useCollection<CostCenterGroup>(groupsQuery);
@@ -315,7 +328,6 @@ export default function AccountsPayablePage() {
       toast({ title: "Lançamento atualizado" });
     } else {
       if (isMultiEntry && installmentsDraft.length > 1) {
-        // Salvar via rascunho de parcelas/recorrência
         installmentsDraft.forEach((draft, i) => {
           const id = `pay_${Date.now()}_${i}`;
           setDocumentNonBlocking(
@@ -334,7 +346,6 @@ export default function AccountsPayablePage() {
         });
         toast({ title: `${installmentsDraft.length} lançamentos gerados!` });
       } else {
-        // Salvar lançamento único
         const id = `pay_${Date.now()}`;
         setDocumentNonBlocking(
           doc(db, "users", user.uid, "accountsPayableEntries", id), 
@@ -522,6 +533,11 @@ export default function AccountsPayablePage() {
                             <Clock className="w-2 h-2" /> Provisão
                           </Badge>
                         )}
+                        {entry.rootEntryId && (
+                          <Badge variant="outline" className="text-[8px] h-4 py-0 bg-amber-50 text-amber-700 border-amber-200 flex items-center gap-1">
+                            <Layers className="w-2 h-2" /> Parcial
+                          </Badge>
+                        )}
                       </div>
                       <span className="text-sm">{entry.description} {entry.installmentInfo && <Badge variant="secondary" className="text-[9px] h-3 px-1 ml-1">{entry.installmentInfo}</Badge>}</span>
                     </div>
@@ -548,6 +564,7 @@ export default function AccountsPayablePage() {
                         {entry.status !== 'Paid' && <DropdownMenuItem onClick={() => { setEntryToPay(entry); setPayInterest(0); setPayFine(0); setPayDiscount(0); setPayDate(format(new Date(), "yyyy-MM-dd")); setIsPaymentOpen(true); }} className="text-emerald-600 font-bold">Liquidar</DropdownMenuItem>}
                         {entry.status === 'Paid' && <DropdownMenuItem onClick={() => handleUnlinkPayment(entry)} className="text-amber-600 font-bold flex gap-2"><Undo2 className="w-4 h-4" /> Estornar</DropdownMenuItem>}
                         <DropdownMenuItem onClick={() => handleDuplicateEntry(entry)} className="flex gap-2"><Copy className="w-4 h-4" /> Duplicar</DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => { setRootIdForHistory(entry.rootEntryId || entry.id); setIsHistoryOpen(true); }} className="flex gap-2"><History className="w-4 h-4" /> Ver Histórico</DropdownMenuItem>
                         <DropdownMenuItem onClick={() => { 
                           setEditingEntry(entry); 
                           setFormDescription(entry.description); 
@@ -575,6 +592,61 @@ export default function AccountsPayablePage() {
           </Table>
         </CardContent>
       </Card>
+
+      {/* MODAL DE HISTÓRICO DE PAGAMENTOS */}
+      <Dialog open={isHistoryOpen} onOpenChange={setIsHistoryOpen}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2"><History className="w-5 h-5 text-primary" /> Histórico de Movimentações</DialogTitle>
+            <DialogDescription>Todos os registros vinculados a esta negociação (pagamentos parciais e saldos).</DialogDescription>
+          </DialogHeader>
+          <div className="py-4">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Data / Venc.</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead className="text-right">Valor</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {historyItems?.sort((a,b) => b.updatedAt.localeCompare(a.updatedAt)).map((item) => (
+                  <TableRow key={item.id}>
+                    <TableCell className="text-xs">
+                      <div className="flex flex-col">
+                        <span>Venc: {format(parseISO(item.dueDate), "dd/MM/yy")}</span>
+                        {item.paymentDate && <span className="text-[10px] text-emerald-600 font-bold">Pago: {format(parseISO(item.paymentDate), "dd/MM/yy")}</span>}
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      <Badge variant={item.status === 'Paid' ? 'default' : 'outline'} className={cn(item.status === 'Paid' ? "bg-emerald-100 text-emerald-700 hover:bg-emerald-100 border-none" : "")}>
+                        {item.status === 'Paid' ? 'Liquidado' : 'Saldo Aberto'}
+                      </Badge>
+                    </TableCell>
+                    <TableCell className="text-right font-bold">
+                      R$ {item.originalAmount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                    </TableCell>
+                  </TableRow>
+                ))}
+                {(!historyItems || historyItems.length === 0) && (
+                  <TableRow>
+                    <TableCell colSpan={3} className="text-center py-10 text-muted-foreground italic">
+                      Nenhum outro registro vinculado encontrado.
+                    </TableCell>
+                  </TableRow>
+                )}
+              </TableBody>
+            </Table>
+          </div>
+          <div className="bg-primary/5 p-4 rounded-lg flex items-start gap-3">
+            <Info className="w-4 h-4 text-primary shrink-0 mt-0.5" />
+            <p className="text-xs text-muted-foreground leading-relaxed">
+              Registros parciais ocorrem quando uma conta é liquidada parcialmente na Conciliação Bancária. 
+              O sistema gera um novo lançamento para a parte paga e atualiza o saldo do original.
+            </p>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* MODAL DE NOVO LANÇAMENTO COM ABAS */}
       <Dialog open={isNewEntryOpen} onOpenChange={setIsNewEntryOpen}>
