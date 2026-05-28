@@ -30,7 +30,8 @@ import {
   LayoutGrid,
   UserPlus,
   Plus,
-  CheckCircle2
+  CheckCircle2,
+  Pencil
 } from "lucide-react";
 import { useUser, useFirestore, useCollection, useMemoFirebase } from "@/firebase";
 import { collection, doc } from "firebase/firestore";
@@ -70,6 +71,12 @@ import { format, isBefore, parseISO, eachDayOfInterval } from "date-fns";
 import { parseOFX, OFXTransaction } from "@/lib/ofx-parser";
 import { cn } from "@/lib/utils";
 
+type AdjustmentData = {
+  interest: number;
+  fine: number;
+  discount: number;
+};
+
 export default function ReconciliationPage() {
   const { user } = useUser();
   const db = useFirestore();
@@ -85,12 +92,14 @@ export default function ReconciliationPage() {
   const [matchingTransaction, setMatchingTransaction] = useState<BankTransaction | null>(null);
   const [selectedMatchEntryIds, setSelectedMatchEntries] = useState<string[]>([]);
   
+  // Mapa de ajustes por ID de lançamento
+  const [entryAdjustments, setEntryAdjustments] = useState<Record<string, AdjustmentData>>({});
   const [entryToAdjust, setEntryToAdjust] = useState<any>(null);
   
-  // States for adjustment
-  const [adjInterest, setAdjInterest] = useState<number>(0);
-  const [adjFine, setAdjFine] = useState<number>(0);
-  const [adjDiscount, setAdjDiscount] = useState<number>(0);
+  // States temporários para o modal de ajuste
+  const [tempAdjInterest, setTempAdjInterest] = useState<number>(0);
+  const [tempAdjFine, setTempAdjFine] = useState<number>(0);
+  const [tempAdjDiscount, setTempAdjDiscount] = useState<number>(0);
 
   const [ofxPreview, setOfxPreview] = useState<OFXTransaction[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -242,12 +251,15 @@ export default function ReconciliationPage() {
     });
   }, [openSystemEntries, matchingTransaction, matchSearchTerm, matchDateStart, matchDateEnd, matchMinValue, matchMaxValue, suppliers]);
 
-  // Logic for multi-match total
   const totalSelectedInMatch = useMemo(() => {
     return filteredOpenEntries
       .filter(e => selectedMatchEntryIds.includes(e.id))
-      .reduce((acc, e) => acc + ((e as any).amount || (e as any).originalAmount || 0), 0);
-  }, [filteredOpenEntries, selectedMatchEntryIds]);
+      .reduce((acc, e) => {
+        const base = ((e as any).amount || (e as any).originalAmount || 0);
+        const adj = entryAdjustments[e.id] || { interest: 0, fine: 0, discount: 0 };
+        return acc + (base + adj.interest + adj.fine - adj.discount);
+      }, 0);
+  }, [filteredOpenEntries, selectedMatchEntryIds, entryAdjustments]);
 
   const diffInMatch = matchingTransaction ? (Math.abs(matchingTransaction.amount) - totalSelectedInMatch) : 0;
 
@@ -316,10 +328,9 @@ export default function ReconciliationPage() {
     toast({ title: `Conciliação desfeita (${entryIds.length} itens)` });
   };
 
-  const confirmMatch = (entryIds: string[], adjustments?: { interest: number, fine: number, discount: number }) => {
+  const confirmMatch = (entryIds: string[]) => {
     if (!db || !user || !selectedAccountId || !matchingTransaction) return;
     
-    // For simplicity, store multiple IDs as comma separated string in the single field
     const reconciledIdString = entryIds.join(',');
     
     updateDocumentNonBlocking(doc(db, "users", user.uid, "bankAccounts", selectedAccountId, "bankTransactions", matchingTransaction.id), { 
@@ -331,19 +342,16 @@ export default function ReconciliationPage() {
     const col = isPayable ? "accountsPayableEntries" : "accountsReceivableEntries";
     
     entryIds.forEach(entryId => {
+      const adjs = entryAdjustments[entryId] || { interest: 0, fine: 0, discount: 0 };
       const updateData: any = { 
         status: 'Paid', 
         paymentDate: matchingTransaction.date, 
         bankAccountId: selectedAccountId, 
-        updatedAt: new Date().toISOString() 
+        updatedAt: new Date().toISOString(),
+        interest: adjs.interest,
+        fine: adjs.fine,
+        discount: adjs.discount
       };
-      
-      // If single item with adjustment
-      if (entryIds.length === 1 && adjustments) { 
-        updateData.interest = adjustments.interest; 
-        updateData.fine = adjustments.fine; 
-        updateData.discount = adjustments.discount; 
-      }
       
       updateDocumentNonBlocking(doc(db, "users", user.uid, col, entryId), updateData);
     });
@@ -351,6 +359,7 @@ export default function ReconciliationPage() {
     setIsMatchModalOpen(false);
     setIsAdjustmentModalOpen(false);
     setSelectedMatchEntries([]);
+    setEntryAdjustments({});
     toast({ title: `Conciliado com sucesso (${entryIds.length} itens)!` });
   };
 
@@ -417,23 +426,32 @@ export default function ReconciliationPage() {
     );
   };
 
-  const handleEntryClick = (entry: any) => {
-    // If it's a single payable match and user hasn't selected others, show adjustment modal
-    // But for simplicity, we first toggle selection. If user wants adjustment, we'll keep the single flow.
-    if (selectedMatchEntryIds.length === 0 && entry.isPayable) {
-      // Logic for single item adjustment
-      setEntryToAdjust(entry);
-      setAdjInterest(entry.interest || 0);
-      setAdjFine(entry.fine || 0);
-      setAdjDiscount(entry.discount || 0);
-      setIsAdjustmentModalOpen(true);
-    } else {
-      toggleEntrySelection(entry.id);
-    }
+  const handleOpenAdjustment = (e: React.MouseEvent, entry: any) => {
+    e.stopPropagation(); // Não desmarcar o item ao clicar no ajuste
+    const currentAdjs = entryAdjustments[entry.id] || { interest: 0, fine: 0, discount: 0 };
+    setEntryToAdjust(entry);
+    setTempAdjInterest(currentAdjs.interest);
+    setTempAdjFine(currentAdjs.fine);
+    setTempAdjDiscount(currentAdjs.discount);
+    setIsAdjustmentModalOpen(true);
   };
 
-  const totalAdjustedSingle = entryToAdjust ? (entryToAdjust.originalAmount + adjInterest + adjFine - adjDiscount) : 0;
-  const matchDiffSingle = matchingTransaction ? (Math.abs(matchingTransaction.amount) - totalAdjustedSingle) : 0;
+  const saveSingleAdjustment = () => {
+    if (!entryToAdjust) return;
+    setEntryAdjustments(prev => ({
+      ...prev,
+      [entryToAdjust.id]: {
+        interest: tempAdjInterest,
+        fine: tempAdjFine,
+        discount: tempAdjDiscount
+      }
+    }));
+    setIsAdjustmentModalOpen(false);
+    // Garantir que o item esteja selecionado se for ajustado
+    if (!selectedMatchEntryIds.includes(entryToAdjust.id)) {
+      setSelectedMatchEntries(prev => [...prev, entryToAdjust.id]);
+    }
+  };
 
   return (
     <div className="space-y-6 pb-12 animate-in fade-in duration-700">
@@ -506,7 +524,7 @@ export default function ReconciliationPage() {
                         <TableCell className={cn("p-3 text-right font-bold text-xs", txn.type === 'CREDIT' ? "text-emerald-600" : "text-destructive")}>R$ {Math.abs(txn.amount).toLocaleString('pt-BR')}</TableCell>
                         <TableCell className="p-3 text-right">
                           {!txn.reconciled ? (
-                            <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => { setMatchingTransaction(txn); setSelectedMatchEntries([]); setIsMatchModalOpen(true); }}><ArrowRightLeft className="w-3 h-3" /></Button>
+                            <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => { setMatchingTransaction(txn); setSelectedMatchEntries([]); setEntryAdjustments({}); setIsMatchModalOpen(true); }}><ArrowRightLeft className="w-3 h-3" /></Button>
                           ) : (
                             <Button size="icon" variant="ghost" className="h-7 w-7 text-destructive" onClick={() => undoMatch(txn)}><X className="w-3 h-3" /></Button>
                           )}
@@ -538,6 +556,7 @@ export default function ReconciliationPage() {
         </div>
       </div>
 
+      {/* MODAL DE MATCHING */}
       <Dialog open={isMatchModalOpen} onOpenChange={setIsMatchModalOpen}>
         <DialogContent className="max-w-4xl max-h-[90vh] flex flex-col p-0 overflow-hidden">
           <div className="p-6 border-b bg-muted/20">
@@ -564,13 +583,17 @@ export default function ReconciliationPage() {
           </div>
           
           <div className="flex-1 overflow-y-auto p-6 space-y-3">
-            <div className="text-[10px] uppercase font-bold text-muted-foreground mb-2">Selecione um ou mais itens para compor o valor:</div>
+            <div className="text-[10px] uppercase font-bold text-muted-foreground mb-2">Selecione e ajuste itens para compor o valor:</div>
             {filteredOpenEntries.map(entry => {
               const partyName = entry.isPayable 
                 ? suppliers?.find(s => s.id === (entry as any).supplierId)?.name || "Fornecedor não encontrado"
                 : (entry as any).customerName;
               
               const isSelected = selectedMatchEntryIds.includes(entry.id);
+              const baseVal = ((entry as any).amount || (entry as any).originalAmount || 0);
+              const adj = entryAdjustments[entry.id] || { interest: 0, fine: 0, discount: 0 };
+              const finalVal = baseVal + adj.interest + adj.fine - adj.discount;
+              const hasAdj = adj.interest > 0 || adj.fine > 0 || adj.discount > 0;
                 
               return (
                 <div 
@@ -591,12 +614,27 @@ export default function ReconciliationPage() {
                     <div className="flex flex-col">
                       <span className="text-sm font-bold">{entry.description}</span>
                       <span className="text-xs text-muted-foreground font-medium">{partyName}</span>
-                      <span className="text-[10px] text-muted-foreground mt-0.5">Vencimento: {format(parseISO(entry.dueDate), "dd/MM/yy")}</span>
+                      <div className="flex items-center gap-2 mt-0.5">
+                        <span className="text-[10px] text-muted-foreground">Venc: {format(parseISO(entry.dueDate), "dd/MM/yy")}</span>
+                        {hasAdj && <Badge variant="secondary" className="text-[8px] h-3 px-1">Com Ajustes</Badge>}
+                      </div>
                     </div>
                   </div>
-                  <div className="text-right flex flex-col items-end">
-                    <div className="font-bold text-sm">R$ {((entry as any).amount || (entry as any).originalAmount).toLocaleString('pt-BR')}</div>
-                    {isSelected && <Badge className="text-[8px] h-3 bg-primary/20 text-primary hover:bg-primary/20 border-none">Selecionado</Badge>}
+                  <div className="flex items-center gap-4">
+                    <div className="text-right flex flex-col items-end">
+                      <div className={cn("font-bold text-sm", hasAdj ? "text-primary" : "")}>
+                        R$ {finalVal.toLocaleString('pt-BR')}
+                      </div>
+                      {hasAdj && <span className="text-[9px] text-muted-foreground line-through">Orig: R$ {baseVal.toLocaleString('pt-BR')}</span>}
+                    </div>
+                    <Button 
+                      size="icon" 
+                      variant="ghost" 
+                      className="h-8 w-8 text-primary hover:bg-primary/10" 
+                      onClick={(e) => handleOpenAdjustment(e, entry)}
+                    >
+                      <Calculator className="w-4 h-4" />
+                    </Button>
                   </div>
                 </div>
               );
@@ -607,7 +645,7 @@ export default function ReconciliationPage() {
           <div className="p-6 border-t bg-muted/20">
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6 items-center">
               <div className="space-y-1">
-                <p className="text-[10px] uppercase font-bold text-muted-foreground">Itens Selecionados</p>
+                <p className="text-[10px] uppercase font-bold text-muted-foreground">Itens Selecionados (com ajustes)</p>
                 <div className="text-lg font-bold text-primary flex items-center gap-2">
                   <Calculator className="w-4 h-4" />
                   R$ {totalSelectedInMatch.toLocaleString('pt-BR')}
@@ -624,7 +662,7 @@ export default function ReconciliationPage() {
                   R$ {diffInMatch.toLocaleString('pt-BR')}
                 </p>
                 <p className="text-[9px] font-medium mt-0.5">
-                  {Math.abs(diffInMatch) < 0.01 ? "✓ O valor bate perfeitamente!" : "Selecione itens para zerar o saldo."}
+                  {Math.abs(diffInMatch) < 0.01 ? "✓ O valor bate perfeitamente!" : "Ajuste os itens para zerar o saldo."}
                 </p>
               </div>
 
@@ -638,7 +676,7 @@ export default function ReconciliationPage() {
                 </Button>
                 <div className="flex gap-2">
                   <Button variant="outline" className="flex-1 text-[10px] h-8" onClick={() => setIsDetailedCreateOpen(true)}>+ Novo Detalhado</Button>
-                  <Button variant="ghost" className="flex-1 text-[10px] h-8" onClick={() => setSelectedMatchEntries([])}>Limpar Tudo</Button>
+                  <Button variant="ghost" className="flex-1 text-[10px] h-8" onClick={() => { setSelectedMatchEntries([]); setEntryAdjustments({}); }}>Limpar Tudo</Button>
                 </div>
               </div>
             </div>
@@ -646,6 +684,35 @@ export default function ReconciliationPage() {
         </DialogContent>
       </Dialog>
 
+      {/* MODAL DE AJUSTE DE ITEM */}
+      <Dialog open={isAdjustmentModalOpen} onOpenChange={setIsAdjustmentModalOpen}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2"><Calculator className="w-5 h-5 text-primary" /> Ajustar Lançamento</DialogTitle>
+            <DialogDescription>Informe variações de juros, multa ou descontos para este item específico.</DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-4 py-4">
+            <div className="bg-muted/50 p-3 rounded-lg">
+              <p className="text-xs font-bold text-muted-foreground mb-1">{entryToAdjust?.description}</p>
+              <div className="flex justify-between text-sm"><span>Valor Original:</span><span className="font-bold">R$ {((entryToAdjust?.amount || entryToAdjust?.originalAmount || 0)).toLocaleString('pt-BR')}</span></div>
+            </div>
+            <div className="grid grid-cols-1 gap-4">
+              <div className="grid gap-1.5"><Label className="text-[10px] uppercase font-bold">Juros (+)</Label><Input type="number" step="0.01" value={tempAdjInterest || ""} onChange={e => setTempAdjInterest(Number(e.target.value))} placeholder="0,00" /></div>
+              <div className="grid gap-1.5"><Label className="text-[10px] uppercase font-bold">Multa (+)</Label><Input type="number" step="0.01" value={tempAdjFine || ""} onChange={e => setTempAdjFine(Number(e.target.value))} placeholder="0,00" /></div>
+              <div className="grid gap-1.5"><Label className="text-[10px] uppercase font-bold text-destructive">Desconto (-)</Label><Input type="number" step="0.01" value={tempAdjDiscount || ""} onChange={e => setTempAdjDiscount(Number(e.target.value))} placeholder="0,00" /></div>
+            </div>
+            <div className="bg-primary/5 p-4 rounded-lg border border-primary/20 text-center">
+              <p className="text-[10px] uppercase font-bold text-muted-foreground">Novo Valor do Item</p>
+              <p className="text-2xl font-black text-primary">R$ {((entryToAdjust?.amount || entryToAdjust?.originalAmount || 0) + tempAdjInterest + tempAdjFine - tempAdjDiscount).toLocaleString('pt-BR')}</p>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button className="w-full h-11" onClick={saveSingleAdjustment}>Aplicar Ajuste</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* MODAL DETALHADO */}
       <Dialog open={isDetailedCreateOpen} onOpenChange={setIsDetailedCreateOpen}>
         <DialogContent className="max-w-xl">
           <form onSubmit={saveDetailedEntry}>
@@ -699,7 +766,7 @@ export default function ReconciliationPage() {
         </DialogContent>
       </Dialog>
 
-      {/* MODAL CADASTRO RÁPIDO DE FORNECEDOR (RECONCILIATION) */}
+      {/* MODAL CADASTRO RÁPIDO DE FORNECEDOR */}
       <Dialog open={isQuickSupplierOpen} onOpenChange={setIsQuickSupplierOpen}>
         <DialogContent className="max-w-sm">
           <form onSubmit={handleSaveQuickSupplier}>
@@ -750,36 +817,7 @@ export default function ReconciliationPage() {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={isAdjustmentModalOpen} onOpenChange={setIsAdjustmentModalOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2"><Calculator className="w-5 h-5 text-primary" /> Ajuste de Liquidação</DialogTitle>
-            <DialogDescription>Ajuste juros, multa e desconto para bater com o valor do banco.</DialogDescription>
-          </DialogHeader>
-          <div className="grid gap-4 py-4">
-            <div className="bg-muted p-3 rounded-lg space-y-2">
-              <div className="flex justify-between text-xs"><span>Valor Original:</span><span className="font-bold">R$ {entryToAdjust?.originalAmount.toLocaleString('pt-BR')}</span></div>
-              <div className="flex justify-between text-xs text-primary"><span>No Banco:</span><span className="font-bold">R$ {Math.abs(matchingTransaction?.amount || 0).toLocaleString('pt-BR')}</span></div>
-            </div>
-            <div className="grid grid-cols-3 gap-3">
-              <div className="grid gap-1.5"><Label className="text-[10px] uppercase">Juros (+)</Label><Input type="number" step="0.01" value={adjInterest} onChange={e => setAdjInterest(Number(e.target.value))} /></div>
-              <div className="grid gap-1.5"><Label className="text-[10px] uppercase">Multa (+)</Label><Input type="number" step="0.01" value={adjFine} onChange={e => setAdjFine(Number(e.target.value))} /></div>
-              <div className="grid gap-1.5"><Label className="text-[10px] uppercase">Desconto (-)</Label><Input type="number" step="0.01" value={adjDiscount} onChange={e => setAdjDiscount(Number(e.target.value))} /></div>
-            </div>
-            <div className={cn("p-4 rounded-lg border-2 text-center transition-colors", Math.abs(matchDiffSingle) < 0.01 ? "bg-emerald-50 border-emerald-200" : "bg-amber-50 border-amber-200")}>
-              <p className="text-[10px] uppercase font-bold text-muted-foreground">Total Liquidado</p>
-              <p className="text-2xl font-bold">R$ {totalAdjustedSingle.toLocaleString('pt-BR')}</p>
-              <p className={cn("text-xs font-bold mt-1", Math.abs(matchDiffSingle) < 0.01 ? "text-emerald-700" : "text-amber-700")}>
-                {Math.abs(matchDiffSingle) < 0.01 ? "✓ Valor exato!" : `Diferença: R$ ${matchDiffSingle.toLocaleString('pt-BR')}`}
-              </p>
-            </div>
-          </div>
-          <DialogFooter>
-            <Button className="w-full" onClick={() => confirmMatch([entryToAdjust.id], { interest: adjInterest, fine: adjFine, discount: adjDiscount })}>Confirmar Conciliação</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
+      {/* MODAL PREVIA IMPORTAÇÃO */}
       <Dialog open={isImportModalOpen} onOpenChange={setIsImportModalOpen}>
         <DialogContent className="max-w-3xl">
           <DialogHeader><DialogTitle>Prévia da Importação</DialogTitle></DialogHeader>
