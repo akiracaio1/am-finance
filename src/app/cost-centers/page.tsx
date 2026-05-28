@@ -28,7 +28,8 @@ import {
   Clock,
   RotateCcw,
   Pencil,
-  MoreVertical
+  MoreVertical,
+  Download
 } from "lucide-react";
 import { useUser, useFirestore, useCollection, useMemoFirebase } from "@/firebase";
 import { collection, doc } from "firebase/firestore";
@@ -54,6 +55,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
 import { toast } from "@/hooks/use-toast";
+import { utils, writeFile } from 'xlsx';
 import { CostCenter, CostCenterGroup, CostCenterStatus } from "@/lib/types";
 
 export default function CostCentersPage() {
@@ -88,6 +90,27 @@ export default function CostCentersPage() {
     setExpandedGroups(prev => 
       prev.includes(groupId) ? prev.filter(id => id !== groupId) : [...prev, groupId]
     );
+  };
+
+  const handleExportExcel = () => {
+    if (!groups || !centers) return;
+
+    const exportData = centers.map(c => {
+      const group = groups.find(g => g.id === c.groupId);
+      return {
+        'Centro de Custo': c.name,
+        'Grupo': group?.name || 'Indefinido',
+        'Status': c.status === 'Active' ? 'Ativo' : 'Arquivado',
+        'Descrição': c.description || '',
+        'Criado em': c.createdAt ? new Date(c.createdAt).toLocaleDateString('pt-BR') : ''
+      };
+    }).sort((a, b) => a['Grupo'].localeCompare(b['Grupo']) || a['Centro de Custo'].localeCompare(b['Centro de Custo']));
+
+    const ws = utils.json_to_sheet(exportData);
+    const wb = utils.book_new();
+    utils.book_append_sheet(wb, ws, "Centros de Custo");
+    writeFile(wb, `Centros_de_Custo_${new Date().toISOString().split('T')[0]}.xlsx`);
+    toast({ title: "Excel gerado com sucesso!" });
   };
 
   const handleSaveGroup = (e: React.FormEvent<HTMLFormElement>) => {
@@ -303,6 +326,9 @@ export default function CostCentersPage() {
           <p className="text-muted-foreground">Estrutura organizacional multinível para análise de rentabilidade.</p>
         </div>
         <div className="flex gap-2">
+          <Button variant="outline" className="gap-2" onClick={handleExportExcel} disabled={!centers || centers.length === 0}>
+            <Download className="w-4 h-4" /> Exportar Excel
+          </Button>
           <Button variant="outline" className="gap-2" onClick={() => { setEditingGroup(null); setIsGroupDialogOpen(true); }}>
             <FolderPlus className="w-4 h-4" /> Novo Grupo / Subgrupo
           </Button>

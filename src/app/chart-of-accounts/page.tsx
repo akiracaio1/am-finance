@@ -136,6 +136,24 @@ export default function ChartOfAccountsPage() {
     }
   };
 
+  const handleExportExcel = () => {
+    if (!categories) return;
+
+    const exportData = categories.map(cat => ({
+      'Código': cat.code,
+      'Nome': cat.name,
+      'Natureza': cat.type === 'Revenue' ? 'Receita' : 'Despesa',
+      'Descrição': cat.description || '',
+      'Grupo Pai': categories.find(p => p.id === cat.parentCategoryId)?.name || 'Raiz'
+    })).sort((a, b) => a['Código'].localeCompare(b['Código']));
+
+    const ws = utils.json_to_sheet(exportData);
+    const wb = utils.book_new();
+    utils.book_append_sheet(wb, ws, "Plano de Contas");
+    writeFile(wb, `Plano_de_Contas_${new Date().toISOString().split('T')[0]}.xlsx`);
+    toast({ title: "Excel gerado com sucesso!" });
+  };
+
   const handleSaveCategory = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (!db || !user) return;
@@ -210,6 +228,9 @@ export default function ChartOfAccountsPage() {
           <p className="text-muted-foreground">Organize suas Receitas e Despesas de forma estratégica.</p>
         </div>
         <div className="flex gap-3">
+          <Button variant="outline" className="gap-2" onClick={handleExportExcel} disabled={!categories || categories.length === 0}>
+            <Download className="w-4 h-4" /> Exportar Excel
+          </Button>
           <Button variant="outline" className="gap-2" onClick={handleProvisionDefaults} disabled={isProvisioning}>
             {isProvisioning ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />} Estrutura Padrão
           </Button>
