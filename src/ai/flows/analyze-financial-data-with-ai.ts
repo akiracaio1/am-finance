@@ -6,6 +6,8 @@
 import {ai} from '@/ai/genkit';
 import {z} from 'genkit';
 
+// 1. Definição dos Schemas (Devem vir primeiro)
+
 const SimplifiedDRESchema = z.object({
   revenue: z.number().describe('Receita total do período.'),
   expenses: z.number().describe('Despesas totais do período.'),
@@ -39,7 +41,6 @@ const AnalyzeFinancialDataWithAIInputSchema = z.object({
   overdueAccounts: z.array(OverdueAccountSchema).describe('Contas em atraso.'),
   upcomingAccounts: z.array(UpcomingAccountSchema).describe('Contas futuras.'),
 });
-export type AnalyzeFinancialDataWithAIInput = z.infer<typeof AnalyzeFinancialDataWithAIInputSchema>;
 
 const AnalyzeFinancialDataWithAIOutputSchema = z.object({
   overallSummary: z.string().describe('Resumo executivo do desempenho financeiro.'),
@@ -48,19 +49,18 @@ const AnalyzeFinancialDataWithAIOutputSchema = z.object({
   potentialRisks: z.array(z.string()).describe('Riscos financeiros identificados (ex: queima de caixa).'),
   opportunities: z.array(z.string()).describe('Oportunidades identificadas para aumentar margem.'),
 });
+
+// 2. Exportação dos tipos
+
+export type AnalyzeFinancialDataWithAIInput = z.infer<typeof AnalyzeFinancialDataWithAIInputSchema>;
 export type AnalyzeFinancialDataWithAIOutput = z.infer<typeof AnalyzeFinancialDataWithAIOutputSchema>;
 
-// Fix: Defining schema before using it in definePrompt
-const AnalyzeProfessionalAIOutputSchema = AnalyzeFinancialDataWithAIOutputSchema;
-
-export async function analyzeFinancialDataWithAI(input: AnalyzeFinancialDataWithAIInput): Promise<AnalyzeFinancialDataWithAIOutput> {
-  return analyzeFinancialDataWithAIFlow(input);
-}
+// 3. Definição do Prompt
 
 const analyzeFinancialDataPrompt = ai.definePrompt({
   name: 'analyzeFinancialDataPrompt',
   input: {schema: AnalyzeFinancialDataWithAIInputSchema},
-  output: {schema: AnalyzeProfessionalAIOutputSchema}, // Now schema is defined before access
+  output: {schema: AnalyzeFinancialDataWithAIOutputSchema},
   prompt: `Você é o Diretor Financeiro (CFO) do AM Finance, um sistema de gestão financeira profissional.
 Seu objetivo é analisar os dados financeiros e fornecer uma consultoria estratégica de alto nível.
 
@@ -85,14 +85,22 @@ TAREFAS:
 Forneça uma análise detalhada e recomendações acionáveis. Responda em PORTUGUÊS (Brasil).`,
 });
 
+// 4. Definição do Flow
+
 const analyzeFinancialDataWithAIFlow = ai.defineFlow(
   {
     name: 'analyzeFinancialDataWithAIFlow',
     inputSchema: AnalyzeFinancialDataWithAIInputSchema,
-    outputSchema: AnalyzeProfessionalAIOutputSchema,
+    outputSchema: AnalyzeFinancialDataWithAIOutputSchema,
   },
   async input => {
     const {output} = await analyzeFinancialDataPrompt(input);
     return output!;
   }
 );
+
+// 5. Função Wrapper para exportação
+
+export async function analyzeFinancialDataWithAI(input: AnalyzeFinancialDataWithAIInput): Promise<AnalyzeFinancialDataWithAIOutput> {
+  return analyzeFinancialDataWithAIFlow(input);
+}
