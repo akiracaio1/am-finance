@@ -76,7 +76,7 @@ type AdjustmentData = {
   interest: number;
   fine: number;
   discount: number;
-  settlementAmount: number; // Valor base a ser liquidado (para pagamentos parciais)
+  settlementAmount: number; 
 };
 
 export default function ReconciliationPage() {
@@ -94,11 +94,9 @@ export default function ReconciliationPage() {
   const [matchingTransaction, setMatchingTransaction] = useState<BankTransaction | null>(null);
   const [selectedMatchEntryIds, setSelectedMatchEntries] = useState<string[]>([]);
   
-  // Mapa de ajustes por ID de lançamento
   const [entryAdjustments, setEntryAdjustments] = useState<Record<string, AdjustmentData>>({});
   const [entryToAdjust, setEntryToAdjust] = useState<any>(null);
   
-  // States temporários para o modal de ajuste
   const [tempAdjInterest, setTempAdjInterest] = useState<number>(0);
   const [tempAdjFine, setTempAdjFine] = useState<number>(0);
   const [tempAdjDiscount, setTempAdjDiscount] = useState<number>(0);
@@ -123,7 +121,6 @@ export default function ReconciliationPage() {
 
   const [quickSupName, setQuickSupName] = useState("");
 
-  // Bank Account Form
   const [accName, setAccName] = useState("");
   const [accBank, setAccBank] = useState("");
   const [accType, setAccType] = useState<BankAccountType>("Corrente");
@@ -327,7 +324,7 @@ export default function ReconciliationPage() {
     updateDocumentNonBlocking(doc(db, "users", user.uid, "bankAccounts", selectedAccountId, "bankTransactions", transaction.id), { reconciled: false, reconciledEntryId: null });
     
     entryIds.forEach(eid => {
-      updateDocumentNonBlocking(doc(db, "users", user.uid, col, eid), { status: 'Open', paymentDate: null, bankAccountId: null });
+      updateDocumentNonBlocking(doc(db, "users", col, eid), { status: 'Open', paymentDate: null, bankAccountId: null });
     });
     
     toast({ title: `Conciliação desfeita (${entryIds.length} itens)` });
@@ -365,9 +362,9 @@ export default function ReconciliationPage() {
           updatedAt: new Date().toISOString()
         };
         
-        setDocumentNonBlocking(doc(db, "users", user.uid, col, partId), newPaidEntry, { merge: true });
+        setDocumentNonBlocking(doc(db, "users", col, partId), newPaidEntry, { merge: true });
         
-        updateDocumentNonBlocking(doc(db, "users", user.uid, col, entryId), {
+        updateDocumentNonBlocking(doc(db, "users", col, entryId), {
           [isPayable ? "originalAmount" : "amount"]: currentAmount - adjs.settlementAmount,
           rootEntryId: rootId,
           updatedAt: new Date().toISOString()
@@ -386,7 +383,7 @@ export default function ReconciliationPage() {
           discount: adjs.discount,
           rootEntryId: rootId
         };
-        updateDocumentNonBlocking(doc(db, "users", user.uid, col, entryId), updateData);
+        updateDocumentNonBlocking(doc(db, "users", col, entryId), updateData);
         finalEntryIds.push(entryId);
       }
     });
@@ -423,7 +420,7 @@ export default function ReconciliationPage() {
       updatedAt: new Date().toISOString() 
     };
     if (isPayable) { data.supplierId = formSupplierId; data.entryType = "Confirmed"; } else { data.customerName = formCustomerName; }
-    setDocumentNonBlocking(doc(db, "users", user.uid, col, id), data, { merge: true });
+    setDocumentNonBlocking(doc(db, "users", col, id), data, { merge: true });
     confirmMatch([id]);
     setIsDetailedCreateOpen(false);
   };
@@ -598,7 +595,6 @@ export default function ReconciliationPage() {
         </div>
       </div>
 
-      {/* MODAL DE MATCHING */}
       <Dialog open={isMatchModalOpen} onOpenChange={setIsMatchModalOpen}>
         <DialogContent className="max-w-4xl max-h-[90vh] flex flex-col p-0 overflow-hidden">
           <div className="p-6 border-b bg-muted/20">
@@ -726,7 +722,6 @@ export default function ReconciliationPage() {
                         setFormDescription(matchingTransaction.description);
                         setFormAmount(Math.abs(matchingTransaction.amount));
                         setFormDueDate(matchingTransaction.date);
-                        // Limpar campos de vínculo
                         setFormCategoryId("");
                         setFormSupplierId("");
                         setFormCustomerName("");
@@ -745,7 +740,6 @@ export default function ReconciliationPage() {
         </DialogContent>
       </Dialog>
 
-      {/* MODAL DE AJUSTE DE ITEM E LIQUIDAÇÃO PARCIAL */}
       <Dialog open={isAdjustmentModalOpen} onOpenChange={setIsAdjustmentModalOpen}>
         <DialogContent className="max-w-sm">
           <DialogHeader>
@@ -788,7 +782,6 @@ export default function ReconciliationPage() {
         </DialogContent>
       </Dialog>
 
-      {/* MODAL DETALHADO */}
       <Dialog open={isDetailedCreateOpen} onOpenChange={setIsDetailedCreateOpen}>
         <DialogContent className="max-w-xl">
           <form onSubmit={saveDetailedEntry}>
@@ -842,7 +835,6 @@ export default function ReconciliationPage() {
         </DialogContent>
       </Dialog>
 
-      {/* MODAL CADASTRO RÁPIDO DE FORNECEDOR */}
       <Dialog open={isQuickSupplierOpen} onOpenChange={setIsQuickSupplierOpen}>
         <DialogContent className="max-w-sm">
           <form onSubmit={handleSaveQuickSupplier}>
@@ -861,7 +853,6 @@ export default function ReconciliationPage() {
         </DialogContent>
       </Dialog>
 
-      {/* MODAL NOVA CONTA BANCÁRIA */}
       <Dialog open={isNewAccountModalOpen} onOpenChange={setIsNewAccountModalOpen}>
         <DialogContent className="max-w-sm">
           <form onSubmit={handleSaveNewAccount}>
@@ -893,7 +884,6 @@ export default function ReconciliationPage() {
         </DialogContent>
       </Dialog>
 
-      {/* MODAL PREVIA IMPORTAÇÃO */}
       <Dialog open={isImportModalOpen} onOpenChange={setIsImportModalOpen}>
         <DialogContent className="max-w-3xl">
           <DialogHeader><DialogTitle>Prévia da Importação</DialogTitle></DialogHeader>
