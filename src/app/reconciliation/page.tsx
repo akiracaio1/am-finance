@@ -327,9 +327,6 @@ export default function ReconciliationPage() {
     updateDocumentNonBlocking(doc(db, "users", user.uid, "bankAccounts", selectedAccountId, "bankTransactions", transaction.id), { reconciled: false, reconciledEntryId: null });
     
     entryIds.forEach(eid => {
-      // Nota: Se for um split, o estorno é complexo. 
-      // Em um MVP, voltamos o status para Open. 
-      // Idealmente, se fosse um split_part, deveríamos reintegrar ao root ou apenas reabrir.
       updateDocumentNonBlocking(doc(db, "users", user.uid, col, eid), { status: 'Open', paymentDate: null, bankAccountId: null });
     });
     
@@ -352,7 +349,6 @@ export default function ReconciliationPage() {
       
       const rootId = originalEntry.rootEntryId || originalEntry.id;
 
-      // Caso 1: Pagamento Parcial (Split)
       if (adjs.settlementAmount < currentAmount) {
         const partId = `${entryId}_part_${Date.now()}`;
         const newPaidEntry: any = {
@@ -369,10 +365,8 @@ export default function ReconciliationPage() {
           updatedAt: new Date().toISOString()
         };
         
-        // Salva a parte paga
         setDocumentNonBlocking(doc(db, "users", user.uid, col, partId), newPaidEntry, { merge: true });
         
-        // Atualiza a original com o saldo restante
         updateDocumentNonBlocking(doc(db, "users", user.uid, col, entryId), {
           [isPayable ? "originalAmount" : "amount"]: currentAmount - adjs.settlementAmount,
           rootEntryId: rootId,
@@ -381,7 +375,6 @@ export default function ReconciliationPage() {
         
         finalEntryIds.push(partId);
       } 
-      // Caso 2: Pagamento Total
       else {
         const updateData: any = { 
           status: 'Paid', 
@@ -398,7 +391,6 @@ export default function ReconciliationPage() {
       }
     });
     
-    // Vincula a transação do banco aos IDs finais (incluindo as novas partes criadas)
     updateDocumentNonBlocking(doc(db, "users", user.uid, "bankAccounts", selectedAccountId, "bankTransactions", matchingTransaction.id), { 
       reconciled: true, 
       reconciledEntryId: finalEntryIds.join(',') 
@@ -726,7 +718,25 @@ export default function ReconciliationPage() {
                   <CheckCircle2 className="w-5 h-5" /> Confirmar Match
                 </Button>
                 <div className="flex gap-2">
-                  <Button variant="outline" className="flex-1 text-[10px] h-8" onClick={() => setIsDetailedCreateOpen(true)}>+ Novo Detalhado</Button>
+                  <Button 
+                    variant="outline" 
+                    className="flex-1 text-[10px] h-8" 
+                    onClick={() => { 
+                      if (matchingTransaction) {
+                        setFormDescription(matchingTransaction.description);
+                        setFormAmount(Math.abs(matchingTransaction.amount));
+                        setFormDueDate(matchingTransaction.date);
+                        // Limpar campos de vínculo
+                        setFormCategoryId("");
+                        setFormSupplierId("");
+                        setFormCustomerName("");
+                        setFormCostCenterId("");
+                      }
+                      setIsDetailedCreateOpen(true); 
+                    }}
+                  >
+                    + Novo Detalhado
+                  </Button>
                   <Button variant="ghost" className="flex-1 text-[10px] h-8" onClick={() => { setSelectedMatchEntries([]); setEntryAdjustments({}); }}>Limpar Tudo</Button>
                 </div>
               </div>
