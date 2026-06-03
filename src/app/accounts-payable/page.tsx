@@ -79,7 +79,8 @@ import {
   parseISO,
   addMonths,
   addWeeks,
-  addDays
+  addDays,
+  isValid
 } from "date-fns";
 
 type InstallmentDraft = {
@@ -144,7 +145,7 @@ export default function AccountsPayablePage() {
 
   // Efeito para gerar rascunho de parcelas/recorrência
   useEffect(() => {
-    if (!isMultiEntry || installmentsCount <= 1 || !formDueDate || formAmount <= 0) {
+    if (!isMultiEntry || installmentsCount < 1 || !formDueDate || formAmount <= 0) {
       setInstallmentsDraft([]);
       return;
     }
@@ -152,6 +153,11 @@ export default function AccountsPayablePage() {
     const drafts: InstallmentDraft[] = [];
     const startDate = parseISO(formDueDate);
     
+    if (!isValid(startDate)) {
+      setInstallmentsDraft([]);
+      return;
+    }
+
     // Lógica de Diferenciação
     let baseValue = 0;
     if (multiMode === 'installment') {
@@ -328,7 +334,7 @@ export default function AccountsPayablePage() {
       updateDocumentNonBlocking(doc(db, "users", user.uid, "accountsPayableEntries", editingEntry.id), { ...baseData, originalAmount: formAmount, dueDate: formDueDate });
       toast({ title: "Lançamento atualizado" });
     } else {
-      if (isMultiEntry && installmentsDraft.length > 1) {
+      if (isMultiEntry && installmentsDraft.length > 0) {
         installmentsDraft.forEach((draft, i) => {
           const id = `pay_${Date.now()}_${i}`;
           setDocumentNonBlocking(
@@ -413,6 +419,13 @@ export default function AccountsPayablePage() {
     setIsPaymentOpen(false);
     setEntryToPay(null);
     toast({ title: "Conta liquidada com sucesso!" });
+  };
+
+  const handleToggleMultiEntry = (checked: boolean) => {
+    setIsMultiEntry(checked);
+    if (checked && installmentsCount <= 1) {
+      setInstallmentsCount(2); // Sugere pelo menos 2 para justificar o modo múltiplo
+    }
   };
 
   if (!mounted) return <div className="flex items-center justify-center min-h-[400px]"><Loader2 className="animate-spin h-8 w-8 text-primary" /></div>;
@@ -733,7 +746,7 @@ export default function AccountsPayablePage() {
               <TabsContent value="recurrence" className="p-6 pt-4">
                 <div className="bg-primary/5 p-6 rounded-xl border border-primary/10 space-y-6">
                   <div className="flex items-center space-x-3">
-                    <Checkbox id="recurring" checked={isMultiEntry} onCheckedChange={(c) => setIsMultiEntry(!!c)} className="w-5 h-5" />
+                    <Checkbox id="recurring" checked={isMultiEntry} onCheckedChange={(c) => handleToggleMultiEntry(!!c)} className="w-5 h-5" />
                     <div className="grid gap-0.5 leading-none">
                       <Label htmlFor="recurring" className="text-sm font-bold cursor-pointer">Ativar Lançamento Múltiplo</Label>
                       <p className="text-xs text-muted-foreground">Gere automaticamente várias contas para os próximos períodos.</p>
@@ -742,118 +755,130 @@ export default function AccountsPayablePage() {
                   
                   {isMultiEntry && (
                     <div className="space-y-6 animate-in slide-in-from-top-2">
-                      <div className="grid gap-4">
-                        <Label className="text-xs uppercase font-bold text-muted-foreground">Escolha o Modo</Label>
-                        <RadioGroup value={multiMode} onValueChange={(v: any) => setMultiMode(v)} className="grid grid-cols-2 gap-4">
-                          <Label
-                            htmlFor="opt-installment"
-                            className={cn(
-                              "flex flex-col items-center justify-between rounded-md border-2 border-muted bg-background p-4 hover:bg-muted/50 cursor-pointer",
-                              multiMode === 'installment' && "border-primary"
-                            )}
-                          >
-                            <RadioGroupItem value="installment" id="opt-installment" className="sr-only" />
-                            <Divide className="mb-3 h-6 w-6" />
-                            <div className="text-center">
-                              <p className="text-sm font-bold">Parcelamento</p>
-                              <p className="text-[10px] text-muted-foreground">Divide o valor total em X partes.</p>
-                            </div>
-                          </Label>
-                          <Label
-                            htmlFor="opt-recurrence"
-                            className={cn(
-                              "flex flex-col items-center justify-between rounded-md border-2 border-muted bg-background p-4 hover:bg-muted/50 cursor-pointer",
-                              multiMode === 'recurrence' && "border-primary"
-                            )}
-                          >
-                            <RadioGroupItem value="recurrence" id="opt-recurrence" className="sr-only" />
-                            <Layers className="mb-3 h-6 w-6" />
-                            <div className="text-center">
-                              <p className="text-sm font-bold">Recorrência</p>
-                              <p className="text-[10px] text-muted-foreground">Repete o valor unitário X vezes.</p>
-                            </div>
-                          </Label>
-                        </RadioGroup>
-                      </div>
+                      {!formDueDate || formAmount <= 0 ? (
+                        <div className="bg-amber-50 p-4 rounded-lg border border-amber-200 flex items-start gap-3">
+                          <Info className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+                          <div className="text-xs text-amber-700 leading-relaxed">
+                            <p className="font-bold">Atenção!</p>
+                            <p>Preencha o <strong>Valor</strong> e a <strong>Data de Vencimento</strong> na aba anterior para visualizar a projeção das parcelas.</p>
+                          </div>
+                        </div>
+                      ) : (
+                        <>
+                          <div className="grid gap-4">
+                            <Label className="text-xs uppercase font-bold text-muted-foreground">Escolha o Modo</Label>
+                            <RadioGroup value={multiMode} onValueChange={(v: any) => setMultiMode(v)} className="grid grid-cols-2 gap-4">
+                              <Label
+                                htmlFor="opt-installment"
+                                className={cn(
+                                  "flex flex-col items-center justify-between rounded-md border-2 border-muted bg-background p-4 hover:bg-muted/50 cursor-pointer",
+                                  multiMode === 'installment' && "border-primary bg-primary/5"
+                                )}
+                              >
+                                <RadioGroupItem value="installment" id="opt-installment" className="sr-only" />
+                                <Divide className="mb-3 h-6 w-6" />
+                                <div className="text-center">
+                                  <p className="text-sm font-bold">Parcelamento</p>
+                                  <p className="text-[10px] text-muted-foreground">Divide o valor total em X partes.</p>
+                                </div>
+                              </Label>
+                              <Label
+                                htmlFor="opt-recurrence"
+                                className={cn(
+                                  "flex flex-col items-center justify-between rounded-md border-2 border-muted bg-background p-4 hover:bg-muted/50 cursor-pointer",
+                                  multiMode === 'recurrence' && "border-primary bg-primary/5"
+                                )}
+                              >
+                                <RadioGroupItem value="recurrence" id="opt-recurrence" className="sr-only" />
+                                <Layers className="mb-3 h-6 w-6" />
+                                <div className="text-center">
+                                  <p className="text-sm font-bold">Recorrência</p>
+                                  <p className="text-[10px] text-muted-foreground">Repete o valor unitário X vezes.</p>
+                                </div>
+                              </Label>
+                            </RadioGroup>
+                          </div>
 
-                      <div className="grid grid-cols-2 gap-6">
-                        <div className="grid gap-2">
-                          <Label>Quantidade total de Lançamentos</Label>
-                          <div className="flex items-center gap-3">
-                            <Input type="number" min={2} max={120} value={installmentsCount} onChange={e => setInstallmentsCount(Number(e.target.value))} className="bg-background" />
-                            <span className="text-xs text-muted-foreground font-medium">vezes</span>
+                          <div className="grid grid-cols-2 gap-6">
+                            <div className="grid gap-2">
+                              <Label>Quantidade total de Lançamentos</Label>
+                              <div className="flex items-center gap-3">
+                                <Input type="number" min={1} max={120} value={installmentsCount} onChange={e => setInstallmentsCount(Number(e.target.value))} className="bg-background" />
+                                <span className="text-xs text-muted-foreground font-medium">vezes</span>
+                              </div>
+                            </div>
+                            <div className="grid gap-2">
+                              <Label>Frequência / Intervalo</Label>
+                              <Select value={recurrenceInterval} onValueChange={(v: any) => setRecurrenceInterval(v)}>
+                                <SelectTrigger className="bg-background"><SelectValue /></SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="monthly">Mensal (Todo mês)</SelectItem>
+                                  <SelectItem value="fortnightly">Quinzenal (A cada 14 dias)</SelectItem>
+                                  <SelectItem value="weekly">Semanal (Toda semana)</SelectItem>
+                                  <SelectItem value="daily">Diário (Todo dia)</SelectItem>
+                                </SelectContent>
+                              </Select>
+                            </div>
                           </div>
-                        </div>
-                        <div className="grid gap-2">
-                          <Label>Frequência / Intervalo</Label>
-                          <Select value={recurrenceInterval} onValueChange={(v: any) => setRecurrenceInterval(v)}>
-                            <SelectTrigger className="bg-background"><SelectValue /></SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="monthly">Mensal (Todo mês)</SelectItem>
-                              <SelectItem value="fortnightly">Quinzenal (A cada 14 dias)</SelectItem>
-                              <SelectItem value="weekly">Semanal (Toda semana)</SelectItem>
-                              <SelectItem value="daily">Diário (Todo dia)</SelectItem>
-                            </SelectContent>
-                          </Select>
-                        </div>
-                      </div>
 
-                      {installmentsDraft.length > 0 && (
-                        <div className="space-y-3">
-                          <div className="flex justify-between items-center">
-                            <Label className="text-xs uppercase font-bold text-primary">Prévia dos Lançamentos (Editável)</Label>
-                            {multiMode === 'installment' && (
-                              <div className={cn("text-xs font-bold px-2 py-1 rounded", Math.abs(totalDraftValue - formAmount) < 0.01 ? "bg-emerald-100 text-emerald-700" : "bg-destructive/10 text-destructive")}>
-                                Soma: R$ {totalDraftValue.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-                                {Math.abs(totalDraftValue - formAmount) >= 0.01 && <span className="ml-1 flex items-center gap-1 inline-flex"><AlertCircle className="w-3 h-3" /> Divergente do Total</span>}
+                          {installmentsDraft.length > 0 && (
+                            <div className="space-y-3">
+                              <div className="flex justify-between items-center">
+                                <Label className="text-xs uppercase font-bold text-primary">Prévia dos Lançamentos (Editável)</Label>
+                                {multiMode === 'installment' && (
+                                  <div className={cn("text-xs font-bold px-2 py-1 rounded", Math.abs(totalDraftValue - formAmount) < 0.01 ? "bg-emerald-100 text-emerald-700" : "bg-destructive/10 text-destructive")}>
+                                    Soma: R$ {totalDraftValue.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                                    {Math.abs(totalDraftValue - formAmount) >= 0.01 && <span className="ml-1 flex items-center gap-1 inline-flex"><AlertCircle className="w-3 h-3" /> Divergente do Total</span>}
+                                  </div>
+                                )}
+                                {multiMode === 'recurrence' && (
+                                  <div className="text-xs font-bold px-2 py-1 rounded bg-muted">
+                                    Total Acumulado: R$ {totalDraftValue.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                                  </div>
+                                )}
                               </div>
-                            )}
-                            {multiMode === 'recurrence' && (
-                              <div className="text-xs font-bold px-2 py-1 rounded bg-muted">
-                                Total Acumulado: R$ {totalDraftValue.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                              
+                              <div className="max-h-[250px] overflow-y-auto border rounded-lg bg-background">
+                                <Table>
+                                  <TableHeader className="bg-muted/50">
+                                    <TableRow>
+                                      <TableHead className="w-12 text-center h-8">#</TableHead>
+                                      <TableHead className="h-8">Vencimento</TableHead>
+                                      <TableHead className="h-8 text-right">Valor</TableHead>
+                                    </TableRow>
+                                  </TableHeader>
+                                  <TableBody>
+                                    {installmentsDraft.map((draft, idx) => (
+                                      <TableRow key={idx} className="hover:bg-muted/20">
+                                        <TableCell className="text-center py-1 text-xs font-bold text-muted-foreground">{idx + 1}</TableCell>
+                                        <TableCell className="py-1">
+                                          <Input 
+                                            type="date" 
+                                            value={draft.date} 
+                                            onChange={(e) => updateDraftItem(idx, 'date', e.target.value)}
+                                            className="h-8 text-xs border-none shadow-none focus-visible:ring-1"
+                                          />
+                                        </TableCell>
+                                        <TableCell className="py-1 text-right">
+                                          <div className="flex items-center justify-end gap-2">
+                                            <span className="text-xs text-muted-foreground">R$</span>
+                                            <Input 
+                                              type="number" 
+                                              step="0.01" 
+                                              value={draft.amount} 
+                                              onChange={(e) => updateDraftItem(idx, 'amount', Number(e.target.value))}
+                                              className="h-8 text-xs w-24 text-right border-none shadow-none focus-visible:ring-1 font-bold"
+                                            />
+                                          </div>
+                                        </TableCell>
+                                      </TableRow>
+                                    ))}
+                                  </TableBody>
+                                </Table>
                               </div>
-                            )}
-                          </div>
-                          
-                          <div className="max-h-[250px] overflow-y-auto border rounded-lg bg-background">
-                            <Table>
-                              <TableHeader className="bg-muted/50">
-                                <TableRow>
-                                  <TableHead className="w-12 text-center h-8">#</TableHead>
-                                  <TableHead className="h-8">Vencimento</TableHead>
-                                  <TableHead className="h-8 text-right">Valor</TableHead>
-                                </TableRow>
-                              </TableHeader>
-                              <TableBody>
-                                {installmentsDraft.map((draft, idx) => (
-                                  <TableRow key={idx} className="hover:bg-muted/20">
-                                    <TableCell className="text-center py-1 text-xs font-bold text-muted-foreground">{idx + 1}</TableCell>
-                                    <TableCell className="py-1">
-                                      <Input 
-                                        type="date" 
-                                        value={draft.date} 
-                                        onChange={(e) => updateDraftItem(idx, 'date', e.target.value)}
-                                        className="h-8 text-xs border-none shadow-none focus-visible:ring-1"
-                                      />
-                                    </TableCell>
-                                    <TableCell className="py-1 text-right">
-                                      <div className="flex items-center justify-end gap-2">
-                                        <span className="text-xs text-muted-foreground">R$</span>
-                                        <Input 
-                                          type="number" 
-                                          step="0.01" 
-                                          value={draft.amount} 
-                                          onChange={(e) => updateDraftItem(idx, 'amount', Number(e.target.value))}
-                                          className="h-8 text-xs w-24 text-right border-none shadow-none focus-visible:ring-1 font-bold"
-                                        />
-                                      </div>
-                                    </TableCell>
-                                  </TableRow>
-                                ))}
-                              </TableBody>
-                            </Table>
-                          </div>
-                        </div>
+                            </div>
+                          )}
+                        </>
                       )}
                     </div>
                   )}
@@ -870,7 +895,7 @@ export default function AccountsPayablePage() {
 
             <DialogFooter className="p-6 border-t bg-muted/10">
               <Button type="button" variant="outline" onClick={() => setIsNewEntryOpen(false)}>Cancelar</Button>
-              <Button type="submit" className="px-10" disabled={isMultiEntry && multiMode === 'installment' && Math.abs(totalDraftValue - formAmount) >= 0.01}>
+              <Button type="submit" className="px-10" disabled={isMultiEntry && multiMode === 'installment' && (installmentsDraft.length === 0 || Math.abs(totalDraftValue - formAmount) >= 0.01)}>
                 {isMultiEntry ? `Salvar ${installmentsCount} Lançamentos` : 'Salvar Lançamento'}
               </Button>
             </DialogFooter>
