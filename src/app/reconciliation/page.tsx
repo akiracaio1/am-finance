@@ -324,7 +324,7 @@ export default function ReconciliationPage() {
     updateDocumentNonBlocking(doc(db, "users", user.uid, "bankAccounts", selectedAccountId, "bankTransactions", transaction.id), { reconciled: false, reconciledEntryId: null });
     
     entryIds.forEach(eid => {
-      updateDocumentNonBlocking(doc(db, "users", col, eid), { status: 'Open', paymentDate: null, bankAccountId: null });
+      updateDocumentNonBlocking(doc(db, "users", user.uid, col, eid), { status: 'Open', paymentDate: null, bankAccountId: null });
     });
     
     toast({ title: `Conciliação desfeita (${entryIds.length} itens)` });
@@ -362,9 +362,9 @@ export default function ReconciliationPage() {
           updatedAt: new Date().toISOString()
         };
         
-        setDocumentNonBlocking(doc(db, "users", col, partId), newPaidEntry, { merge: true });
+        setDocumentNonBlocking(doc(db, "users", user.uid, col, partId), newPaidEntry, { merge: true });
         
-        updateDocumentNonBlocking(doc(db, "users", col, entryId), {
+        updateDocumentNonBlocking(doc(db, "users", user.uid, col, entryId), {
           [isPayable ? "originalAmount" : "amount"]: currentAmount - adjs.settlementAmount,
           rootEntryId: rootId,
           updatedAt: new Date().toISOString()
@@ -383,7 +383,7 @@ export default function ReconciliationPage() {
           discount: adjs.discount,
           rootEntryId: rootId
         };
-        updateDocumentNonBlocking(doc(db, "users", col, entryId), updateData);
+        updateDocumentNonBlocking(doc(db, "users", user.uid, col, entryId), updateData);
         finalEntryIds.push(entryId);
       }
     });
@@ -403,15 +403,17 @@ export default function ReconciliationPage() {
   const saveDetailedEntry = (e: React.FormEvent) => {
     e.preventDefault();
     if (!db || !user || !matchingTransaction) return;
-    const id = `${matchingTransaction.type === 'DEBIT' ? 'pay' : 'rec'}_${Date.now()}`;
+    
     const isPayable = matchingTransaction.type === 'DEBIT';
     const col = isPayable ? "accountsPayableEntries" : "accountsReceivableEntries";
-    const data: any = { 
-      id, 
+    const entryId = `${isPayable ? 'pay' : 'rec'}_${Date.now()}`;
+    
+    const entryData: any = { 
+      id: entryId, 
       description: formDescription, 
-      [isPayable ? "originalAmount" : "amount"]: formAmount, 
+      [isPayable ? "originalAmount" : "amount"]: Number(formAmount), 
       issueDate: formIssueDate || matchingTransaction.date,
-      dueDate: formDueDate, 
+      dueDate: formDueDate || matchingTransaction.date, 
       status: 'Paid', 
       paymentDate: matchingTransaction.date, 
       bankAccountId: selectedAccountId, 
@@ -420,10 +422,26 @@ export default function ReconciliationPage() {
       createdAt: new Date().toISOString(), 
       updatedAt: new Date().toISOString() 
     };
-    if (isPayable) { data.supplierId = formSupplierId; data.entryType = "Confirmed"; } else { data.customerName = formCustomerName; }
-    setDocumentNonBlocking(doc(db, "users", col, id), data, { merge: true });
-    confirmMatch([id]);
+
+    if (isPayable) { 
+      entryData.supplierId = formSupplierId; 
+      entryData.entryType = "Confirmed"; 
+    } else { 
+      entryData.customerName = formCustomerName; 
+    }
+
+    // 1. Salva o novo lançamento como PAGO (com o caminho correto do usuário)
+    setDocumentNonBlocking(doc(db, "users", user.uid, col, entryId), entryData, { merge: true });
+    
+    // 2. Atualiza a transação do extrato como CONCILIADA
+    updateDocumentNonBlocking(doc(db, "users", user.uid, "bankAccounts", selectedAccountId, "bankTransactions", matchingTransaction.id), { 
+      reconciled: true, 
+      reconciledEntryId: entryId 
+    });
+    
     setIsDetailedCreateOpen(false);
+    setIsMatchModalOpen(false);
+    toast({ title: "Lançamento criado e conciliado com sucesso!" });
   };
 
   const handleSaveQuickSupplier = (e: React.FormEvent) => {
