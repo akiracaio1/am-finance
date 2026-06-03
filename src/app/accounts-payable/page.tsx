@@ -1,4 +1,3 @@
-
 "use client";
 
 import { useState, useEffect, useMemo } from "react";
@@ -261,7 +260,7 @@ export default function AccountsPayablePage() {
 
   const getDynamicStatus = (entry: AccountsPayableEntry) => {
     if (entry.status === 'Paid') return 'Paid';
-    if (!todayStr) return 'Open';
+    if (!todayStr || !entry.dueDate) return 'Open';
     const dueDate = new Date(entry.dueDate + 'T12:00:00');
     const today = new Date(todayStr + 'T12:00:00');
     if (isBefore(dueDate, today) && !isSameDay(dueDate, today)) return 'Overdue';
@@ -285,7 +284,7 @@ export default function AccountsPayablePage() {
         const searchMatch = !searchTerm || desc.includes(term) || sName.includes(term) || cName.includes(term);
 
         return statusMatch && supplierMatch && categoryMatch && dueDateMatch && searchMatch;
-      }).sort((a,b) => a.dueDate.localeCompare(b.dueDate)) || [];
+      }).sort((a,b) => (a.dueDate || "").localeCompare(b.dueDate || "")) || [];
   }, [entries, selectedStatuses, selectedSupplierIds, selectedCategoryIds, filterDueDateStart, filterDueDateEnd, searchTerm, suppliers, leafCategories, todayStr, mounted]);
 
   const totalOverdue = allFilteredEntries.filter(e => e.dynamicStatus === 'Overdue').reduce((acc, curr) => acc + curr.originalAmount, 0);
@@ -518,7 +517,7 @@ export default function AccountsPayablePage() {
                 <TableRow key={entry.id}>
                   <TableCell className="text-xs">
                     <div className="flex flex-col">
-                      <span className="font-bold">{format(new Date(entry.dueDate + 'T12:00:00'), "dd/MM/yy")}</span>
+                      <span className="font-bold">{entry.dueDate ? format(new Date(entry.dueDate + 'T12:00:00'), "dd/MM/yy") : '-'}</span>
                       <span className="text-[9px] text-muted-foreground uppercase">Emissão: {entry.issueDate ? format(parseISO(entry.issueDate), "dd/MM") : '-'}</span>
                     </div>
                   </TableCell>
@@ -624,7 +623,7 @@ export default function AccountsPayablePage() {
                   <TableRow key={item.id}>
                     <TableCell className="text-xs">
                       <div className="flex flex-col">
-                        <span>Venc: {format(parseISO(item.dueDate), "dd/MM/yy")}</span>
+                        <span>Venc: {item.dueDate ? format(parseISO(item.dueDate), "dd/MM/yy") : '-'}</span>
                         {item.paymentDate && <span className="text-[10px] text-emerald-600 font-bold">Pago: {format(parseISO(item.paymentDate), "dd/MM/yy")}</span>}
                       </div>
                     </TableCell>

@@ -1,4 +1,3 @@
-
 "use client";
 
 import { useState, useMemo, useEffect } from "react";
@@ -251,13 +250,13 @@ export default function AccountsReceivablePage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {entries?.sort((a,b) => a.dueDate.localeCompare(b.dueDate)).map((entry) => (
+              {entries?.sort((a,b) => (a.dueDate || "").localeCompare(b.dueDate || "")).map((entry) => (
                 <TableRow key={entry.id}>
                   <TableCell className="text-xs">
                     <div className="flex flex-col">
                       <div className="flex items-center gap-2 font-bold">
                         <CalendarDays className="w-3 h-3 text-muted-foreground" />
-                        {format(new Date(entry.dueDate + 'T12:00:00'), "dd/MM/yy")}
+                        {entry.dueDate ? format(new Date(entry.dueDate + 'T12:00:00'), "dd/MM/yy") : '-'}
                       </div>
                       <span className="text-[9px] text-muted-foreground uppercase ml-5">Emissão: {entry.issueDate ? format(parseISO(entry.issueDate), "dd/MM") : '-'}</span>
                     </div>
@@ -366,7 +365,7 @@ export default function AccountsReceivablePage() {
                   <TableRow key={item.id}>
                     <TableCell className="text-xs">
                       <div className="flex flex-col">
-                        <span>Venc: {format(parseISO(item.dueDate), "dd/MM/yy")}</span>
+                        <span>Venc: {item.dueDate ? format(parseISO(item.dueDate), "dd/MM/yy") : '-'}</span>
                         {item.paymentDate && <span className="text-[10px] text-emerald-600 font-bold">Rec: {format(parseISO(item.paymentDate), "dd/MM/yy")}</span>}
                       </div>
                     </TableCell>

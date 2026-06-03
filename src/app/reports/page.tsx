@@ -1,4 +1,3 @@
-
 "use client";
 
 import { useState, useMemo, useEffect } from "react";
@@ -104,7 +103,7 @@ export default function ReportsPage() {
         p.dueDate >= startDate && 
         p.dueDate <= endDate
       )
-      .sort((a, b) => a.dueDate.localeCompare(b.dueDate));
+      .sort((a, b) => (a.dueDate || "").localeCompare(b.dueDate || ""));
   }, [payables, startDate, endDate]);
 
   const totalPending = pendingPayables.reduce((acc, curr) => acc + curr.originalAmount, 0);
@@ -113,7 +112,7 @@ export default function ReportsPage() {
     if (pendingPayables.length === 0) return;
 
     const exportData = pendingPayables.map(p => ({
-      'Vencimento': format(new Date(p.dueDate + 'T12:00:00'), 'dd/MM/yyyy'),
+      'Vencimento': p.dueDate ? format(new Date(p.dueDate + 'T12:00:00'), 'dd/MM/yyyy') : '-',
       'Fornecedor': suppliers?.find(s => s.id === p.supplierId)?.name || 'N/A',
       'Descrição': p.description,
       'Categoria': categories?.find(c => c.id === p.accountCategoryId)?.name || 'Geral',
@@ -200,7 +199,7 @@ export default function ReportsPage() {
                 <TableBody>
                   {pendingPayables.map((p) => (
                     <TableRow key={p.id}>
-                      <TableCell className="text-xs font-medium">{format(new Date(p.dueDate + 'T12:00:00'), 'dd/MM/yy')}</TableCell>
+                      <TableCell className="text-xs font-medium">{p.dueDate ? format(new Date(p.dueDate + 'T12:00:00'), 'dd/MM/yy') : '-'}</TableCell>
                       <TableCell className="text-xs">{suppliers?.find(s => s.id === p.supplierId)?.name || '-'}</TableCell>
                       <TableCell className="text-xs truncate max-w-[200px]">{p.description}</TableCell>
                       <TableCell className="text-right font-bold text-xs">{formatCurrency(p.originalAmount)}</TableCell>

@@ -1,4 +1,3 @@
-
 "use client";
 
 import { useState, useMemo, useEffect, useRef } from "react";
@@ -248,7 +247,7 @@ export default function ReconciliationPage() {
       const bMatchVal = Math.abs(bVal - targetVal) < 0.01;
       if (aMatchVal && !bMatchVal) return -1;
       if (!aMatchVal && bMatchVal) return 1;
-      return a.dueDate.localeCompare(b.dueDate);
+      return (a.dueDate || "").localeCompare(b.dueDate || "");
     });
   }, [openSystemEntries, matchingTransaction, matchSearchTerm, matchDateStart, matchDateEnd, matchMinValue, matchMaxValue, suppliers]);
 
@@ -655,7 +654,7 @@ export default function ReconciliationPage() {
                       <span className="text-sm font-bold">{entry.description}</span>
                       <span className="text-xs text-muted-foreground font-medium">{partyName}</span>
                       <div className="flex items-center gap-2 mt-0.5">
-                        <span className="text-[10px] text-muted-foreground">Venc: {format(parseISO(entry.dueDate), "dd/MM/yy")}</span>
+                        <span className="text-[10px] text-muted-foreground">Venc: {entry.dueDate ? format(parseISO(entry.dueDate), "dd/MM/yy") : '-'}</span>
                         {hasAdj && <Badge variant="secondary" className="text-[8px] h-3 px-1 flex items-center gap-1"><Settings className="w-2 h-2" /> Com Ajustes</Badge>}
                         {adj && adj.settlementAmount < baseVal && <Badge className="text-[8px] h-3 px-1 bg-amber-100 text-amber-700 border-none">Parcial</Badge>}
                       </div>
