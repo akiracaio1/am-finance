@@ -83,7 +83,7 @@
         "issueDate": { "type": "string", "format": "date" },
         "dueDate": { "type": "string", "format": "date" },
         "paymentMethod": { "type": "string" },
-        "status": { "type": "string", "enum": ["Open", "Paid", "Overdue"] },
+        "status": { "type": "string", "enum": ["Open", "Paid", "Overdue", "DueToday"] },
         "entryType": { "type": "string", "enum": ["Provision", "Confirmed"] },
         "paymentDate": { "type": "string", "format": "date" },
         "bankAccountId": { "type": "string" },
@@ -91,10 +91,11 @@
         "fine": { "type": "number" },
         "discount": { "type": "number" },
         "installmentInfo": { "type": "string" },
+        "rootEntryId": { "type": "string" },
         "createdAt": { "type": "string", "format": "date-time" },
         "updatedAt": { "type": "string", "format": "date-time" }
       },
-      "required": ["id", "supplierId", "accountCategoryId", "description", "originalAmount", "dueDate", "status", "entryType", "createdAt", "updatedAt"]
+      "required": ["id", "supplierId", "accountCategoryId", "description", "originalAmount", "issueDate", "dueDate", "status", "entryType", "createdAt", "updatedAt"]
     },
     "AccountsReceivableEntry": {
       "$schema": "http://json-schema.org/draft-07/schema#",
@@ -106,14 +107,16 @@
         "accountCategoryId": { "type": "string" },
         "description": { "type": "string" },
         "amount": { "type": "number" },
+        "issueDate": { "type": "string", "format": "date" },
         "dueDate": { "type": "string", "format": "date" },
         "status": { "type": "string", "enum": ["Open", "Paid"] },
         "paymentDate": { "type": "string", "format": "date" },
         "bankAccountId": { "type": "string" },
+        "rootEntryId": { "type": "string" },
         "createdAt": { "type": "string", "format": "date-time" },
         "updatedAt": { "type": "string", "format": "date-time" }
       },
-      "required": ["id", "customerName", "accountCategoryId", "description", "amount", "dueDate", "status", "createdAt", "updatedAt"]
+      "required": ["id", "customerName", "accountCategoryId", "description", "amount", "issueDate", "dueDate", "status", "createdAt", "updatedAt"]
     },
     "BankAccount": {
       "title": "BankAccount",

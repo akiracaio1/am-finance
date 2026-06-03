@@ -71,6 +71,7 @@ export default function AccountsReceivablePage() {
   // Estados do formulário
   const [formCustomer, setFormCustomer] = useState("");
   const [formAmount, setFormAmount] = useState<number>(0);
+  const [formIssueDate, setFormIssueDate] = useState("");
   const [formDueDate, setFormDueDate] = useState("");
   const [formCategoryId, setFormCategoryId] = useState("");
   const [formDescription, setFormDescription] = useState("");
@@ -113,6 +114,7 @@ export default function AccountsReceivablePage() {
     setEditingEntry(null);
     setFormCustomer("");
     setFormAmount(0);
+    setFormIssueDate(format(new Date(), "yyyy-MM-dd"));
     setFormDueDate("");
     setFormCategoryId("");
     setFormDescription("");
@@ -123,6 +125,7 @@ export default function AccountsReceivablePage() {
     setEditingEntry(entry);
     setFormCustomer(entry.customerName);
     setFormAmount(entry.amount);
+    setFormIssueDate(entry.issueDate);
     setFormDueDate(entry.dueDate);
     setFormCategoryId(entry.accountCategoryId);
     setFormDescription(entry.description || "");
@@ -133,6 +136,7 @@ export default function AccountsReceivablePage() {
     setEditingEntry(null);
     setFormCustomer(`${entry.customerName} (Cópia)`);
     setFormAmount(entry.amount);
+    setFormIssueDate(entry.issueDate);
     setFormDueDate(entry.dueDate);
     setFormCategoryId(entry.accountCategoryId);
     setFormDescription(entry.description || "");
@@ -151,6 +155,7 @@ export default function AccountsReceivablePage() {
       accountCategoryId: formCategoryId,
       description: formDescription, 
       amount: Number(formAmount), 
+      issueDate: formIssueDate || format(new Date(), "yyyy-MM-dd"),
       dueDate: formDueDate,
       status: editingEntry ? editingEntry.status : 'Open', 
       updatedAt: new Date().toISOString(),
@@ -249,9 +254,12 @@ export default function AccountsReceivablePage() {
               {entries?.sort((a,b) => a.dueDate.localeCompare(b.dueDate)).map((entry) => (
                 <TableRow key={entry.id}>
                   <TableCell className="text-xs">
-                    <div className="flex items-center gap-2">
-                      <CalendarDays className="w-3 h-3 text-muted-foreground" />
-                      {format(new Date(entry.dueDate + 'T12:00:00'), "dd/MM/yy")}
+                    <div className="flex flex-col">
+                      <div className="flex items-center gap-2 font-bold">
+                        <CalendarDays className="w-3 h-3 text-muted-foreground" />
+                        {format(new Date(entry.dueDate + 'T12:00:00'), "dd/MM/yy")}
+                      </div>
+                      <span className="text-[9px] text-muted-foreground uppercase ml-5">Emissão: {entry.issueDate ? format(parseISO(entry.issueDate), "dd/MM") : '-'}</span>
                     </div>
                   </TableCell>
                   <TableCell className="font-medium">
@@ -412,6 +420,17 @@ export default function AccountsReceivablePage() {
                     required 
                   />
                 </div>
+                <div className="grid gap-2">
+                  <Label>Data Emissão*</Label>
+                  <Input 
+                    type="date" 
+                    value={formIssueDate} 
+                    onChange={e => setFormIssueDate(e.target.value)} 
+                    required 
+                  />
+                </div>
+              </div>
+              <div className="grid grid-cols-1 gap-4">
                 <div className="grid gap-2">
                   <Label>Vencimento*</Label>
                   <Input 

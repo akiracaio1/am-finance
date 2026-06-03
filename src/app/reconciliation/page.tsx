@@ -113,6 +113,7 @@ export default function ReconciliationPage() {
 
   const [formDescription, setFormDescription] = useState("");
   const [formAmount, setFormAmount] = useState<number>(0);
+  const [formIssueDate, setFormIssueDate] = useState("");
   const [formDueDate, setFormDueDate] = useState("");
   const [formCategoryId, setFormCategoryId] = useState("");
   const [formSupplierId, setFormSupplierId] = useState("");
@@ -410,6 +411,7 @@ export default function ReconciliationPage() {
       id, 
       description: formDescription, 
       [isPayable ? "originalAmount" : "amount"]: formAmount, 
+      issueDate: formIssueDate || matchingTransaction.date,
       dueDate: formDueDate, 
       status: 'Paid', 
       paymentDate: matchingTransaction.date, 
@@ -721,6 +723,7 @@ export default function ReconciliationPage() {
                       if (matchingTransaction) {
                         setFormDescription(matchingTransaction.description);
                         setFormAmount(Math.abs(matchingTransaction.amount));
+                        setFormIssueDate(matchingTransaction.date);
                         setFormDueDate(matchingTransaction.date);
                         setFormCategoryId("");
                         setFormSupplierId("");
@@ -790,16 +793,10 @@ export default function ReconciliationPage() {
               <div className="grid gap-2"><Label>Descrição*</Label><Input value={formDescription} onChange={e => setFormDescription(e.target.value)} required /></div>
               <div className="grid grid-cols-2 gap-4">
                 <div className="grid gap-2"><Label>Valor*</Label><Input type="number" step="0.01" value={formAmount} onChange={e => setFormAmount(Number(e.target.value))} required /></div>
-                <div className="grid gap-2"><Label>Vencimento*</Label><Input type="date" value={formDueDate} onChange={e => setFormDueDate(e.target.value)} required /></div>
+                <div className="grid gap-2"><Label>Data Emissão*</Label><Input type="date" value={formIssueDate} onChange={e => setFormIssueDate(e.target.value)} required /></div>
               </div>
               <div className="grid grid-cols-2 gap-4">
-                <div className="grid gap-2">
-                  <Label>Categoria (Plano de Contas)*</Label>
-                  <Select value={formCategoryId} onValueChange={setFormCategoryId} required>
-                    <SelectTrigger><SelectValue placeholder="Selecione..." /></SelectTrigger>
-                    <SelectContent>{filteredCategories.map(c => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}</SelectContent>
-                  </Select>
-                </div>
+                <div className="grid gap-2"><Label>Vencimento*</Label><Input type="date" value={formDueDate} onChange={e => setFormDueDate(e.target.value)} required /></div>
                 <div className="grid gap-2">
                   <Label>Centro de Custo</Label>
                   <Select value={formCostCenterId} onValueChange={setFormCostCenterId}>
@@ -817,6 +814,13 @@ export default function ReconciliationPage() {
                     </SelectContent>
                   </Select>
                 </div>
+              </div>
+              <div className="grid gap-2">
+                <Label>Categoria (Plano de Contas)*</Label>
+                <Select value={formCategoryId} onValueChange={setFormCategoryId} required>
+                  <SelectTrigger><SelectValue placeholder="Selecione..." /></SelectTrigger>
+                  <SelectContent>{filteredCategories.map(c => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}</SelectContent>
+                </Select>
               </div>
               {matchingTransaction?.type === 'DEBIT' ? (
                 <div className="grid gap-2">

@@ -57,7 +57,7 @@ export interface AccountsPayableEntry {
   costCenterId?: string;
   description: string;
   originalAmount: number;
-  issueDate?: string;
+  issueDate: string; // Obrigatório para Competência
   dueDate: string;
   paymentMethod?: string;
   status: 'Open' | 'Paid' | 'Overdue' | 'DueToday';
@@ -79,6 +79,7 @@ export interface AccountsReceivableEntry {
   accountCategoryId: string;
   description: string;
   amount: number;
+  issueDate: string; // Obrigatório para Competência
   dueDate: string;
   status: 'Open' | 'Paid';
   paymentDate?: string;

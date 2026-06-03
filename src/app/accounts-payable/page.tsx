@@ -106,6 +106,7 @@ export default function AccountsPayablePage() {
   const [formType, setFormType] = useState<EntryType>("Confirmed");
   const [formDescription, setFormDescription] = useState("");
   const [formAmount, setFormAmount] = useState<number>(0);
+  const [formIssueDate, setFormIssueDate] = useState("");
   const [formDueDate, setFormDueDate] = useState("");
   const [formSupplierId, setFormSupplierId] = useState("");
   const [formCategoryId, setFormCategoryId] = useState("");
@@ -319,6 +320,7 @@ export default function AccountsPayablePage() {
       accountCategoryId: formCategoryId, 
       costCenterId: formCostCenterId === "none" || !formCostCenterId ? null : formCostCenterId,
       description: formDescription, 
+      issueDate: formIssueDate || format(new Date(), "yyyy-MM-dd"),
       entryType: formType, 
       updatedAt: new Date().toISOString(),
     };
@@ -385,6 +387,7 @@ export default function AccountsPayablePage() {
     setEditingEntry(null); 
     setFormDescription(`${entry.description} (Cópia)`);
     setFormAmount(entry.originalAmount);
+    setFormIssueDate(entry.issueDate);
     setFormDueDate(entry.dueDate);
     setFormSupplierId(entry.supplierId);
     setFormCategoryId(entry.accountCategoryId);
@@ -428,6 +431,7 @@ export default function AccountsPayablePage() {
             setEditingEntry(null); 
             setFormDescription("");
             setFormAmount(0);
+            setFormIssueDate(format(new Date(), "yyyy-MM-dd"));
             setFormDueDate("");
             setFormSupplierId("");
             setFormCategoryId("");
@@ -512,7 +516,12 @@ export default function AccountsPayablePage() {
             <TableBody>
               {allFilteredEntries.map((entry) => (
                 <TableRow key={entry.id}>
-                  <TableCell className="text-xs">{format(new Date(entry.dueDate + 'T12:00:00'), "dd/MM/yy")}</TableCell>
+                  <TableCell className="text-xs">
+                    <div className="flex flex-col">
+                      <span className="font-bold">{format(new Date(entry.dueDate + 'T12:00:00'), "dd/MM/yy")}</span>
+                      <span className="text-[9px] text-muted-foreground uppercase">Emissão: {entry.issueDate ? format(parseISO(entry.issueDate), "dd/MM") : '-'}</span>
+                    </div>
+                  </TableCell>
                   <TableCell className="font-medium">{suppliers?.find(s => s.id === entry.supplierId)?.name || '-'}</TableCell>
                   <TableCell>
                     <div className="flex flex-col gap-1">
@@ -569,6 +578,7 @@ export default function AccountsPayablePage() {
                           setEditingEntry(entry); 
                           setFormDescription(entry.description); 
                           setFormAmount(entry.originalAmount); 
+                          setFormIssueDate(entry.issueDate || "");
                           setFormDueDate(entry.dueDate); 
                           setFormSupplierId(entry.supplierId); 
                           setFormCategoryId(entry.accountCategoryId); 
@@ -696,12 +706,13 @@ export default function AccountsPayablePage() {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-3 gap-4">
+                <div className="grid grid-cols-4 gap-4">
                   <div className="grid gap-2">
-                    <Label>{isMultiEntry && multiMode === 'installment' ? 'Valor Total da Compra*' : 'Valor da Parcela/Conta*'}</Label>
+                    <Label>{isMultiEntry && multiMode === 'installment' ? 'Valor Total*' : 'Valor*'}</Label>
                     <Input type="number" step="0.01" value={formAmount || ""} onChange={e => setFormAmount(Number(e.target.value))} required />
                   </div>
-                  <div className="grid gap-2"><Label>{editingEntry ? 'Vencimento*' : 'Primeiro Vencimento*'}</Label><Input type="date" value={formDueDate} onChange={e => setFormDueDate(e.target.value)} required /></div>
+                  <div className="grid gap-2"><Label>Data Emissão*</Label><Input type="date" value={formIssueDate} onChange={e => setFormIssueDate(e.target.value)} required /></div>
+                  <div className="grid gap-2"><Label>{editingEntry ? 'Vencimento*' : '1º Vencimento*'}</Label><Input type="date" value={formDueDate} onChange={e => setFormDueDate(e.target.value)} required /></div>
                   <div className="grid gap-2">
                     <Label>Centro de Custo</Label>
                     <Select value={formCostCenterId} onValueChange={setFormCostCenterId}>
