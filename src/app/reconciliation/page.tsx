@@ -67,7 +67,7 @@ import {
   CostCenterGroup,
   BankAccountType
 } from "@/lib/types";
-import { format, isBefore, parseISO, eachDayOfInterval } from "date-fns";
+import { format, isBefore, parseISO, eachDayOfInterval, isValid } from "date-fns";
 import { parseOFX, OFXTransaction } from "@/lib/ofx-parser";
 import { cn } from "@/lib/utils";
 
@@ -539,9 +539,14 @@ export default function ReconciliationPage() {
               <h4 className="text-sm font-bold text-amber-900">Pendências Detectadas (Desde 01/05/2026)</h4>
               <p className="text-xs text-amber-700">Auditoria por calendário absoluto. Foram detectados {pendingDays.length} dias pendentes:</p>
               <div className="flex flex-wrap gap-2 mt-2">
-                {pendingDays.slice(0, 30).map(date => (
-                  <Badge key={date} variant="secondary" className="cursor-pointer hover:bg-amber-200" onClick={() => setSelectedDate(date)}>{format(parseISO(date), "dd/MM")}</Badge>
-                ))}
+                {pendingDays.slice(0, 30).map(date => {
+                   const d = new Date(date + 'T12:00:00');
+                   return (
+                    <Badge key={date} variant="secondary" className="cursor-pointer hover:bg-amber-200" onClick={() => setSelectedDate(date)}>
+                      {isValid(d) ? format(d, "dd/MM") : '-'}
+                    </Badge>
+                   );
+                })}
               </div>
             </div>
           </CardContent>
@@ -651,6 +656,8 @@ export default function ReconciliationPage() {
               const adj = entryAdjustments[entry.id];
               const finalVal = adj ? (adj.settlementAmount + adj.interest + adj.fine - adj.discount) : baseVal;
               const hasAdj = adj && (adj.interest > 0 || adj.fine > 0 || adj.discount > 0 || adj.settlementAmount < baseVal);
+              
+              const d = entry.dueDate ? new Date(entry.dueDate + 'T12:00:00') : null;
                 
               return (
                 <div 
@@ -672,7 +679,7 @@ export default function ReconciliationPage() {
                       <span className="text-sm font-bold">{entry.description}</span>
                       <span className="text-xs text-muted-foreground font-medium">{partyName}</span>
                       <div className="flex items-center gap-2 mt-0.5">
-                        <span className="text-[10px] text-muted-foreground">Venc: {entry.dueDate ? format(parseISO(entry.dueDate), "dd/MM/yy") : '-'}</span>
+                        <span className="text-[10px] text-muted-foreground">Venc: {d && isValid(d) ? format(d, "dd/MM/yy") : '-'}</span>
                         {hasAdj && <Badge variant="secondary" className="text-[8px] h-3 px-1 flex items-center gap-1"><Settings className="w-2 h-2" /> Com Ajustes</Badge>}
                         {adj && adj.settlementAmount < baseVal && <Badge className="text-[8px] h-3 px-1 bg-amber-100 text-amber-700 border-none">Parcial</Badge>}
                       </div>
