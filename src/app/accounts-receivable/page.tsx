@@ -25,7 +25,10 @@ import {
   CalendarDays,
   History,
   Info,
-  Layers
+  Layers,
+  Calculator,
+  TrendingUp,
+  Clock
 } from "lucide-react";
 import { useUser, useFirestore, useCollection, useMemoFirebase } from "@/firebase";
 import { collection, doc, query, where } from "firebase/firestore";
@@ -124,8 +127,8 @@ export default function AccountsReceivablePage() {
     setEditingEntry(entry);
     setFormCustomer(entry.customerName);
     setFormAmount(entry.amount);
-    setFormIssueDate(entry.issueDate);
-    setFormDueDate(entry.dueDate);
+    setFormIssueDate(entry.issueDate || format(new Date(), "yyyy-MM-dd"));
+    setFormDueDate(entry.dueDate || "");
     setFormCategoryId(entry.accountCategoryId);
     setFormDescription(entry.description || "");
     setIsDialogOpen(true);
@@ -135,8 +138,8 @@ export default function AccountsReceivablePage() {
     setEditingEntry(null);
     setFormCustomer(`${entry.customerName} (Cópia)`);
     setFormAmount(entry.amount);
-    setFormIssueDate(entry.issueDate);
-    setFormDueDate(entry.dueDate);
+    setFormIssueDate(entry.issueDate || format(new Date(), "yyyy-MM-dd"));
+    setFormDueDate(entry.dueDate || "");
     setFormCategoryId(entry.accountCategoryId);
     setFormDescription(entry.description || "");
     setIsDialogOpen(true);
@@ -202,6 +205,8 @@ export default function AccountsReceivablePage() {
   };
 
   const totalOpen = entries?.filter(e => e.status === 'Open').reduce((acc, curr) => acc + curr.amount, 0) || 0;
+  
+  // Total Recebido refletindo valor líquido se houver suporte a ajustes no futuro para recebíveis
   const totalPaid = entries?.filter(e => e.status === 'Paid').reduce((acc, curr) => acc + curr.amount, 0) || 0;
 
   if (!mounted) return null;
@@ -223,13 +228,19 @@ export default function AccountsReceivablePage() {
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <Card className="bg-amber-50/50 border-amber-100">
-          <CardHeader className="p-4 pb-2 text-[10px] font-bold text-amber-700 uppercase">A Receber</CardHeader>
+          <CardHeader className="p-4 pb-2 flex flex-row items-center justify-between space-y-0">
+            <span className="text-[10px] font-bold text-amber-700 uppercase">A Receber</span>
+            <Clock className="w-3 h-3 text-amber-500 opacity-50" />
+          </CardHeader>
           <CardContent className="p-4 pt-0 text-2xl font-bold text-amber-700">
             R$ {totalOpen.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
           </CardContent>
         </Card>
         <Card className="bg-emerald-50/50 border-emerald-100">
-          <CardHeader className="p-4 pb-2 text-[10px] font-bold text-emerald-700 uppercase">Total Recebido</CardHeader>
+          <CardHeader className="p-4 pb-2 flex flex-row items-center justify-between space-y-0">
+            <span className="text-[10px] font-bold text-emerald-700 uppercase">Total Recebido</span>
+            <TrendingUp className="w-3 h-3 text-emerald-500 opacity-50" />
+          </CardHeader>
           <CardContent className="p-4 pt-0 text-2xl font-bold text-emerald-800">
             R$ {totalPaid.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
           </CardContent>
@@ -261,17 +272,17 @@ export default function AccountsReceivablePage() {
                       <span className="text-[9px] text-muted-foreground uppercase ml-5">Emissão: {entry.issueDate ? format(parseISO(entry.issueDate), "dd/MM") : '-'}</span>
                     </div>
                   </TableCell>
-                  <TableCell className="font-medium">
+                  <TableCell className="font-medium text-xs">
                     <div className="flex flex-col">
                       <div className="flex items-center gap-2">
-                        <span>{entry.customerName}</span>
+                        <span className="truncate max-w-[150px]">{entry.customerName}</span>
                         {entry.rootEntryId && (
                           <Badge variant="outline" className="text-[8px] h-4 py-0 bg-amber-50 text-amber-700 border-amber-200 flex items-center gap-1">
                             <Layers className="w-2 h-2" /> Parcial
                           </Badge>
                         )}
                       </div>
-                      <span className="text-[10px] text-muted-foreground">{entry.description}</span>
+                      <span className="text-[10px] text-muted-foreground truncate max-w-[180px]">{entry.description}</span>
                     </div>
                   </TableCell>
                   <TableCell>
@@ -295,8 +306,12 @@ export default function AccountsReceivablePage() {
                       <Badge variant="outline" className="text-amber-600 border-amber-200">Em Aberto</Badge>
                     )}
                   </TableCell>
-                  <TableCell className="text-right font-bold text-emerald-700">
-                    R$ {entry.amount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                  <TableCell className="text-right">
+                    <div className="flex flex-col items-end">
+                      <span className="font-bold text-sm text-emerald-700">
+                        R$ {entry.amount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                      </span>
+                    </div>
                   </TableCell>
                   <TableCell>
                     <DropdownMenu>

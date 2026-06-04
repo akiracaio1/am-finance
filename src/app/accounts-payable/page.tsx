@@ -35,7 +35,9 @@ import {
   Divide,
   Layers,
   History,
-  Info
+  Info,
+  TrendingDown,
+  TrendingUp
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useUser, useFirestore, useCollection, useMemoFirebase } from "@/firebase";
@@ -281,7 +283,7 @@ export default function AccountsPayablePage() {
         const statusMatch = selectedStatuses.length === 0 || selectedStatuses.includes(e.dynamicStatus);
         const supplierMatch = selectedSupplierIds.length === 0 || selectedSupplierIds.includes(e.supplierId);
         const categoryMatch = selectedCategoryIds.length === 0 || selectedCategoryIds.includes(e.accountCategoryId);
-        const dueDateMatch = (!filterDueDateStart || e.dueDate >= filterDueDateStart) && (!filterDueDateEnd || e.dueDate <= filterDueDateEnd);
+        const dueDateMatch = (!filterDueDateStart || (e.dueDate && e.dueDate >= filterDueDateStart)) && (!filterDueDateEnd || (e.dueDate && e.dueDate <= filterDueDateEnd));
         
         const sName = suppliers?.find(s => s.id === e.supplierId)?.name.toLowerCase() || "";
         const cName = leafCategories.find(c => c.id === e.accountCategoryId)?.name.toLowerCase() || "";
@@ -296,7 +298,12 @@ export default function AccountsPayablePage() {
   const totalOverdue = allFilteredEntries.filter(e => e.dynamicStatus === 'Overdue').reduce((acc, curr) => acc + curr.originalAmount, 0);
   const totalDueToday = allFilteredEntries.filter(e => e.dynamicStatus === 'DueToday').reduce((acc, curr) => acc + curr.originalAmount, 0);
   const totalOpen = allFilteredEntries.filter(e => e.dynamicStatus === 'Open').reduce((acc, curr) => acc + curr.originalAmount, 0);
-  const totalPaid = allFilteredEntries.filter(e => e.dynamicStatus === 'Paid').reduce((acc, curr) => acc + (curr.originalAmount + (curr.interest || 0) + (curr.fine || 0) - (curr.discount || 0)), 0);
+  
+  // Total Pago agora soma o valor EFETIVO (Original + Juros + Multa - Desconto)
+  const totalPaid = allFilteredEntries.filter(e => e.dynamicStatus === 'Paid').reduce((acc, curr) => {
+    const netValue = curr.originalAmount + (curr.interest || 0) + (curr.fine || 0) - (curr.discount || 0);
+    return acc + netValue;
+  }, 0);
 
   const handleSaveQuickSupplier = (e: React.FormEvent) => {
     e.preventDefault();
@@ -392,8 +399,8 @@ export default function AccountsPayablePage() {
     setEditingEntry(null); 
     setFormDescription(`${entry.description} (Cópia)`);
     setFormAmount(entry.originalAmount);
-    setFormIssueDate(entry.issueDate);
-    setFormDueDate(entry.dueDate);
+    setFormIssueDate(entry.issueDate || format(new Date(), "yyyy-MM-dd"));
+    setFormDueDate(entry.dueDate || "");
     setFormSupplierId(entry.supplierId);
     setFormCategoryId(entry.accountCategoryId);
     setFormCostCenterId(entry.costCenterId || "");
@@ -503,22 +510,24 @@ export default function AccountsPayablePage() {
       </Collapsible>
 
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        {['Overdue', 'DueToday', 'Open', 'Paid'].map((status) => {
-          const labels: Record<string, string> = { Overdue: 'Atrasado', DueToday: 'Hoje', Open: 'Em Aberto', Paid: 'Total Pago' };
-          const values: Record<string, number> = { Overdue: totalOverdue, DueToday: totalDueToday, Open: totalOpen, Paid: totalPaid };
-          const colors: Record<string, string> = { Overdue: 'text-destructive bg-destructive/5 ring-destructive', DueToday: 'text-amber-700 bg-amber-50 ring-amber-500', Open: 'text-primary bg-primary/5 ring-primary', Paid: 'text-emerald-700 bg-emerald-50 ring-emerald-500' };
-          
-          return (
-            <Card 
-              key={status}
-              className={cn("cursor-pointer transition-all hover:shadow-md", selectedStatuses.includes(status) ? `ring-2 ${colors[status]}` : colors[status].split(' ')[1])}
-              onClick={() => setSelectedStatuses(prev => prev.includes(status) ? prev.filter(s => s !== status) : [...prev, status])}
-            >
-              <CardHeader className="p-4 pb-2 text-[10px] font-bold uppercase opacity-70">{labels[status]}</CardHeader>
-              <CardContent className="p-4 pt-0 text-xl font-bold">R$ {values[status].toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</CardContent>
-            </Card>
-          );
-        })}
+        {[
+          { key: 'Overdue', label: 'Atrasado', value: totalOverdue, icon: AlertCircle, color: 'text-destructive bg-destructive/5 ring-destructive' },
+          { key: 'DueToday', label: 'Hoje', value: totalDueToday, icon: Clock, color: 'text-amber-700 bg-amber-50 ring-amber-500' },
+          { key: 'Open', label: 'Em Aberto', value: totalOpen, icon: TrendingDown, color: 'text-primary bg-primary/5 ring-primary' },
+          { key: 'Paid', label: 'Total Pago (Líquido)', value: totalPaid, icon: CheckCircle2, color: 'text-emerald-700 bg-emerald-50 ring-emerald-500' }
+        ].map((status) => (
+          <Card 
+            key={status.key}
+            className={cn("cursor-pointer transition-all hover:shadow-md", selectedStatuses.includes(status.key) ? `ring-2 ${status.color}` : status.color.split(' ')[1])}
+            onClick={() => setSelectedStatuses(prev => prev.includes(status.key) ? prev.filter(s => s !== status.key) : [...prev, status.key])}
+          >
+            <CardHeader className="p-4 pb-2 flex flex-row items-center justify-between space-y-0">
+              <span className="text-[10px] font-bold uppercase opacity-70">{status.label}</span>
+              <status.icon className="w-3 h-3 opacity-40" />
+            </CardHeader>
+            <CardContent className="p-4 pt-0 text-xl font-bold">R$ {status.value.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</CardContent>
+          </Card>
+        ))}
       </div>
 
       <Card>
@@ -526,90 +535,108 @@ export default function AccountsPayablePage() {
           <Table>
             <TableHeader><TableRow><TableHead>Vencimento</TableHead><TableHead>Fornecedor</TableHead><TableHead>Descrição / Centro de Custo</TableHead><TableHead>Status</TableHead><TableHead className="text-right">Valor</TableHead><TableHead className="w-[50px]"></TableHead></TableRow></TableHeader>
             <TableBody>
-              {allFilteredEntries.map((entry) => (
-                <TableRow key={entry.id}>
-                  <TableCell className="text-xs">
-                    <div className="flex flex-col">
-                      <span className="font-bold">{entry.dueDate ? format(new Date(entry.dueDate + 'T12:00:00'), "dd/MM/yy") : '-'}</span>
-                      <span className="text-[9px] text-muted-foreground uppercase">Emissão: {entry.issueDate ? format(parseISO(entry.issueDate), "dd/MM") : '-'}</span>
-                    </div>
-                  </TableCell>
-                  <TableCell className="font-medium">{suppliers?.find(s => s.id === entry.supplierId)?.name || '-'}</TableCell>
-                  <TableCell>
-                    <div className="flex flex-col gap-1">
-                      <div className="flex flex-wrap items-center gap-1.5">
-                        <span className="text-[9px] text-muted-foreground uppercase font-bold">{leafCategories.find(c => c.id === entry.accountCategoryId)?.name}</span>
-                        {entry.costCenterId && (
-                          <Badge variant="outline" className="text-[8px] h-4 py-0 flex items-center gap-1 bg-muted/50 border-primary/20">
-                            <LayoutGrid className="w-2 h-2" />
-                            {centers?.find(c => c.id === entry.costCenterId)?.name}
-                          </Badge>
-                        )}
-                        {entry.entryType === 'Confirmed' ? (
-                          <Badge variant="outline" className="text-[8px] h-4 py-0 bg-primary/5 text-primary border-primary/20 flex items-center gap-1">
-                            <CheckCircle2 className="w-2 h-2" /> Confirmado
-                          </Badge>
-                        ) : (
-                          <Badge variant="outline" className="text-[8px] h-4 py-0 bg-amber-50 text-amber-700 border-amber-200 flex items-center gap-1">
-                            <Clock className="w-2 h-2" /> Provisão
-                          </Badge>
-                        )}
-                        {entry.rootEntryId && (
-                          <Badge variant="outline" className="text-[8px] h-4 py-0 bg-amber-50 text-amber-700 border-amber-200 flex items-center gap-1">
-                            <Layers className="w-2 h-2" /> Parcial
-                          </Badge>
-                        )}
-                      </div>
-                      <span className="text-sm">{entry.description} {entry.installmentInfo && <Badge variant="secondary" className="text-[9px] h-3 px-1 ml-1">{entry.installmentInfo}</Badge>}</span>
-                    </div>
-                  </TableCell>
-                  <TableCell>
-                    {entry.dynamicStatus === 'Paid' ? (
+              {allFilteredEntries.map((entry) => {
+                const isPaid = entry.dynamicStatus === 'Paid';
+                const effectivePaid = entry.originalAmount + (entry.interest || 0) + (entry.fine || 0) - (entry.discount || 0);
+                const hasAdjustments = (entry.interest || 0) > 0 || (entry.fine || 0) > 0 || (entry.discount || 0) > 0;
+
+                return (
+                  <TableRow key={entry.id}>
+                    <TableCell className="text-xs">
                       <div className="flex flex-col">
-                        <Badge className="bg-emerald-100 text-emerald-700 border-none">Pago</Badge>
-                        {entry.paymentDate && <span className="text-[9px] text-emerald-600 font-bold mt-1">Em {format(parseISO(entry.paymentDate), "dd/MM/yy")}</span>}
+                        <span className="font-bold">{entry.dueDate ? format(new Date(entry.dueDate + 'T12:00:00'), "dd/MM/yy") : '-'}</span>
+                        <span className="text-[9px] text-muted-foreground uppercase">Emissão: {entry.issueDate ? format(parseISO(entry.issueDate), "dd/MM") : '-'}</span>
                       </div>
-                    ) : entry.dynamicStatus === 'Overdue' ? (
-                      <Badge variant="destructive">Atrasado</Badge>
-                    ) : entry.dynamicStatus === 'DueToday' ? (
-                      <Badge className="bg-amber-100 text-amber-700 border-none">Hoje</Badge>
-                    ) : (
-                      <Badge variant="outline">Aberto</Badge>
-                    )}
-                  </TableCell>
-                  <TableCell className="text-right font-bold">R$ {entry.originalAmount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</TableCell>
-                  <TableCell>
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild><Button variant="ghost" size="icon"><MoreHorizontal className="w-4 h-4" /></Button></DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
-                        {entry.status !== 'Paid' && <DropdownMenuItem onClick={() => { setEntryToPay(entry); setPayInterest(0); setPayFine(0); setPayDiscount(0); setPayDate(format(new Date(), "yyyy-MM-dd")); setIsPaymentOpen(true); }} className="text-emerald-600 font-bold">Liquidar</DropdownMenuItem>}
-                        {entry.status === 'Paid' && <DropdownMenuItem onClick={() => handleUnlinkPayment(entry)} className="text-amber-600 font-bold flex gap-2"><Undo2 className="w-4 h-4" /> Estornar</DropdownMenuItem>}
-                        <DropdownMenuItem onClick={() => handleDuplicateEntry(entry)} className="flex gap-2"><Copy className="w-4 h-4" /> Duplicar</DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => { setRootIdForHistory(entry.rootEntryId || entry.id); setIsHistoryOpen(true); }} className="flex gap-2"><History className="w-4 h-4" /> Ver Histórico</DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => { 
-                          setEditingEntry(entry); 
-                          setFormDescription(entry.description); 
-                          setFormAmount(entry.originalAmount); 
-                          setFormIssueDate(entry.issueDate || "");
-                          setFormDueDate(entry.dueDate); 
-                          setFormSupplierId(entry.supplierId); 
-                          setFormCategoryId(entry.accountCategoryId); 
-                          setFormCostCenterId(entry.costCenterId || ""); 
-                          setFormType(entry.entryType || "Confirmed");
-                          setIsMultiEntry(false);
-                          setIsNewEntryOpen(true); 
-                        }}>Editar</DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => {
-                          if (confirm("Excluir este lançamento permanentemente?")) {
-                            deleteDocumentNonBlocking(doc(db!, "users", user!.uid, "accountsPayableEntries", entry.id));
-                            toast({ title: "Lançamento excluído" });
-                          }
-                        }} className="text-destructive">Excluir</DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </TableCell>
-                </TableRow>
-              ))}
+                    </TableCell>
+                    <TableCell className="font-medium text-xs truncate max-w-[150px]">{suppliers?.find(s => s.id === entry.supplierId)?.name || '-'}</TableCell>
+                    <TableCell>
+                      <div className="flex flex-col gap-1">
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <span className="text-[9px] text-muted-foreground uppercase font-bold">{leafCategories.find(c => c.id === entry.accountCategoryId)?.name}</span>
+                          {entry.costCenterId && (
+                            <Badge variant="outline" className="text-[8px] h-4 py-0 flex items-center gap-1 bg-muted/50 border-primary/20">
+                              <LayoutGrid className="w-2 h-2" />
+                              {centers?.find(c => c.id === entry.costCenterId)?.name}
+                            </Badge>
+                          )}
+                          {entry.entryType === 'Confirmed' ? (
+                            <Badge variant="outline" className="text-[8px] h-4 py-0 bg-primary/5 text-primary border-primary/20 flex items-center gap-1">
+                              <CheckCircle2 className="w-2 h-2" /> Confirmado
+                            </Badge>
+                          ) : (
+                            <Badge variant="outline" className="text-[8px] h-4 py-0 bg-amber-50 text-amber-700 border-amber-200 flex items-center gap-1">
+                              <Clock className="w-2 h-2" /> Provisão
+                            </Badge>
+                          )}
+                          {entry.rootEntryId && (
+                            <Badge variant="outline" className="text-[8px] h-4 py-0 bg-amber-50 text-amber-700 border-amber-200 flex items-center gap-1">
+                              <Layers className="w-2 h-2" /> Parcial
+                            </Badge>
+                          )}
+                        </div>
+                        <span className="text-sm">{entry.description} {entry.installmentInfo && <Badge variant="secondary" className="text-[9px] h-3 px-1 ml-1">{entry.installmentInfo}</Badge>}</span>
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      {entry.dynamicStatus === 'Paid' ? (
+                        <div className="flex flex-col">
+                          <Badge className="bg-emerald-100 text-emerald-700 border-none">Pago</Badge>
+                          {entry.paymentDate && <span className="text-[9px] text-emerald-600 font-bold mt-1">Em {format(parseISO(entry.paymentDate), "dd/MM/yy")}</span>}
+                        </div>
+                      ) : entry.dynamicStatus === 'Overdue' ? (
+                        <Badge variant="destructive">Atrasado</Badge>
+                      ) : entry.dynamicStatus === 'DueToday' ? (
+                        <Badge className="bg-amber-100 text-amber-700 border-none">Hoje</Badge>
+                      ) : (
+                        <Badge variant="outline">Aberto</Badge>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <div className="flex flex-col items-end">
+                        <span className={cn("font-bold text-sm", isPaid && hasAdjustments ? "text-emerald-700" : "")}>
+                          R$ {(isPaid ? effectivePaid : entry.originalAmount).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                        </span>
+                        {isPaid && hasAdjustments && (
+                          <div className="flex items-center gap-1 text-[9px] text-muted-foreground italic">
+                            <Calculator className="w-2 h-2" />
+                            Lançado: R$ {entry.originalAmount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                          </div>
+                        )}
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild><Button variant="ghost" size="icon"><MoreHorizontal className="w-4 h-4" /></Button></DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          {entry.status !== 'Paid' && <DropdownMenuItem onClick={() => { setEntryToPay(entry); setPayInterest(0); setPayFine(0); setPayDiscount(0); setPayDate(format(new Date(), "yyyy-MM-dd")); setIsPaymentOpen(true); }} className="text-emerald-600 font-bold">Liquidar</DropdownMenuItem>}
+                          {entry.status === 'Paid' && <DropdownMenuItem onClick={() => handleUnlinkPayment(entry)} className="text-amber-600 font-bold flex gap-2"><Undo2 className="w-4 h-4" /> Estornar</DropdownMenuItem>}
+                          <DropdownMenuItem onClick={() => handleDuplicateEntry(entry)} className="flex gap-2"><Copy className="w-4 h-4" /> Duplicar</DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => { setRootIdForHistory(entry.rootEntryId || entry.id); setIsHistoryOpen(true); }} className="flex gap-2"><History className="w-4 h-4" /> Ver Histórico</DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => { 
+                            setEditingEntry(entry); 
+                            setFormDescription(entry.description); 
+                            setFormAmount(entry.originalAmount); 
+                            setFormIssueDate(entry.issueDate || "");
+                            setFormDueDate(entry.dueDate || ""); 
+                            setFormSupplierId(entry.supplierId); 
+                            setFormCategoryId(entry.accountCategoryId); 
+                            setFormCostCenterId(entry.costCenterId || ""); 
+                            setFormType(entry.entryType || "Confirmed");
+                            setIsMultiEntry(false);
+                            setIsNewEntryOpen(true); 
+                          }}>Editar</DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => {
+                            if (confirm("Excluir este lançamento permanentemente?")) {
+                              deleteDocumentNonBlocking(doc(db!, "users", user!.uid, "accountsPayableEntries", entry.id));
+                              toast({ title: "Lançamento excluído" });
+                            }
+                          }} className="text-destructive">Excluir</DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
             </TableBody>
           </Table>
         </CardContent>
@@ -628,28 +655,33 @@ export default function AccountsPayablePage() {
                 <TableRow>
                   <TableHead>Data / Venc.</TableHead>
                   <TableHead>Status</TableHead>
-                  <TableHead className="text-right">Valor</TableHead>
+                  <TableHead className="text-right">Valor Pago (Líquido)</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {historyItems?.sort((a,b) => b.updatedAt.localeCompare(a.updatedAt)).map((item) => (
-                  <TableRow key={item.id}>
-                    <TableCell className="text-xs">
-                      <div className="flex flex-col">
-                        <span>Venc: {item.dueDate ? format(parseISO(item.dueDate), "dd/MM/yy") : '-'}</span>
-                        {item.paymentDate && <span className="text-[10px] text-emerald-600 font-bold">Pago: {format(parseISO(item.paymentDate), "dd/MM/yy")}</span>}
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant={item.status === 'Paid' ? 'default' : 'outline'} className={cn(item.status === 'Paid' ? "bg-emerald-100 text-emerald-700 hover:bg-emerald-100 border-none" : "")}>
-                        {item.status === 'Paid' ? 'Liquidado' : 'Saldo Aberto'}
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="text-right font-bold">
-                      R$ {item.originalAmount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-                    </TableCell>
-                  </TableRow>
-                ))}
+                {historyItems?.sort((a,b) => b.updatedAt.localeCompare(a.updatedAt)).map((item) => {
+                  const itemPaidValue = item.originalAmount + (item.interest || 0) + (item.fine || 0) - (item.discount || 0);
+                  return (
+                    <TableRow key={item.id}>
+                      <TableCell className="text-xs">
+                        <div className="flex flex-col">
+                          <span>Venc: {item.dueDate ? format(parseISO(item.dueDate), "dd/MM/yy") : '-'}</span>
+                          {item.paymentDate && <span className="text-[10px] text-emerald-600 font-bold">Pago: {format(parseISO(item.paymentDate), "dd/MM/yy")}</span>}
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant={item.status === 'Paid' ? 'default' : 'outline'} className={cn(item.status === 'Paid' ? "bg-emerald-100 text-emerald-700 hover:bg-emerald-100 border-none" : "")}>
+                          {item.status === 'Paid' ? 'Liquidado' : 'Saldo Aberto'}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="text-right font-bold">
+                        R$ {(item.status === 'Paid' ? itemPaidValue : item.originalAmount).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                        {item.status === 'Paid' && (item.interest || 0) > 0 && <span className="block text-[8px] text-emerald-600">Inclui Juros/Multa</span>}
+                        {item.status === 'Paid' && (item.discount || 0) > 0 && <span className="block text-[8px] text-emerald-600">Com Desconto</span>}
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
                 {(!historyItems || historyItems.length === 0) && (
                   <TableRow>
                     <TableCell colSpan={3} className="text-center py-10 text-muted-foreground italic">
@@ -663,8 +695,8 @@ export default function AccountsPayablePage() {
           <div className="bg-primary/5 p-4 rounded-lg flex items-start gap-3">
             <Info className="w-4 h-4 text-primary shrink-0 mt-0.5" />
             <p className="text-xs text-muted-foreground leading-relaxed">
-              Registros parciais ocorrem quando uma conta é liquidada parcialmente na Conciliação Bancária. 
-              O sistema gera um novo lançamento para a parte paga e atualiza o saldo do original.
+              Registros parciais ocorrem quando uma conta é liquidada parcialmente. 
+              O sistema gera um novo lançamento para a parte paga e mantém o original aberto com o saldo restante.
             </p>
           </div>
         </DialogContent>
