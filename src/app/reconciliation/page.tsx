@@ -31,7 +31,8 @@ import {
   Plus,
   CheckCircle2,
   Pencil,
-  Split
+  Split,
+  CalendarDays
 } from "lucide-react";
 import { useUser, useFirestore, useCollection, useMemoFirebase } from "@/firebase";
 import { collection, doc } from "firebase/firestore";
@@ -430,10 +431,8 @@ export default function ReconciliationPage() {
       entryData.customerName = formCustomerName; 
     }
 
-    // 1. Salva o novo lançamento como PAGO (com o caminho correto do usuário)
     setDocumentNonBlocking(doc(db, "users", user.uid, col, entryId), entryData, { merge: true });
     
-    // 2. Atualiza a transação do extrato como CONCILIADA
     updateDocumentNonBlocking(doc(db, "users", user.uid, "bankAccounts", selectedAccountId, "bankTransactions", matchingTransaction.id), { 
       reconciled: true, 
       reconciledEntryId: entryId 
@@ -563,7 +562,10 @@ export default function ReconciliationPage() {
                 <span className="text-xs font-medium">Status do Dia</span>
                 {summary.isBalanced && (dailyTransactions.length > 0 || noMovementDays?.some(d => d.date === selectedDate)) ? <Badge className="bg-emerald-100 text-emerald-700">Conciliado ✓</Badge> : <Badge variant="destructive">Pendente</Badge>}
               </div>
-              <Button variant="outline" className="w-full gap-2 text-xs" onClick={() => setDocumentNonBlocking(doc(db!, "users", user!.uid, "bankAccounts", selectedAccountId, "noMovementDays", selectedDate), { date: selectedDate }, { merge: true })}><CircleOff className="w-3 h-3" /> Marcar sem movimento</Button>
+              <Button variant="outline" className="w-full gap-2 text-xs" onClick={() => {
+                if (!selectedAccountId) return;
+                setDocumentNonBlocking(doc(db!, "users", user!.uid, "bankAccounts", selectedAccountId, "noMovementDays", selectedDate), { date: selectedDate }, { merge: true })
+              }}><CircleOff className="w-3 h-3" /> Marcar sem movimento</Button>
             </div>
           </CardContent>
         </Card>
@@ -817,7 +819,10 @@ export default function ReconciliationPage() {
               <div className="grid gap-2"><Label>Descrição*</Label><Input value={formDescription} onChange={e => setFormDescription(e.target.value)} required /></div>
               <div className="grid grid-cols-2 gap-4">
                 <div className="grid gap-2"><Label>Valor*</Label><Input type="number" step="0.01" value={formAmount} onChange={e => setFormAmount(Number(e.target.value))} required /></div>
-                <div className="grid gap-2"><Label>Data Emissão*</Label><Input type="date" value={formIssueDate} onChange={e => setFormIssueDate(e.target.value)} required /></div>
+                <div className="grid gap-2">
+                  <Label className="flex items-center gap-2"><CalendarDays className="w-3 h-3" /> Data Emissão*</Label>
+                  <Input type="date" value={formIssueDate} onChange={e => setFormIssueDate(e.target.value)} required />
+                </div>
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div className="grid gap-2"><Label>Vencimento*</Label><Input type="date" value={formDueDate} onChange={e => setFormDueDate(e.target.value)} required /></div>
