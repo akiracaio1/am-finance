@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useState, useMemo, useEffect, useRef } from "react";
@@ -184,6 +185,7 @@ export default function ReconciliationPage() {
   const { data: costGroups } = useCollection<CostCenterGroup>(groupsQuery);
   const { data: costCenters } = useCollection<CostCenter>(centersQuery);
 
+  // Filtragem de Categorias: Somente Folhas de acordo com o tipo da transação
   const filteredCategories = useMemo(() => {
     if (!categories || !matchingTransaction) return [];
     const targetType = matchingTransaction.type === 'CREDIT' ? 'Revenue' : 'Expense';
@@ -882,7 +884,7 @@ export default function ReconciliationPage() {
                 <Label>Categoria (Plano de Contas)*</Label>
                 <Select value={formCategoryId} onValueChange={setFormCategoryId} required>
                   <SelectTrigger><SelectValue placeholder="Selecione..." /></SelectTrigger>
-                  <SelectContent>{filteredCategories.map(c => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}</SelectContent>
+                  <SelectContent>{filteredCategories.map(c => <SelectItem key={c.id} value={c.id}>{c.code} - {c.name}</SelectItem>)}</SelectContent>
                 </Select>
               </div>
               {matchingTransaction?.type === 'DEBIT' ? (

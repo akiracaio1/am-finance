@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useState, useEffect, useMemo } from "react";
@@ -250,6 +251,7 @@ export default function AccountsPayablePage() {
     return [...suppliers].sort((a, b) => a.name.localeCompare(b.name));
   }, [suppliers]);
 
+  // Filtragem de Categorias: Somente Folhas (Active e sem filhos) de Despesa
   const leafCategories = useMemo(() => {
     if (!categories) return [];
     return categories.filter(cat => 
@@ -271,8 +273,10 @@ export default function AccountsPayablePage() {
     if (!todayStr || !entry.dueDate) return 'Open';
     const dueDate = new Date(entry.dueDate + 'T12:00:00');
     const today = new Date(todayStr + 'T12:00:00');
-    if (isBefore(dueDate, today) && !isSameDay(dueDate, today)) return 'Overdue';
-    if (isSameDay(dueDate, today)) return 'DueToday';
+    if (isValid(dueDate) && isValid(today)) {
+      if (isBefore(dueDate, today) && !isSameDay(dueDate, today)) return 'Overdue';
+      if (isSameDay(dueDate, today)) return 'DueToday';
+    }
     return 'Open';
   };
 
@@ -486,7 +490,7 @@ export default function AccountsPayablePage() {
                   <Label>Categoria</Label>
                   <Select value={selectedCategoryIds[0] || "all"} onValueChange={v => setSelectedCategoryIds(v === "all" ? [] : [v])}>
                     <SelectTrigger><SelectValue placeholder="Todas" /></SelectTrigger>
-                    <SelectContent><SelectItem value="all">Todas</SelectItem>{leafCategories.map(c => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}</SelectContent>
+                    <SelectContent><SelectItem value="all">Todas</SelectItem>{leafCategories.map(c => <SelectItem key={c.id} value={c.id}>{c.code} - {c.name}</SelectItem>)}</SelectContent>
                   </Select>
                 </div>
                 <div className="space-y-2">
@@ -539,12 +543,13 @@ export default function AccountsPayablePage() {
                 const effectivePaid = entry.originalAmount + (entry.interest || 0) + (entry.fine || 0) - (entry.discount || 0);
                 const hasAdjustments = (entry.interest || 0) > 0 || (entry.fine || 0) > 0 || (entry.discount || 0) > 0;
                 const category = categories?.find(c => c.id === entry.accountCategoryId);
+                const dueDateObj = entry.dueDate ? new Date(entry.dueDate + 'T12:00:00') : null;
 
                 return (
                   <TableRow key={entry.id}>
                     <TableCell className="text-xs">
                       <div className="flex flex-col">
-                        <span className="font-bold">{entry.dueDate ? format(new Date(entry.dueDate + 'T12:00:00'), "dd/MM/yy") : '-'}</span>
+                        <span className="font-bold">{dueDateObj && isValid(dueDateObj) ? format(dueDateObj, "dd/MM/yy") : '-'}</span>
                         <span className="text-[9px] text-muted-foreground uppercase">Emissão: {entry.issueDate ? format(parseISO(entry.issueDate), "dd/MM/yy") : '-'}</span>
                       </div>
                     </TableCell>
@@ -744,10 +749,10 @@ export default function AccountsPayablePage() {
                     </Select>
                   </div>
                   <div className="grid gap-2">
-                    <Label>Categoria (Despesa)*</Label>
+                    <Label>Categoria (Plano de Contas)*</Label>
                     <Select value={formCategoryId} onValueChange={setFormCategoryId} required>
                       <SelectTrigger><SelectValue placeholder="Selecione..." /></SelectTrigger>
-                      <SelectContent>{leafCategories.map(c => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}</SelectContent>
+                      <SelectContent>{leafCategories.map(c => <SelectItem key={c.id} value={c.id}>{c.code} - {c.name}</SelectItem>)}</SelectContent>
                     </Select>
                   </div>
                 </div>

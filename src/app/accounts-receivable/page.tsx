@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useState, useMemo, useEffect } from "react";
@@ -58,7 +59,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "@/hooks/use-toast";
 import { AccountsReceivableEntry, AccountCategory } from "@/lib/types";
-import { format, parseISO } from "date-fns";
+import { format, parseISO, isValid } from "date-fns";
 import { cn } from "@/lib/utils";
 
 export default function AccountsReceivablePage() {
@@ -104,6 +105,7 @@ export default function AccountsReceivablePage() {
   const { data: historyItems } = useCollection<AccountsReceivableEntry>(historyQuery);
   const { data: categories } = useCollection<AccountCategory>(categoriesQuery);
 
+  // Filtragem de Categorias: Somente Folhas (sem filhos) de Receita
   const leafCategories = useMemo(() => {
     if (!categories) return [];
     return categories.filter(cat => 
@@ -261,13 +263,14 @@ export default function AccountsReceivablePage() {
             <TableBody>
               {entries?.sort((a,b) => (a.dueDate || "").localeCompare(b.dueDate || "")).map((entry) => {
                 const category = categories?.find(c => c.id === entry.accountCategoryId);
+                const dueDateObj = entry.dueDate ? new Date(entry.dueDate + 'T12:00:00') : null;
                 return (
                   <TableRow key={entry.id}>
                     <TableCell className="text-xs">
                       <div className="flex flex-col">
                         <div className="flex items-center gap-2 font-bold">
                           <CalendarDays className="w-3 h-3 text-muted-foreground" />
-                          {entry.dueDate ? format(new Date(entry.dueDate + 'T12:00:00'), "dd/MM/yy") : '-'}
+                          {dueDateObj && isValid(dueDateObj) ? format(dueDateObj, "dd/MM/yy") : '-'}
                         </div>
                         <span className="text-[9px] text-muted-foreground uppercase ml-5">Emissão: {entry.issueDate ? format(parseISO(entry.issueDate), "dd/MM/yy") : '-'}</span>
                       </div>
@@ -457,14 +460,14 @@ export default function AccountsReceivablePage() {
                 </div>
               </div>
               <div className="grid gap-2">
-                <Label>Categoria (Receita)*</Label>
+                <Label>Categoria (Plano de Contas)*</Label>
                 <Select value={formCategoryId} onValueChange={setFormCategoryId} required>
                   <SelectTrigger>
                     <SelectValue placeholder="Selecione o canal..." />
                   </SelectTrigger>
                   <SelectContent>
                     {leafCategories.map(c => (
-                      <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+                      <SelectItem key={c.id} value={c.id}>{c.code} - {c.name}</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
