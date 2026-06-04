@@ -185,14 +185,39 @@ export default function ReconciliationPage() {
   const { data: costGroups } = useCollection<CostCenterGroup>(groupsQuery);
   const { data: costCenters } = useCollection<CostCenter>(centersQuery);
 
-  // Filtragem de Categorias: Somente Folhas de acordo com o tipo da transação
-  const filteredCategories = useMemo(() => {
+  const sortedSuppliers = useMemo(() => {
+    if (!suppliers) return [];
+    return [...suppliers].sort((a, b) => a.name.localeCompare(b.name));
+  }, [suppliers]);
+
+  // Estrutura hierárquica do Plano de Contas (Agrupada por Pai)
+  const groupedLeafCategories = useMemo(() => {
     if (!categories || !matchingTransaction) return [];
+    
     const targetType = matchingTransaction.type === 'CREDIT' ? 'Revenue' : 'Expense';
-    return categories.filter(cat => 
+    
+    const leaves = categories.filter(cat => 
       cat.type === targetType && 
       !categories.some(child => child.parentCategoryId === cat.id)
-    ).sort((a, b) => a.code.localeCompare(b.code));
+    );
+
+    const groupMap: Record<string, { parent: AccountCategory | undefined, items: AccountCategory[] }> = {};
+
+    leaves.forEach(cat => {
+      const parent = categories.find(p => p.id === cat.parentCategoryId);
+      const parentId = parent?.id || "raiz";
+      if (!groupMap[parentId]) {
+        groupMap[parentId] = { parent, items: [] };
+      }
+      groupMap[parentId].items.push(cat);
+    });
+
+    return Object.entries(groupMap)
+      .sort((a, b) => (a[1].parent?.code || "0").localeCompare(b[1].parent?.code || "0"))
+      .map(([_, data]) => ({
+        parentName: data.parent ? `${data.parent.code} - ${data.parent.name}` : "Geral",
+        items: data.items.sort((a, b) => a.code.localeCompare(b.code))
+      }));
   }, [categories, matchingTransaction]);
 
   const activeCentersByGroup = useMemo(() => {
@@ -884,7 +909,16 @@ export default function ReconciliationPage() {
                 <Label>Categoria (Plano de Contas)*</Label>
                 <Select value={formCategoryId} onValueChange={setFormCategoryId} required>
                   <SelectTrigger><SelectValue placeholder="Selecione..." /></SelectTrigger>
-                  <SelectContent>{filteredCategories.map(c => <SelectItem key={c.id} value={c.id}>{c.code} - {c.name}</SelectItem>)}</SelectContent>
+                  <SelectContent>
+                    {groupedLeafCategories.map(group => (
+                      <SelectGroup key={group.parentName}>
+                        <SelectLabel className="text-[10px] uppercase text-primary font-bold">{group.parentName}</SelectLabel>
+                        {group.items.map(c => (
+                          <SelectItem key={c.id} value={c.id}>{c.code} - {c.name}</SelectItem>
+                        ))}
+                      </SelectGroup>
+                    ))}
+                  </SelectContent>
                 </Select>
               </div>
               {matchingTransaction?.type === 'DEBIT' ? (
@@ -892,7 +926,9 @@ export default function ReconciliationPage() {
                   <Label className="flex justify-between items-center">Fornecedor* <Button type="button" variant="ghost" className="h-5 px-1.5 text-[10px] text-primary" onClick={() => setIsQuickSupplierOpen(true)}><UserPlus className="w-3 h-3 mr-1" /> Novo</Button></Label>
                   <Select value={formSupplierId} onValueChange={setFormSupplierId} required>
                     <SelectTrigger><SelectValue placeholder="Selecione..." /></SelectTrigger>
-                    <SelectContent>{suppliers?.map(s => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}</SelectContent>
+                    <SelectContent>
+                      {sortedSuppliers.map(s => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}
+                    </SelectContent>
                   </Select>
                 </div>
               ) : (
@@ -905,7 +941,7 @@ export default function ReconciliationPage() {
       </Dialog>
 
       <Dialog open={isQuickSupplierOpen} onOpenChange={setIsQuickSupplierOpen}>
-        <DialogContent className="max-w-sm">
+        <DialogContent className="max-sm">
           <form onSubmit={handleSaveQuickSupplier}>
             <DialogHeader>
               <DialogTitle>Novo Fornecedor Rápido</DialogTitle>

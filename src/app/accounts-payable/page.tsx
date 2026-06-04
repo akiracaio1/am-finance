@@ -251,8 +251,36 @@ export default function AccountsPayablePage() {
     return [...suppliers].sort((a, b) => a.name.localeCompare(b.name));
   }, [suppliers]);
 
-  // Filtragem de Categorias: Somente Folhas (Active e sem filhos) de Despesa
-  const leafCategories = useMemo(() => {
+  // Estrutura hierárquica do Plano de Contas (Apenas Folhas agrupadas por Pai)
+  const groupedLeafCategories = useMemo(() => {
+    if (!categories) return [];
+    
+    const leaves = categories.filter(cat => 
+      cat.type === 'Expense' && 
+      !categories.some(child => child.parentCategoryId === cat.id)
+    );
+
+    const groupMap: Record<string, { parent: AccountCategory | undefined, items: AccountCategory[] }> = {};
+
+    leaves.forEach(cat => {
+      const parent = categories.find(p => p.id === cat.parentCategoryId);
+      const parentId = parent?.id || "raiz";
+      if (!groupMap[parentId]) {
+        groupMap[parentId] = { parent, items: [] };
+      }
+      groupMap[parentId].items.push(cat);
+    });
+
+    return Object.entries(groupMap)
+      .sort((a, b) => (a[1].parent?.code || "0").localeCompare(b[1].parent?.code || "0"))
+      .map(([_, data]) => ({
+        parentName: data.parent ? `${data.parent.code} - ${data.parent.name}` : "Geral",
+        items: data.items.sort((a, b) => a.code.localeCompare(b.code))
+      }));
+  }, [categories]);
+
+  // Lista simples de folhas para os filtros
+  const leafCategoriesFlat = useMemo(() => {
     if (!categories) return [];
     return categories.filter(cat => 
       cat.type === 'Expense' && 
@@ -490,7 +518,7 @@ export default function AccountsPayablePage() {
                   <Label>Categoria</Label>
                   <Select value={selectedCategoryIds[0] || "all"} onValueChange={v => setSelectedCategoryIds(v === "all" ? [] : [v])}>
                     <SelectTrigger><SelectValue placeholder="Todas" /></SelectTrigger>
-                    <SelectContent><SelectItem value="all">Todas</SelectItem>{leafCategories.map(c => <SelectItem key={c.id} value={c.id}>{c.code} - {c.name}</SelectItem>)}</SelectContent>
+                    <SelectContent><SelectItem value="all">Todas</SelectItem>{leafCategoriesFlat.map(c => <SelectItem key={c.id} value={c.id}>{c.code} - {c.name}</SelectItem>)}</SelectContent>
                   </Select>
                 </div>
                 <div className="space-y-2">
@@ -745,14 +773,25 @@ export default function AccountsPayablePage() {
                     <Label className="flex justify-between items-center">Fornecedor* <Button type="button" variant="ghost" className="h-5 px-1.5 text-[10px] text-primary" onClick={() => setIsQuickSupplierOpen(true)}><UserPlus className="w-3 h-3 mr-1" /> Novo</Button></Label>
                     <Select value={formSupplierId} onValueChange={setFormSupplierId} required>
                       <SelectTrigger><SelectValue placeholder="Selecione..." /></SelectTrigger>
-                      <SelectContent>{sortedSuppliers.map(s => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}</SelectContent>
+                      <SelectContent>
+                        {sortedSuppliers.map(s => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}
+                      </SelectContent>
                     </Select>
                   </div>
                   <div className="grid gap-2">
                     <Label>Categoria (Plano de Contas)*</Label>
                     <Select value={formCategoryId} onValueChange={setFormCategoryId} required>
                       <SelectTrigger><SelectValue placeholder="Selecione..." /></SelectTrigger>
-                      <SelectContent>{leafCategories.map(c => <SelectItem key={c.id} value={c.id}>{c.code} - {c.name}</SelectItem>)}</SelectContent>
+                      <SelectContent>
+                        {groupedLeafCategories.map(group => (
+                          <SelectGroup key={group.parentName}>
+                            <SelectLabel className="text-[10px] uppercase text-primary font-bold">{group.parentName}</SelectLabel>
+                            {group.items.map(c => (
+                              <SelectItem key={c.id} value={c.id}>{c.code} - {c.name}</SelectItem>
+                            ))}
+                          </SelectGroup>
+                        ))}
+                      </SelectContent>
                     </Select>
                   </div>
                 </div>
