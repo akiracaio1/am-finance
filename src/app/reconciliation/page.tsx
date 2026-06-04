@@ -32,7 +32,9 @@ import {
   CheckCircle2,
   Pencil,
   Split,
-  CalendarDays
+  CalendarDays,
+  RotateCcw,
+  EyeOff
 } from "lucide-react";
 import { useUser, useFirestore, useCollection, useMemoFirebase } from "@/firebase";
 import { collection, doc } from "firebase/firestore";
@@ -310,7 +312,7 @@ export default function ReconciliationPage() {
     if (!db || !user || !selectedAccountId) return;
     ofxPreview.forEach(t => {
       const id = `txn_${t.fitId}_${selectedAccountId}`;
-      setDocumentNonBlocking(doc(db, "users", user.uid, "bankAccounts", selectedAccountId, "bankTransactions", id), { id, date: t.date, amount: t.amount, description: t.memo, type: t.type, reconciled: false, reconciledEntryId: null, fitId: t.fitId, bankAccountId: selectedAccountId }, { merge: true });
+      setDocumentNonBlocking(doc(db, "users", user.uid, "bankAccounts", selectedAccountId, "bankTransactions", id), { id, date: t.date, amount: t.amount, description: t.memo, type: t.type, reconciled: false, reconciledEntryId: null, fitId: t.fitId, bankAccountId: selectedAccountId, ignored: false }, { merge: true });
     });
     setIsImportModalOpen(false);
   };
@@ -329,6 +331,13 @@ export default function ReconciliationPage() {
     });
     
     toast({ title: `Conciliação desfeita (${entryIds.length} itens)` });
+  };
+
+  const toggleIgnoreTransaction = (transaction: BankTransaction) => {
+    if (!db || !user || !selectedAccountId) return;
+    const newState = !transaction.ignored;
+    updateDocumentNonBlocking(doc(db, "users", user.uid, "bankAccounts", selectedAccountId, "bankTransactions", transaction.id), { ignored: newState });
+    toast({ title: newState ? "Transação desconsiderada" : "Transação restaurada" });
   };
 
   const confirmMatch = (entryIds: string[]) => {
@@ -584,15 +593,40 @@ export default function ReconciliationPage() {
                 <Table>
                   <TableBody>
                     {dailyTransactions.map(txn => (
-                      <TableRow key={txn.id} className={cn(txn.reconciled ? "bg-emerald-50/50" : "")}>
-                        <TableCell className="p-3"><div className="flex flex-col"><span className="text-xs font-bold line-clamp-1">{txn.description}</span><span className="text-[10px] text-muted-foreground">{txn.type === 'CREDIT' ? 'Entrada' : 'Saída'}</span></div></TableCell>
-                        <TableCell className={cn("p-3 text-right font-bold text-xs", txn.type === 'CREDIT' ? "text-emerald-600" : "text-destructive")}>R$ {Math.abs(txn.amount).toLocaleString('pt-BR')}</TableCell>
+                      <TableRow key={txn.id} className={cn(txn.reconciled ? "bg-emerald-50/50" : "", txn.ignored ? "opacity-40 grayscale" : "")}>
+                        <TableCell className="p-3">
+                          <div className="flex flex-col">
+                            <div className="flex items-center gap-2">
+                              <span className={cn("text-xs font-bold line-clamp-1", txn.ignored ? "line-through" : "")}>{txn.description}</span>
+                              {txn.ignored && <Badge variant="secondary" className="text-[8px] h-3 px-1">Ignorado</Badge>}
+                            </div>
+                            <span className="text-[10px] text-muted-foreground">{txn.type === 'CREDIT' ? 'Entrada' : 'Saída'}</span>
+                          </div>
+                        </TableCell>
+                        <TableCell className={cn("p-3 text-right font-bold text-xs", txn.ignored ? "text-muted-foreground" : (txn.type === 'CREDIT' ? "text-emerald-600" : "text-destructive"))}>
+                          R$ {Math.abs(txn.amount).toLocaleString('pt-BR')}
+                        </TableCell>
                         <TableCell className="p-3 text-right">
-                          {!txn.reconciled ? (
-                            <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => { setMatchingTransaction(txn); setSelectedMatchEntries([]); setEntryAdjustments({}); setIsMatchModalOpen(true); }}><ArrowRightLeft className="w-3 h-3" /></Button>
-                          ) : (
-                            <Button size="icon" variant="ghost" className="h-7 w-7 text-destructive" onClick={() => undoMatch(txn)}><X className="w-3 h-3" /></Button>
-                          )}
+                          <div className="flex items-center justify-end gap-1">
+                            {txn.ignored ? (
+                              <Button size="icon" variant="ghost" className="h-7 w-7 text-primary" onClick={() => toggleIgnoreTransaction(txn)} title="Restaurar Transação">
+                                <RotateCcw className="w-3 h-3" />
+                              </Button>
+                            ) : !txn.reconciled ? (
+                              <>
+                                <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => { setMatchingTransaction(txn); setSelectedMatchEntries([]); setEntryAdjustments({}); setIsMatchModalOpen(true); }} title="Conciliar">
+                                  <ArrowRightLeft className="w-3 h-3" />
+                                </Button>
+                                <Button size="icon" variant="ghost" className="h-7 w-7 text-muted-foreground hover:text-destructive" onClick={() => toggleIgnoreTransaction(txn)} title="Desconsiderar (Estorno/Erro)">
+                                  <EyeOff className="w-3 h-3" />
+                                </Button>
+                              </>
+                            ) : (
+                              <Button size="icon" variant="ghost" className="h-7 w-7 text-destructive" onClick={() => undoMatch(txn)} title="Desfazer">
+                                <X className="w-3 h-3" />
+                              </Button>
+                            )}
+                          </div>
                         </TableCell>
                       </TableRow>
                     ))}
