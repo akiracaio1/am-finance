@@ -286,20 +286,19 @@ export default function AccountsPayablePage() {
         const dueDateMatch = (!filterDueDateStart || (e.dueDate && e.dueDate >= filterDueDateStart)) && (!filterDueDateEnd || (e.dueDate && e.dueDate <= filterDueDateEnd));
         
         const sName = suppliers?.find(s => s.id === e.supplierId)?.name.toLowerCase() || "";
-        const cName = leafCategories.find(c => c.id === e.accountCategoryId)?.name.toLowerCase() || "";
+        const cName = categories?.find(c => c.id === e.accountCategoryId)?.name.toLowerCase() || "";
         const desc = e.description.toLowerCase();
         const term = searchTerm.toLowerCase();
         const searchMatch = !searchTerm || desc.includes(term) || sName.includes(term) || cName.includes(term);
 
         return statusMatch && supplierMatch && categoryMatch && dueDateMatch && searchMatch;
       }).sort((a,b) => (a.dueDate || "").localeCompare(b.dueDate || "")) || [];
-  }, [entries, selectedStatuses, selectedSupplierIds, selectedCategoryIds, filterDueDateStart, filterDueDateEnd, searchTerm, suppliers, leafCategories, todayStr, mounted]);
+  }, [entries, selectedStatuses, selectedSupplierIds, selectedCategoryIds, filterDueDateStart, filterDueDateEnd, searchTerm, suppliers, categories, todayStr, mounted]);
 
   const totalOverdue = allFilteredEntries.filter(e => e.dynamicStatus === 'Overdue').reduce((acc, curr) => acc + curr.originalAmount, 0);
   const totalDueToday = allFilteredEntries.filter(e => e.dynamicStatus === 'DueToday').reduce((acc, curr) => acc + curr.originalAmount, 0);
   const totalOpen = allFilteredEntries.filter(e => e.dynamicStatus === 'Open').reduce((acc, curr) => acc + curr.originalAmount, 0);
   
-  // Total Pago agora soma o valor EFETIVO (Original + Juros + Multa - Desconto)
   const totalPaid = allFilteredEntries.filter(e => e.dynamicStatus === 'Paid').reduce((acc, curr) => {
     const netValue = curr.originalAmount + (curr.interest || 0) + (curr.fine || 0) - (curr.discount || 0);
     return acc + netValue;
@@ -431,7 +430,7 @@ export default function AccountsPayablePage() {
   const handleToggleMultiEntry = (checked: boolean) => {
     setIsMultiEntry(checked);
     if (checked && installmentsCount <= 1) {
-      setInstallmentsCount(2); // Sugere pelo menos 2 para justificar o modo múltiplo
+      setInstallmentsCount(2); 
     }
   };
 
@@ -539,20 +538,23 @@ export default function AccountsPayablePage() {
                 const isPaid = entry.dynamicStatus === 'Paid';
                 const effectivePaid = entry.originalAmount + (entry.interest || 0) + (entry.fine || 0) - (entry.discount || 0);
                 const hasAdjustments = (entry.interest || 0) > 0 || (entry.fine || 0) > 0 || (entry.discount || 0) > 0;
+                const category = categories?.find(c => c.id === entry.accountCategoryId);
 
                 return (
                   <TableRow key={entry.id}>
                     <TableCell className="text-xs">
                       <div className="flex flex-col">
                         <span className="font-bold">{entry.dueDate ? format(new Date(entry.dueDate + 'T12:00:00'), "dd/MM/yy") : '-'}</span>
-                        <span className="text-[9px] text-muted-foreground uppercase">Emissão: {entry.issueDate ? format(parseISO(entry.issueDate), "dd/MM") : '-'}</span>
+                        <span className="text-[9px] text-muted-foreground uppercase">Emissão: {entry.issueDate ? format(parseISO(entry.issueDate), "dd/MM/yy") : '-'}</span>
                       </div>
                     </TableCell>
                     <TableCell className="font-medium text-xs truncate max-w-[150px]">{suppliers?.find(s => s.id === entry.supplierId)?.name || '-'}</TableCell>
                     <TableCell>
                       <div className="flex flex-col gap-1">
                         <div className="flex flex-wrap items-center gap-1.5">
-                          <span className="text-[9px] text-muted-foreground uppercase font-bold">{leafCategories.find(c => c.id === entry.accountCategoryId)?.name}</span>
+                          <span className={cn("text-[9px] uppercase font-bold", !category ? "text-destructive" : "text-muted-foreground")}>
+                            {category?.name || 'Categoria não encontrada'}
+                          </span>
                           {entry.costCenterId && (
                             <Badge variant="outline" className="text-[8px] h-4 py-0 flex items-center gap-1 bg-muted/50 border-primary/20">
                               <LayoutGrid className="w-2 h-2" />

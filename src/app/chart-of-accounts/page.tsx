@@ -15,7 +15,8 @@ import {
   Trash2,
   Download,
   TrendingUp,
-  TrendingDown
+  TrendingDown,
+  AlertTriangle
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
@@ -78,7 +79,7 @@ export default function ChartOfAccountsPage() {
   const db = useFirestore();
   const [expanded, setExpanded] = useState<string[]>([]);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
-  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
+  const [isConfirmDeleteOpen, setIsConfirmDeleteOpen] = useState(false);
   const [categoryToDelete, setCategoryToDelete] = useState<AccountCategory | null>(null);
   const [isProvisioning, setIsProvisioning] = useState(false);
   const [parentForNew, setParentForNew] = useState<AccountCategory | null>(null);
@@ -103,7 +104,7 @@ export default function ChartOfAccountsPage() {
 
   const openDeleteDialog = (category: AccountCategory) => {
     setCategoryToDelete(category);
-    setIsDeleteDialogOpen(true);
+    setIsConfirmDeleteOpen(true);
   };
 
   const confirmDelete = () => {
@@ -111,7 +112,7 @@ export default function ChartOfAccountsPage() {
     const categoryRef = doc(db, "users", user.uid, "accountCategories", categoryToDelete.id);
     deleteDocumentNonBlocking(categoryRef);
     toast({ title: "Categoria excluída" });
-    setIsDeleteDialogOpen(false);
+    setIsConfirmDeleteOpen(false);
   };
 
   const handleProvisionDefaults = async () => {
@@ -258,10 +259,13 @@ export default function ChartOfAccountsPage() {
 
         <div className="space-y-6">
           <Card className="bg-primary/5 border-primary/10">
-            <CardHeader><CardTitle className="text-xs uppercase font-bold">Por que separar?</CardTitle></CardHeader>
+            <CardHeader><CardTitle className="text-xs uppercase font-bold">Importante</CardTitle></CardHeader>
             <CardContent className="text-xs text-muted-foreground leading-relaxed space-y-2">
               <p>Ao separar <strong>Receitas</strong> de <strong>Despesas</strong> no Plano de Contas, o sistema consegue filtrar as opções corretas em cada tela de lançamento.</p>
-              <p>Isso evita que você lance uma conta de "Venda" no Contas a Pagar, ou um "Aluguel" no Contas a Receber.</p>
+              <div className="flex items-start gap-2 p-3 bg-amber-50 rounded-lg border border-amber-200 text-amber-800">
+                <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+                <p><strong>Cuidado:</strong> Se você excluir um plano de conta que já possui lançamentos vinculados, eles aparecerão como "Categoria não encontrada" nos relatórios.</p>
+              </div>
             </CardContent>
           </Card>
         </div>
@@ -304,15 +308,21 @@ export default function ChartOfAccountsPage() {
         </DialogContent>
       </Dialog>
 
-      <AlertDialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
+      <AlertDialog open={isConfirmDeleteOpen} onOpenChange={setIsConfirmDeleteOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Excluir Categoria?</AlertDialogTitle>
-            <AlertDialogDescription>Esta ação não pode ser desfeita.</AlertDialogDescription>
+            <AlertDialogDescription className="space-y-3">
+              <p>Esta ação não pode ser desfeita.</p>
+              <p className="bg-destructive/10 p-3 rounded-lg text-destructive font-medium text-xs flex gap-2 items-start">
+                <AlertTriangle className="w-4 h-4 shrink-0" />
+                Lançamentos financeiros já realizados nesta categoria perderão o vínculo e poderão afetar seus relatórios de DRE.
+              </p>
+            </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancelar</AlertDialogCancel>
-            <AlertDialogAction onClick={confirmDelete} className="bg-destructive text-destructive-foreground">Excluir</AlertDialogAction>
+            <AlertDialogAction onClick={confirmDelete} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">Excluir Permanentemente</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
