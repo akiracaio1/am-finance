@@ -9,15 +9,14 @@ import {
   Filter,
   Download,
   Loader2,
-  RefreshCcw,
   AlertCircle,
   ArrowDownCircle,
   ArrowUpCircle,
-  CheckCircle2,
   Calculator,
   TrendingDown,
   TrendingUp,
-  Clock
+  Clock,
+  LayoutGrid
 } from "lucide-react";
 import { 
   Select, 
@@ -100,10 +99,16 @@ export default function ReportsPage() {
     return collection(db, "users", user.uid, "suppliers");
   }, [db, user]);
 
+  const centersQuery = useMemoFirebase(() => {
+    if (!db || !user) return null;
+    return collection(db, "users", user.uid, "costCenters");
+  }, [db, user]);
+
   const { data: payables, isLoading: loadingPay } = useCollection<AccountsPayableEntry>(payablesQuery);
   const { data: receivables, isLoading: loadingRec } = useCollection<AccountsReceivableEntry>(receivablesQuery);
   const { data: categories } = useCollection<AccountCategory>(categoriesQuery);
   const { data: suppliers } = useCollection<Supplier>(suppliersQuery);
+  const { data: centers } = useCollection<CostCenter>(centersQuery);
 
   // Lógica de Filtragem Unificada
   const filteredData = useMemo(() => {
@@ -142,6 +147,7 @@ export default function ReportsPage() {
 
     const exportData = filteredData.map((item: any) => {
       const category = categories?.find(c => c.id === item.accountCategoryId)?.name || 'Geral';
+      const centerName = centers?.find(c => c.id === item.costCenterId)?.name || '-';
       const entityLabel = isReceivable ? 'Cliente' : 'Fornecedor';
       const entityName = isReceivable ? item.customerName : (suppliers?.find(s => s.id === item.supplierId)?.name || 'N/A');
       const dateLabel = isPaid ? 'Data Pagamento/Recebimento' : 'Vencimento';
@@ -158,6 +164,7 @@ export default function ReportsPage() {
           [entityLabel]: entityName,
           'Descrição': item.description,
           'Categoria': category,
+          'Centro de Custo': centerName,
           'Valor Original (R$)': baseValue,
           'Juros/Multa (+)': (item.interest || 0) + (item.fine || 0),
           'Desconto (-)': (item.discount || 0),
@@ -171,6 +178,7 @@ export default function ReportsPage() {
         [entityLabel]: entityName,
         'Descrição': item.description,
         'Categoria': category,
+        'Centro de Custo': centerName,
         'Valor (R$)': baseValue,
         'Status': item.status === 'Paid' ? 'Liquidado' : 'Pendente'
       };
@@ -306,7 +314,8 @@ export default function ReportsPage() {
                     <TableRow>
                       <TableHead>{isPaidReport ? (isReceivableReport ? 'Recebimento' : 'Pagamento') : 'Vencimento'}</TableHead>
                       <TableHead>{isReceivableReport ? 'Cliente / Origem' : 'Fornecedor'}</TableHead>
-                      <TableHead>Descrição</TableHead>
+                      <TableHead>Descrição / Categoria</TableHead>
+                      <TableHead>Centro de Custo</TableHead>
                       <TableHead className="text-right">Valor {isPaidReport ? 'Líquido' : ''}</TableHead>
                     </TableRow>
                   </TableHeader>
@@ -319,6 +328,7 @@ export default function ReportsPage() {
                       
                       const dateToDisplay = isPaidReport ? item.paymentDate : item.dueDate;
                       const dateObj = dateToDisplay ? (isPaidReport ? parseISO(dateToDisplay) : new Date(dateToDisplay + 'T12:00:00')) : null;
+                      const center = centers?.find(c => c.id === item.costCenterId);
 
                       return (
                         <TableRow key={item.id}>
@@ -330,16 +340,24 @@ export default function ReportsPage() {
                           </TableCell>
                           <TableCell className="text-xs">
                             <div className="flex flex-col">
-                              <span className="truncate max-w-[200px]">{item.description}</span>
+                              <span className="truncate max-w-[180px]">{item.description}</span>
                               <span className="text-[9px] text-muted-foreground uppercase">{categories?.find(c => c.id === item.accountCategoryId)?.name || 'Geral'}</span>
                             </div>
+                          </TableCell>
+                          <TableCell className="text-xs">
+                            {center ? (
+                              <div className="flex items-center gap-1.5 text-muted-foreground">
+                                <LayoutGrid className="w-3 h-3" />
+                                {center.name}
+                              </div>
+                            ) : '-'}
                           </TableCell>
                           <TableCell className="text-right font-bold text-xs">
                             <div className="flex flex-col items-end">
                               <span className={cn(isReceivableReport ? "text-emerald-700" : "text-destructive")}>
                                 {formatCurrency(net)}
                               </span>
-                              {reportType === 'payable_paid' && (item.interest || 0 + (item.fine || 0) - (item.discount || 0) !== 0) && (
+                              {reportType === 'payable_paid' && ((item.interest || 0) + (item.fine || 0) - (item.discount || 0) !== 0) && (
                                 <span className="text-[8px] text-muted-foreground italic">Orig: {formatCurrency(item.originalAmount)}</span>
                               )}
                             </div>
@@ -349,7 +367,7 @@ export default function ReportsPage() {
                     })}
                     {filteredData.length === 0 && (
                       <TableRow>
-                        <TableCell colSpan={4} className="text-center py-24 text-muted-foreground italic text-sm">
+                        <TableCell colSpan={5} className="text-center py-24 text-muted-foreground italic text-sm">
                           <div className="flex flex-col items-center gap-2 opacity-30">
                             <AlertCircle className="w-12 h-12" />
                             Nenhum registro encontrado para este filtro.
@@ -374,7 +392,7 @@ export default function ReportsPage() {
             <h4 className="text-sm font-bold">Dica de Auditoria</h4>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-2">
               <p className="text-xs text-muted-foreground leading-relaxed">
-                <strong>Controle a Receber:</strong> Use o relatório de "Pendentes" no início da semana para cobrar clientes em atraso. Use o de "Recebidas" para conferir o que realmente caiu no banco.
+                <strong>Análise por Centro de Custo:</strong> A inclusão do centro de custo nos relatórios permite que você veja qual unidade de negócio ou projeto está consumindo mais recursos ou gerando mais receita no período selecionado.
               </p>
               <p className="text-xs text-muted-foreground leading-relaxed">
                 <strong>Exportação Inteligente:</strong> Ao exportar para Excel, os arquivos já saem nomeados com o tipo de relatório e o período, facilitando o arquivamento mensal para sua contabilidade.
