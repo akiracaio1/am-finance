@@ -231,22 +231,21 @@ export default function ReconciliationPage() {
 
   const checkDayStatus = (dateStr: string) => {
     if (!allTransactions || !noMovementDays || !allPayables || !allReceivables || !selectedAccountId) {
-      return { isBalanced: true, diffIn: 0, diffOut: 0, hasAnyRecord: false };
+      return { isBalanced: false, diffIn: 0, diffOut: 0, hasAnyRecord: false, isNoMovement: false, statementIn: 0, statementOut: 0, systemIn: 0, systemOut: 0 };
     }
 
-    if (noMovementDays.some(d => d.date === dateStr)) {
-      return { isBalanced: true, diffIn: 0, diffOut: 0, hasAnyRecord: true };
-    }
-
+    const isNoMovement = noMovementDays.some(d => d.date === dateStr);
     const dayTxns = allTransactions.filter(t => t.date === dateStr);
-    const dayPayables = allPayables.filter(p => p.paymentDate === dateStr && p.bankAccountId === selectedAccountId);
-    const dayReceivables = allReceivables.filter(r => r.paymentDate === dateStr && r.bankAccountId === selectedAccountId);
+    const dayPayables = allPayables.filter(p => p.status === 'Paid' && p.paymentDate === dateStr && p.bankAccountId === selectedAccountId);
+    const dayReceivables = allReceivables.filter(r => r.status === 'Paid' && r.paymentDate === dateStr && r.bankAccountId === selectedAccountId);
 
-    const statementIn = dayTxns.filter(t => t.type === 'CREDIT' && !t.reconciled && !t.ignored).reduce((acc, t) => acc + t.amount, 0) + 
-                       dayTxns.filter(t => t.type === 'CREDIT' && t.reconciled).reduce((acc, t) => acc + t.amount, 0);
+    const statementIn = dayTxns
+      .filter(t => !t.ignored && t.type === 'CREDIT')
+      .reduce((acc, t) => acc + Math.abs(t.amount), 0);
     
-    const statementOut = Math.abs(dayTxns.filter(t => t.type === 'DEBIT' && !t.reconciled && !t.ignored).reduce((acc, t) => acc + t.amount, 0)) +
-                        Math.abs(dayTxns.filter(t => t.type === 'DEBIT' && t.reconciled).reduce((acc, t) => acc + t.amount, 0));
+    const statementOut = dayTxns
+      .filter(t => !t.ignored && t.type === 'DEBIT')
+      .reduce((acc, t) => acc + Math.abs(t.amount), 0);
     
     const systemIn = dayReceivables.reduce((acc, r) => acc + r.amount, 0);
     const systemOut = dayPayables.reduce((acc, p) => acc + (p.originalAmount + (p.interest || 0) + (p.fine || 0) - (p.discount || 0)), 0);
@@ -254,9 +253,11 @@ export default function ReconciliationPage() {
     const diffIn = statementIn - systemIn;
     const diffOut = statementOut - systemOut;
     
-    const hasAnyRecord = dayTxns.length > 0 || systemIn > 0 || systemOut > 0;
+    const hasAnyRecord = dayTxns.filter(t => !t.ignored).length > 0 || systemIn > 0 || systemOut > 0;
     const isMathBalanced = Math.abs(diffIn) < 0.01 && Math.abs(diffOut) < 0.01;
-    const isBalanced = isMathBalanced && hasAnyRecord;
+    
+    // A day is only balanced if math matches AND (it has any record OR is explicitly marked as no movement)
+    const isBalanced = isMathBalanced && (hasAnyRecord || isNoMovement);
 
     return { 
       isBalanced, 
@@ -264,6 +265,7 @@ export default function ReconciliationPage() {
       diffIn, 
       diffOut, 
       hasAnyRecord,
+      isNoMovement,
       statementIn,
       statementOut,
       systemIn,
@@ -273,8 +275,8 @@ export default function ReconciliationPage() {
 
   const dailyTransactions = useMemo(() => allTransactions?.filter(t => t.date === selectedDate) || [], [allTransactions, selectedDate]);
   const dailySystemEntries = useMemo(() => {
-    const payables = allPayables?.filter(p => p.paymentDate === selectedDate && p.bankAccountId === selectedAccountId) || [];
-    const receivables = allReceivables?.filter(r => r.paymentDate === selectedDate && r.bankAccountId === selectedAccountId) || [];
+    const payables = allPayables?.filter(p => p.status === 'Paid' && p.paymentDate === selectedDate && p.bankAccountId === selectedAccountId) || [];
+    const receivables = allReceivables?.filter(r => r.status === 'Paid' && r.paymentDate === selectedDate && r.bankAccountId === selectedAccountId) || [];
     return [
       ...payables.map(p => ({ ...p, type: 'DEBIT' as const, isPayable: true })),
       ...receivables.map(r => ({ ...r, type: 'CREDIT' as const, isPayable: false }))
@@ -286,19 +288,12 @@ export default function ReconciliationPage() {
   const pendingDays = useMemo(() => {
     if (!selectedAccountId || !allTransactions || !noMovementDays || !allPayables || !allReceivables) return [];
     
+    // Scans from 01/05/2026 until today (or 120 days window)
     const start = new Date("2026-05-01T12:00:00");
-    const today = new Date();
-    today.setHours(12, 0, 0, 0);
+    const end = addDays(new Date(), 30); // scan ahead for projections too
     
-    let maxDataDate = addDays(today, 1);
-    allTransactions.forEach(t => {
-      const d = new Date(t.date + 'T12:00:00');
-      if (isValid(d) && d > maxDataDate) maxDataDate = d;
-    });
-
     try {
-      const interval = eachDayOfInterval({ start, end: maxDataDate });
-      
+      const interval = eachDayOfInterval({ start, end });
       return interval.filter(day => {
         const dateStr = format(day, "yyyy-MM-dd");
         const status = checkDayStatus(dateStr);
@@ -307,7 +302,6 @@ export default function ReconciliationPage() {
       .map(day => format(day, "yyyy-MM-dd"))
       .reverse();
     } catch (e) {
-      console.error("Erro auditoria:", e);
       return [];
     }
   }, [allTransactions, noMovementDays, allPayables, allReceivables, selectedAccountId]);
@@ -570,7 +564,7 @@ export default function ReconciliationPage() {
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <Card className="bg-muted/30"><CardHeader className="p-3 pb-0"><CardTitle className="text-[10px] uppercase text-muted-foreground">Entradas</CardTitle></CardHeader><CardContent className="p-3"><div className="text-sm font-bold text-emerald-600">R$ {(summary.statementIn || 0).toLocaleString('pt-BR')}</div></CardContent></Card>
             <Card className="bg-muted/30"><CardHeader className="p-3 pb-0"><CardTitle className="text-[10px] uppercase text-muted-foreground">Saídas</CardTitle></CardHeader><CardContent className="p-3"><div className="text-sm font-bold text-destructive">R$ {(summary.statementOut || 0).toLocaleString('pt-BR')}</div></CardContent></Card>
-            <Card className={cn("transition-colors", summary.isBalanced ? "bg-emerald-50" : (summary.isMathBalanced && !summary.hasAnyRecord ? "bg-muted/40" : "bg-destructive/5"))}><CardHeader className="p-3 pb-0"><CardTitle className="text-[10px] uppercase text-muted-foreground">Resultado Geral</CardTitle></CardHeader><CardContent className="p-3 flex items-center justify-between"><div className={cn("text-lg font-bold", summary.isBalanced ? "text-emerald-700" : (summary.isMathBalanced && !summary.hasAnyRecord ? "text-muted-foreground" : "text-destructive"))}>{summary.isBalanced ? "Conferido" : (summary.isMathBalanced && !summary.hasAnyRecord ? "Pendente" : `Dif: R$ ${(summary.diffIn - summary.diffOut).toLocaleString('pt-BR')}`)}</div>{summary.isBalanced ? <CheckCircle className="w-5 h-5 text-emerald-600" /> : <AlertTriangle className="w-5 h-5 text-muted-foreground" />}</CardContent></Card>
+            <Card className={cn("transition-colors", summary.isBalanced ? "bg-emerald-50" : (summary.isMathBalanced && !summary.hasAnyRecord && !summary.isNoMovement ? "bg-muted/40" : "bg-destructive/5"))}><CardHeader className="p-3 pb-0"><CardTitle className="text-[10px] uppercase text-muted-foreground">Resultado Geral</CardTitle></CardHeader><CardContent className="p-3 flex items-center justify-between"><div className={cn("text-lg font-bold", summary.isBalanced ? "text-emerald-700" : (summary.isMathBalanced && !summary.hasAnyRecord && !summary.isNoMovement ? "text-muted-foreground" : `Dif: R$ ${(summary.diffIn - summary.diffOut).toLocaleString('pt-BR')}`))}>{summary.isBalanced ? "Conferido" : (summary.isMathBalanced && !summary.hasAnyRecord && !summary.isNoMovement ? "Pendente" : `Dif: R$ ${(summary.diffIn - summary.diffOut).toLocaleString('pt-BR')}`)}</div>{summary.isBalanced ? <CheckCircle className="w-5 h-5 text-emerald-600" /> : <AlertTriangle className="w-5 h-5 text-muted-foreground" />}</CardContent></Card>
           </div>
 
           <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
@@ -599,7 +593,7 @@ export default function ReconciliationPage() {
                     {dailySystemEntries.map(entry => (
                       <TableRow key={entry.id} className="bg-emerald-50/50">
                         <TableCell className="p-3"><div className="flex flex-col"><span className="text-xs font-bold line-clamp-1">{entry.description}</span><span className="text-[10px] text-muted-foreground">{(entry as any).customerName || suppliers?.find(s => s.id === (entry as any).supplierId)?.name || 'Fornecedor'}</span></div></TableCell>
-                        <TableCell className={cn("p-3 text-right font-bold text-xs", entry.type === 'CREDIT' ? "text-emerald-600" : "text-destructive")}>R$ {((entry as any).amount || (entry as any).originalAmount).toLocaleString('pt-BR')}</TableCell>
+                        <TableCell className={cn("p-3 text-right font-bold text-xs", entry.type === 'CREDIT' ? "text-emerald-600" : "text-destructive")}>R$ {((entry as any).amount || (entry as any).originalAmount + ((entry as any).interest || 0) + ((entry as any).fine || 0) - ((entry as any).discount || 0)).toLocaleString('pt-BR')}</TableCell>
                         <TableCell className="p-3 text-right"><Badge variant="outline" className="text-[9px] border-emerald-200 text-emerald-700">OK</Badge></TableCell>
                       </TableRow>
                     ))}
