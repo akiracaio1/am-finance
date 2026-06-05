@@ -71,8 +71,8 @@ import {
   CostCenterGroup,
   BankAccountType
 } from "@/lib/types";
-import { format, isBefore, parseISO, eachDayOfInterval, isValid } from "date-fns";
-import { parseOFX, OFXTransaction } from "@/lib/ofx-parser";
+import { format, isBefore, parseISO, eachDayOfInterval, isValid, startOfDay, endOfDay } from "date-fns";
+import { parseOfx, OFXTransaction } from "@/lib/ofx-parser";
 import { cn } from "@/lib/utils";
 
 type AdjustmentData = {
@@ -194,7 +194,6 @@ export default function ReconciliationPage() {
     if (!categories || !matchingTransaction) return [];
     const targetType = matchingTransaction.type === 'CREDIT' ? 'Revenue' : 'Expense';
     
-    // Filtrar apenas categorias folha (sem filhos) e da natureza correta
     const leaves = categories.filter(cat => 
       cat.type === targetType && 
       !categories.some(child => child.parentCategoryId === cat.id)
@@ -230,8 +229,49 @@ export default function ReconciliationPage() {
     if (accounts?.length === 1 && !selectedAccountId) setSelectedAccountId(accounts[0].id);
   }, [accounts, selectedAccountId]);
 
-  const dailyTransactions = useMemo(() => allTransactions?.filter(t => t.date === selectedDate) || [], [allTransactions, selectedDate]);
+  // Função centralizada para verificar pendência de um dia específico
+  const checkDayStatus = (dateStr: string) => {
+    if (!allTransactions || !noMovementDays || !allPayables || !allReceivables || !selectedAccountId) {
+      return { isBalanced: true, diffIn: 0, diffOut: 0, hasAnyRecord: false };
+    }
 
+    if (noMovementDays.some(d => d.date === dateStr)) {
+      return { isBalanced: true, diffIn: 0, diffOut: 0, hasAnyRecord: true };
+    }
+
+    const dayTxns = allTransactions.filter(t => t.date === dateStr);
+    const dayPayables = allPayables.filter(p => p.paymentDate === dateStr && p.bankAccountId === selectedAccountId);
+    const dayReceivables = allReceivables.filter(r => r.paymentDate === dateStr && r.bankAccountId === selectedAccountId);
+
+    const statementIn = dayTxns.filter(t => t.type === 'CREDIT' && !t.ignored).reduce((acc, t) => acc + t.amount, 0);
+    const statementOut = Math.abs(dayTxns.filter(t => t.type === 'DEBIT' && !t.ignored).reduce((acc, t) => acc + t.amount, 0));
+    
+    const systemIn = dayReceivables.reduce((acc, r) => acc + r.amount, 0);
+    const systemOut = dayPayables.reduce((acc, p) => acc + (p.originalAmount + (p.interest || 0) + (p.fine || 0) - (p.discount || 0)), 0);
+
+    const diffIn = statementIn - systemIn;
+    const diffOut = statementOut - systemOut;
+    
+    const hasAnyRecord = dayTxns.length > 0 || systemIn > 0 || systemOut > 0;
+    const isMathBalanced = Math.abs(diffIn) < 0.01 && Math.abs(diffOut) < 0.01;
+    
+    // Um dia só é OK se o cálculo bater E se houver algum dado ou marcação manual
+    const isBalanced = isMathBalanced && hasAnyRecord;
+
+    return { 
+      isBalanced, 
+      isMathBalanced, 
+      diffIn, 
+      diffOut, 
+      hasAnyRecord,
+      statementIn,
+      statementOut,
+      systemIn,
+      systemOut
+    };
+  };
+
+  const dailyTransactions = useMemo(() => allTransactions?.filter(t => t.date === selectedDate) || [], [allTransactions, selectedDate]);
   const dailySystemEntries = useMemo(() => {
     const payables = allPayables?.filter(p => p.paymentDate === selectedDate && p.bankAccountId === selectedAccountId) || [];
     const receivables = allReceivables?.filter(r => r.paymentDate === selectedDate && r.bankAccountId === selectedAccountId) || [];
@@ -241,69 +281,41 @@ export default function ReconciliationPage() {
     ];
   }, [allPayables, allReceivables, selectedDate, selectedAccountId]);
 
-  const summary = useMemo(() => {
-    const statementIn = dailyTransactions.filter(t => t.type === 'CREDIT' && !t.ignored).reduce((acc, t) => acc + t.amount, 0);
-    const statementOut = Math.abs(dailyTransactions.filter(t => t.type === 'DEBIT' && !t.ignored).reduce((acc, t) => acc + t.amount, 0));
-    const systemIn = dailySystemEntries.filter(e => e.type === 'CREDIT').reduce((acc, e) => acc + ((e as any).amount || (e as any).originalAmount || 0), 0);
-    const systemOut = dailySystemEntries.filter(e => e.type === 'DEBIT').reduce((acc, e) => {
-      const p = e as any;
-      return acc + (p.originalAmount !== undefined ? (p.originalAmount + (p.interest || 0) + (p.fine || 0) - (p.discount || 0)) : (p.amount || 0));
-    }, 0);
-    
-    const diffIn = statementIn - systemIn;
-    const diffOut = statementOut - systemOut;
-    
-    // SEGURANÇA: Um dia só é considerado Conferido se math bater E se houver algum dado ou marca de "sem movimento"
-    const hasAnyRecord = dailyTransactions.length > 0 || dailySystemEntries.length > 0 || noMovementDays?.some(d => d.date === selectedDate);
-    const isMathBalanced = Math.abs(diffIn) < 0.01 && Math.abs(diffOut) < 0.01;
-
-    return { 
-      statementIn, 
-      statementOut, 
-      systemIn, 
-      systemOut, 
-      diffIn, 
-      diffOut, 
-      isBalanced: isMathBalanced && hasAnyRecord,
-      isMathBalanced,
-      hasAnyRecord
-    };
-  }, [dailyTransactions, dailySystemEntries, noMovementDays, selectedDate]);
+  const summary = useMemo(() => checkDayStatus(selectedDate), [allTransactions, noMovementDays, allPayables, allReceivables, selectedAccountId, selectedDate]);
 
   const pendingDays = useMemo(() => {
-    if (!selectedAccountId || !allTransactions || !noMovementDays || !allPayables || !allReceivables || !accounts) return [];
+    if (!selectedAccountId || !allTransactions || !noMovementDays || !allPayables || !allReceivables) return [];
     
-    // Auditoria fixa desde 01/05/2026 conforme solicitado pelo usuário
+    // Auditoria fixa desde 01/05/2026
     const start = new Date("2026-05-01T12:00:00");
     const today = new Date();
-    const selDate = parseISO(selectedDate);
-    let auditEnd = isBefore(selDate, today) ? today : selDate;
+    today.setHours(12, 0, 0, 0);
     
-    const interval = eachDayOfInterval({ start, end: auditEnd });
+    const currentViewDate = new Date(selectedDate + 'T12:00:00');
     
-    return interval.filter(day => {
-      const dateStr = format(day, "yyyy-MM-dd");
-      if (noMovementDays.some(d => d.date === dateStr)) return false;
-      
-      const dayTransactions = allTransactions.filter(t => t.date === dateStr);
-      const daySystemIn = allReceivables.filter(r => r.paymentDate === dateStr && r.bankAccountId === selectedAccountId).reduce((acc, e) => acc + e.amount, 0);
-      const daySystemOut = allPayables.filter(p => p.paymentDate === dateStr && p.bankAccountId === selectedAccountId).reduce((acc, p) => acc + (p.originalAmount + (p.interest || 0) + (p.fine || 0) - (p.discount || 0)), 0);
-      
-      const hasAnyData = dayTransactions.length > 0 || daySystemIn > 0 || daySystemOut > 0;
-      
-      // Se não houver dado NENHUM e não estiver marcado -> PENDENTE (Risco de esquecimento)
-      if (!hasAnyData) return true;
+    // Encontrar a maior data presente nos dados para não limitar a auditoria ao "hoje" real
+    let maxDataDate = today;
+    allTransactions.forEach(t => {
+      const d = new Date(t.date + 'T12:00:00');
+      if (isValid(d) && d > maxDataDate) maxDataDate = d;
+    });
+    if (isValid(currentViewDate) && currentViewDate > maxDataDate) maxDataDate = currentViewDate;
 
-      // Se houver transação do extrato não conciliada -> PENDENTE
-      if (dayTransactions.some(t => !t.reconciled && !t.ignored)) return true;
-
-      // Verificação matemática
-      const statementIn = dayTransactions.filter(t => t.type === 'CREDIT' && !t.ignored).reduce((acc, t) => acc + t.amount, 0);
-      const statementOut = Math.abs(dayTransactions.filter(t => t.type === 'DEBIT' && !t.ignored).reduce((acc, t) => acc + t.amount, 0));
+    try {
+      const interval = eachDayOfInterval({ start, end: maxDataDate });
       
-      return Math.abs(statementIn - daySystemIn) > 0.01 || Math.abs(statementOut - daySystemOut) > 0.01;
-    }).map(day => format(day, "yyyy-MM-dd")).reverse();
-  }, [allTransactions, noMovementDays, allPayables, allReceivables, selectedAccountId, selectedDate, accounts]);
+      return interval.filter(day => {
+        const dateStr = format(day, "yyyy-MM-dd");
+        const status = checkDayStatus(dateStr);
+        return !status.isBalanced;
+      })
+      .map(day => format(day, "yyyy-MM-dd"))
+      .reverse();
+    } catch (e) {
+      console.error("Erro ao gerar intervalo de auditoria:", e);
+      return [];
+    }
+  }, [allTransactions, noMovementDays, allPayables, allReceivables, selectedAccountId, selectedDate]);
 
   const openSystemEntries = useMemo(() => {
     const payables = allPayables?.filter(p => p.status !== 'Paid') || [];
@@ -359,7 +371,7 @@ export default function ReconciliationPage() {
   const handleOFXFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    const transactions = parseOFX(await file.text());
+    const transactions = parseOfx(await file.text());
     setOfxPreview(transactions);
     setIsImportModalOpen(true);
   };
@@ -450,10 +462,7 @@ export default function ReconciliationPage() {
       entryData.customerName = formCustomerName; 
     }
 
-    // 1. Criar o lançamento no caminho correto do usuário
     setDocumentNonBlocking(doc(db, "users", user.uid, col, entryId), entryData, { merge: true });
-    
-    // 2. Marcar a transação do banco como conciliada
     updateDocumentNonBlocking(doc(db, "users", user.uid, "bankAccounts", selectedAccountId, "bankTransactions", matchingTransaction.id), { 
       reconciled: true, 
       reconciledEntryId: entryId 
@@ -564,8 +573,8 @@ export default function ReconciliationPage() {
 
         <div className="lg:col-span-3 space-y-4">
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <Card className="bg-muted/30"><CardHeader className="p-3 pb-0"><CardTitle className="text-[10px] uppercase text-muted-foreground">Entradas</CardTitle></CardHeader><CardContent className="p-3"><div className="text-sm font-bold text-emerald-600">R$ {summary.statementIn.toLocaleString('pt-BR')}</div></CardContent></Card>
-            <Card className="bg-muted/30"><CardHeader className="p-3 pb-0"><CardTitle className="text-[10px] uppercase text-muted-foreground">Saídas</CardTitle></CardHeader><CardContent className="p-3"><div className="text-sm font-bold text-destructive">R$ {summary.statementOut.toLocaleString('pt-BR')}</div></CardContent></Card>
+            <Card className="bg-muted/30"><CardHeader className="p-3 pb-0"><CardTitle className="text-[10px] uppercase text-muted-foreground">Entradas</CardTitle></CardHeader><CardContent className="p-3"><div className="text-sm font-bold text-emerald-600">R$ {(summary.statementIn || 0).toLocaleString('pt-BR')}</div></CardContent></Card>
+            <Card className="bg-muted/30"><CardHeader className="p-3 pb-0"><CardTitle className="text-[10px] uppercase text-muted-foreground">Saídas</CardTitle></CardHeader><CardContent className="p-3"><div className="text-sm font-bold text-destructive">R$ {(summary.statementOut || 0).toLocaleString('pt-BR')}</div></CardContent></Card>
             <Card className={cn("transition-colors", summary.isBalanced ? "bg-emerald-50" : (summary.isMathBalanced && !summary.hasAnyRecord ? "bg-muted/40" : "bg-destructive/5"))}><CardHeader className="p-3 pb-0"><CardTitle className="text-[10px] uppercase text-muted-foreground">Resultado Geral</CardTitle></CardHeader><CardContent className="p-3 flex items-center justify-between"><div className={cn("text-lg font-bold", summary.isBalanced ? "text-emerald-700" : (summary.isMathBalanced && !summary.hasAnyRecord ? "text-muted-foreground" : "text-destructive"))}>{summary.isBalanced ? "Conferido" : (summary.isMathBalanced && !summary.hasAnyRecord ? "Pendente" : `Dif: R$ ${(summary.diffIn - summary.diffOut).toLocaleString('pt-BR')}`)}</div>{summary.isBalanced ? <CheckCircle className="w-5 h-5 text-emerald-600" /> : <AlertTriangle className="w-5 h-5 text-muted-foreground" />}</CardContent></Card>
           </div>
 
@@ -772,3 +781,4 @@ export default function ReconciliationPage() {
     </div>
   );
 }
+
