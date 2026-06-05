@@ -71,7 +71,7 @@ import {
   CostCenterGroup,
   BankAccountType
 } from "@/lib/types";
-import { format, parseISO, eachDayOfInterval, isValid, addDays, subDays } from "date-fns";
+import { format, parseISO, eachDayOfInterval, isValid, addDays, subDays, startOfDay } from "date-fns";
 import { parseOFX, OFXTransaction } from "@/lib/ofx-parser";
 import { cn } from "@/lib/utils";
 
@@ -231,7 +231,7 @@ export default function ReconciliationPage() {
 
   const checkDayStatus = (dateStr: string) => {
     if (!allTransactions || !noMovementDays || !allPayables || !allReceivables || !selectedAccountId) {
-      return { isBalanced: false, diffIn: 0, diffOut: 0, hasAnyRecord: false, isNoMovement: false, statementIn: 0, statementOut: 0, systemIn: 0, systemOut: 0 };
+      return { isBalanced: false, diffIn: 0, diffOut: 0, hasAnyRecord: false, isNoMovement: false, statementIn: 0, statementOut: 0, systemIn: 0, systemOut: 0, hasOFX: false };
     }
 
     const isNoMovement = noMovementDays.some(d => d.date === dateStr);
@@ -253,23 +253,30 @@ export default function ReconciliationPage() {
     const diffIn = statementIn - systemIn;
     const diffOut = statementOut - systemOut;
     
-    const hasAnyRecord = dayTxns.filter(t => !t.ignored).length > 0 || systemIn > 0 || systemOut > 0;
+    const hasOFX = dayTxns.filter(t => !t.ignored).length > 0;
     const isMathBalanced = Math.abs(diffIn) < 0.01 && Math.abs(diffOut) < 0.01;
     
-    // A day is only balanced if math matches AND (it has any record OR is explicitly marked as no movement)
-    const isBalanced = isMathBalanced && (hasAnyRecord || isNoMovement);
+    /**
+     * REGRA DE OURO DA CONCILIAÇÃO:
+     * Um dia só está "Equilibrado" (Balanced) se:
+     * 1. Houve importação de OFX e a matemática bate com o sistema (Saldo Zero)
+     * OU
+     * 2. O usuário marcou explicitamente como "Sem Movimento"
+     */
+    const isBalanced = (hasOFX && isMathBalanced) || isNoMovement;
 
     return { 
       isBalanced, 
       isMathBalanced, 
       diffIn, 
       diffOut, 
-      hasAnyRecord,
+      hasAnyRecord: hasOFX || systemIn > 0 || systemOut > 0,
       isNoMovement,
       statementIn,
       statementOut,
       systemIn,
-      systemOut
+      systemOut,
+      hasOFX
     };
   };
 
@@ -288,15 +295,18 @@ export default function ReconciliationPage() {
   const pendingDays = useMemo(() => {
     if (!selectedAccountId || !allTransactions || !noMovementDays || !allPayables || !allReceivables) return [];
     
-    // Scans from 01/05/2026 until today (or 120 days window)
+    // REGRA 1: Considerar apenas a partir de 01/05/2026
     const start = new Date("2026-05-01T12:00:00");
-    const end = addDays(new Date(), 30); // scan ahead for projections too
+    
+    // REGRA 4: Considerar ontem como a última data possível para pendência
+    const yesterday = subDays(startOfDay(new Date()), 1);
     
     try {
-      const interval = eachDayOfInterval({ start, end });
+      const interval = eachDayOfInterval({ start, end: yesterday });
       return interval.filter(day => {
         const dateStr = format(day, "yyyy-MM-dd");
         const status = checkDayStatus(dateStr);
+        // REGRA 2 e 3: Aparece se não estiver "Equilibrado" (ou seja, falta OFX ou matemática não bate)
         return !status.isBalanced;
       })
       .map(day => format(day, "yyyy-MM-dd"))
@@ -525,8 +535,8 @@ export default function ReconciliationPage() {
           <CardContent className="pt-6 flex gap-4 items-start">
             <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-1" />
             <div className="space-y-1">
-              <h4 className="text-sm font-bold text-amber-900">Pendências Detectadas (Auditoria Global)</h4>
-              <p className="text-xs text-amber-700">O sistema identificou {pendingDays.length} dias pendentes desde 01/05/2026:</p>
+              <h4 className="text-sm font-bold text-amber-900">Pendências de Auditoria (desde 01/05/2026)</h4>
+              <p className="text-xs text-amber-700">Dias sem OFX ou com diferença de saldo até ontem:</p>
               <div className="flex flex-wrap gap-2 mt-2">
                 {pendingDays.slice(0, 30).map(date => {
                    const d = new Date(date + 'T12:00:00');
@@ -536,6 +546,7 @@ export default function ReconciliationPage() {
                     </Badge>
                    );
                 })}
+                {pendingDays.length > 30 && <span className="text-[10px] text-amber-600 font-bold">...e mais {pendingDays.length - 30} dias</span>}
               </div>
             </div>
           </CardContent>
@@ -550,7 +561,7 @@ export default function ReconciliationPage() {
             <div className="pt-4 border-t space-y-3">
               <div className="flex justify-between items-center">
                 <span className="text-xs font-medium">Status do Dia</span>
-                {summary.isBalanced ? <Badge className="bg-emerald-100 text-emerald-700">Conciliado ✓</Badge> : <Badge variant="destructive">Pendente</Badge>}
+                {summary.isBalanced ? <Badge className="bg-emerald-100 text-emerald-700">Conferido ✓</Badge> : <Badge variant="destructive">Pendente</Badge>}
               </div>
               <Button variant="outline" className="w-full gap-2 text-xs" onClick={() => {
                 if (!selectedAccountId) return;
@@ -562,9 +573,17 @@ export default function ReconciliationPage() {
 
         <div className="lg:col-span-3 space-y-4">
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <Card className="bg-muted/30"><CardHeader className="p-3 pb-0"><CardTitle className="text-[10px] uppercase text-muted-foreground">Entradas</CardTitle></CardHeader><CardContent className="p-3"><div className="text-sm font-bold text-emerald-600">R$ {(summary.statementIn || 0).toLocaleString('pt-BR')}</div></CardContent></Card>
-            <Card className="bg-muted/30"><CardHeader className="p-3 pb-0"><CardTitle className="text-[10px] uppercase text-muted-foreground">Saídas</CardTitle></CardHeader><CardContent className="p-3"><div className="text-sm font-bold text-destructive">R$ {(summary.statementOut || 0).toLocaleString('pt-BR')}</div></CardContent></Card>
-            <Card className={cn("transition-colors", summary.isBalanced ? "bg-emerald-50" : (summary.isMathBalanced && !summary.hasAnyRecord && !summary.isNoMovement ? "bg-muted/40" : "bg-destructive/5"))}><CardHeader className="p-3 pb-0"><CardTitle className="text-[10px] uppercase text-muted-foreground">Resultado Geral</CardTitle></CardHeader><CardContent className="p-3 flex items-center justify-between"><div className={cn("text-lg font-bold", summary.isBalanced ? "text-emerald-700" : (summary.isMathBalanced && !summary.hasAnyRecord && !summary.isNoMovement ? "text-muted-foreground" : `Dif: R$ ${(summary.diffIn - summary.diffOut).toLocaleString('pt-BR')}`))}>{summary.isBalanced ? "Conferido" : (summary.isMathBalanced && !summary.hasAnyRecord && !summary.isNoMovement ? "Pendente" : `Dif: R$ ${(summary.diffIn - summary.diffOut).toLocaleString('pt-BR')}`)}</div>{summary.isBalanced ? <CheckCircle className="w-5 h-5 text-emerald-600" /> : <AlertTriangle className="w-5 h-5 text-muted-foreground" />}</CardContent></Card>
+            <Card className="bg-muted/30"><CardHeader className="p-3 pb-0"><CardTitle className="text-[10px] uppercase text-muted-foreground">Entradas (Extrato)</CardTitle></CardHeader><CardContent className="p-3"><div className="text-sm font-bold text-emerald-600">R$ {(summary.statementIn || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</div></CardContent></Card>
+            <Card className="bg-muted/30"><CardHeader className="p-3 pb-0"><CardTitle className="text-[10px] uppercase text-muted-foreground">Saídas (Extrato)</CardTitle></CardHeader><CardContent className="p-3"><div className="text-sm font-bold text-destructive">R$ {(summary.statementOut || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</div></CardContent></Card>
+            <Card className={cn("transition-colors", summary.isBalanced ? "bg-emerald-50" : (summary.hasOFX ? "bg-destructive/5" : "bg-muted/40"))}>
+              <CardHeader className="p-3 pb-0"><CardTitle className="text-[10px] uppercase text-muted-foreground">Resultado Geral</CardTitle></CardHeader>
+              <CardContent className="p-3 flex items-center justify-between">
+                <div className={cn("text-lg font-bold", summary.isBalanced ? "text-emerald-700" : "text-foreground")}>
+                  {summary.isNoMovement ? "Sem Movimento" : summary.hasOFX ? (Math.abs(summary.diffIn - summary.diffOut) < 0.01 ? "Conferido" : `Dif: R$ ${(summary.diffIn - summary.diffOut).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`) : "Aguardando OFX"}
+                </div>
+                {summary.isBalanced ? <CheckCircle className="w-5 h-5 text-emerald-600" /> : <AlertTriangle className="w-5 h-5 text-muted-foreground" />}
+              </CardContent>
+            </Card>
           </div>
 
           <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
@@ -576,27 +595,29 @@ export default function ReconciliationPage() {
                     {dailyTransactions.map(txn => (
                       <TableRow key={txn.id} className={cn(txn.reconciled ? "bg-emerald-50/50" : "", txn.ignored ? "opacity-40 grayscale" : "")}>
                         <TableCell className="p-3"><div className="flex flex-col"><div className="flex items-center gap-2"><span className={cn("text-xs font-bold line-clamp-1", txn.ignored ? "line-through" : "")}>{txn.description}</span>{txn.ignored && <Badge variant="secondary" className="text-[8px] h-3 px-1">Ignorado</Badge>}</div><span className="text-[10px] text-muted-foreground">{txn.type === 'CREDIT' ? 'Entrada' : 'Saída'}</span></div></TableCell>
-                        <TableCell className={cn("p-3 text-right font-bold text-xs", txn.ignored ? "text-muted-foreground" : (txn.type === 'CREDIT' ? "text-emerald-600" : "text-destructive"))}>R$ {Math.abs(txn.amount).toLocaleString('pt-BR')}</TableCell>
+                        <TableCell className={cn("p-3 text-right font-bold text-xs", txn.ignored ? "text-muted-foreground" : (txn.type === 'CREDIT' ? "text-emerald-600" : "text-destructive"))}>R$ {Math.abs(txn.amount).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</TableCell>
                         <TableCell className="p-3 text-right"><div className="flex items-center justify-end gap-1">{txn.ignored ? (<Button size="icon" variant="ghost" className="h-7 w-7 text-primary" onClick={() => toggleIgnoreTransaction(txn)} title="Restaurar Transação"><RotateCcw className="w-3 h-3" /></Button>) : !txn.reconciled ? (<><Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => { setMatchingTransaction(txn); setSelectedMatchEntries([]); setEntryAdjustments({}); setIsMatchModalOpen(true); }} title="Conciliar"><ArrowRightLeft className="w-3 h-3" /></Button><Button size="icon" variant="ghost" className="h-7 w-7 text-muted-foreground hover:text-destructive" onClick={() => toggleIgnoreTransaction(txn)} title="Desconsiderar"><EyeOff className="w-3 h-3" /></Button></>) : (<Button size="icon" variant="ghost" className="h-7 w-7 text-destructive" onClick={() => undoMatch(txn)} title="Desfazer"><X className="w-3 h-3" /></Button>)}</div></TableCell>
                       </TableRow>
                     ))}
+                    {dailyTransactions.length === 0 && <TableRow><TableCell colSpan={3} className="py-10 text-center text-xs text-muted-foreground italic">Nenhum extrato importado para este dia.</TableCell></TableRow>}
                   </TableBody>
                 </Table>
               </CardContent>
             </Card>
 
             <Card>
-              <CardHeader className="p-4 border-b bg-muted/20"><CardTitle className="text-xs uppercase flex items-center gap-2"><Settings className="w-3 h-3" /> Conciliados</CardTitle></CardHeader>
+              <CardHeader className="p-4 border-b bg-muted/20"><CardTitle className="text-xs uppercase flex items-center gap-2"><Settings className="w-3 h-3" /> Lançamentos no Sistema</CardTitle></CardHeader>
               <CardContent className="p-0">
                 <Table>
                   <TableBody>
                     {dailySystemEntries.map(entry => (
                       <TableRow key={entry.id} className="bg-emerald-50/50">
                         <TableCell className="p-3"><div className="flex flex-col"><span className="text-xs font-bold line-clamp-1">{entry.description}</span><span className="text-[10px] text-muted-foreground">{(entry as any).customerName || suppliers?.find(s => s.id === (entry as any).supplierId)?.name || 'Fornecedor'}</span></div></TableCell>
-                        <TableCell className={cn("p-3 text-right font-bold text-xs", entry.type === 'CREDIT' ? "text-emerald-600" : "text-destructive")}>R$ {((entry as any).amount || (entry as any).originalAmount + ((entry as any).interest || 0) + ((entry as any).fine || 0) - ((entry as any).discount || 0)).toLocaleString('pt-BR')}</TableCell>
+                        <TableCell className={cn("p-3 text-right font-bold text-xs", entry.type === 'CREDIT' ? "text-emerald-600" : "text-destructive")}>R$ {((entry as any).amount || (entry as any).originalAmount + ((entry as any).interest || 0) + ((entry as any).fine || 0) - ((entry as any).discount || 0)).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</TableCell>
                         <TableCell className="p-3 text-right"><Badge variant="outline" className="text-[9px] border-emerald-200 text-emerald-700">OK</Badge></TableCell>
                       </TableRow>
                     ))}
+                    {dailySystemEntries.length === 0 && <TableRow><TableCell colSpan={3} className="py-10 text-center text-xs text-muted-foreground italic">Nenhum pagamento ou recebimento registrado neste dia.</TableCell></TableRow>}
                   </TableBody>
                 </Table>
               </CardContent>
@@ -605,6 +626,7 @@ export default function ReconciliationPage() {
         </div>
       </div>
 
+      {/* MODAL DE CONCILIAÇÃO */}
       <Dialog open={isMatchModalOpen} onOpenChange={setIsMatchModalOpen}>
         <DialogContent className="max-w-4xl max-h-[90vh] flex flex-col p-0 overflow-hidden">
           <div className="p-6 border-b bg-muted/20">
@@ -613,7 +635,7 @@ export default function ReconciliationPage() {
               <DialogDescription className="font-bold text-primary">
                 Transação no Extrato: <span className="text-foreground">{matchingTransaction?.description}</span>
                 <br />
-                Valor a Conciliar: <span className="text-xl">R$ {Math.abs(matchingTransaction?.amount || 0).toLocaleString('pt-BR')}</span>
+                Valor a Conciliar: <span className="text-xl">R$ {Math.abs(matchingTransaction?.amount || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
               </DialogDescription>
             </DialogHeader>
             <div className="grid grid-cols-1 md:grid-cols-5 gap-3 mt-4">
@@ -645,7 +667,7 @@ export default function ReconciliationPage() {
                     <div className="flex flex-col"><span className="text-sm font-bold">{entry.description}</span><span className="text-xs text-muted-foreground font-medium">{partyName}</span><div className="flex items-center gap-2 mt-0.5"><span className="text-[10px] text-muted-foreground">Venc: {d && isValid(d) ? format(d, "dd/MM/yy") : '-'}</span>{hasAdj && <Badge variant="secondary" className="text-[8px] h-3 px-1 flex items-center gap-1"><Settings className="w-2 h-2" /> Com Ajustes</Badge>}{adj && adj.settlementAmount < baseVal && <Badge className="text-[8px] h-3 px-1 bg-amber-100 text-amber-700 border-none">Parcial</Badge>}</div></div>
                   </div>
                   <div className="flex items-center gap-4">
-                    <div className="text-right flex flex-col items-end"><div className={cn("font-bold text-sm", hasAdj ? "text-primary" : "")}>R$ {finalVal.toLocaleString('pt-BR')}</div>{hasAdj && <span className="text-[9px] text-muted-foreground line-through">Total: R$ {baseVal.toLocaleString('pt-BR')}</span>}</div>
+                    <div className="text-right flex flex-col items-end"><div className={cn("font-bold text-sm", hasAdj ? "text-primary" : "")}>R$ {finalVal.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</div>{hasAdj && <span className="text-[9px] text-muted-foreground line-through">Total: R$ {baseVal.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>}</div>
                     <Button size="icon" variant="ghost" className="h-8 w-8 text-primary hover:bg-primary/10" onClick={(e) => handleOpenAdjustment(e, entry)}><Calculator className="w-4 h-4" /></Button>
                   </div>
                 </div>
@@ -656,11 +678,11 @@ export default function ReconciliationPage() {
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6 items-center">
               <div className="space-y-1">
                 <p className="text-[10px] uppercase font-bold text-muted-foreground">Itens Selecionados</p>
-                <div className="text-lg font-bold text-primary flex items-center gap-2"><Calculator className="w-4 h-4" />R$ {totalSelectedInMatch.toLocaleString('pt-BR')}</div>
+                <div className="text-lg font-bold text-primary flex items-center gap-2"><Calculator className="w-4 h-4" />R$ {totalSelectedInMatch.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</div>
               </div>
               <div className={cn("p-3 rounded-lg border-2 text-center animate-in zoom-in-95", Math.abs(diffInMatch) < 0.01 ? "bg-emerald-50 border-emerald-200" : "bg-amber-50 border-amber-200")}>
                 <p className="text-[10px] uppercase font-bold text-muted-foreground">Diferença Restante</p>
-                <p className={cn("text-xl font-black", Math.abs(diffInMatch) < 0.01 ? "text-emerald-700" : "text-amber-700")}>R$ {diffInMatch.toLocaleString('pt-BR')}</p>
+                <p className={cn("text-xl font-black", Math.abs(diffInMatch) < 0.01 ? "text-emerald-700" : "text-amber-700")}>R$ {diffInMatch.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
               </div>
               <div className="flex flex-col gap-2">
                 <Button className="w-full h-12 gap-2 text-lg shadow-lg" disabled={selectedMatchEntryIds.length === 0 || Math.abs(diffInMatch) >= 0.01} onClick={() => confirmMatch(selectedMatchEntryIds)}><CheckCircle2 className="w-5 h-5" /> Confirmar Match</Button>
@@ -685,7 +707,7 @@ export default function ReconciliationPage() {
           <div className="grid gap-4 py-4">
             <div className="bg-muted/50 p-3 rounded-lg">
               <p className="text-xs font-bold text-muted-foreground mb-1">{entryToAdjust?.description}</p>
-              <div className="flex justify-between text-sm"><span>Valor Total:</span><span className="font-bold">R$ {((entryToAdjust?.amount || entryToAdjust?.originalAmount || 0)).toLocaleString('pt-BR')}</span></div>
+              <div className="flex justify-between text-sm"><span>Valor Total:</span><span className="font-bold">R$ {((entryToAdjust?.amount || entryToAdjust?.originalAmount || 0)).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span></div>
             </div>
             <div className="grid gap-2">
               <Label className="text-[10px] uppercase font-bold text-amber-700 flex items-center gap-1"><Split className="w-3 h-3" /> Valor a Liquidar Agora (Parcial)</Label>
@@ -698,7 +720,7 @@ export default function ReconciliationPage() {
             </div>
             <div className="bg-primary/5 p-4 rounded-lg border border-primary/20 text-center">
               <p className="text-[10px] uppercase font-bold text-muted-foreground">Valor Efetivo para Conciliação</p>
-              <p className="text-2xl font-black text-primary">R$ {(tempSettlementAmount + tempAdjInterest + tempAdjFine - tempAdjDiscount).toLocaleString('pt-BR')}</p>
+              <p className="text-2xl font-black text-primary">R$ {(tempSettlementAmount + tempAdjInterest + tempAdjFine - tempAdjDiscount).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
             </div>
           </div>
           <DialogFooter><Button className="w-full h-11" onClick={saveSingleAdjustment}>Aplicar Ajustes</Button></DialogFooter>
@@ -765,7 +787,7 @@ export default function ReconciliationPage() {
         <DialogContent className="max-w-sm"><form onSubmit={handleSaveNewAccount}><DialogHeader><DialogTitle>Nova Conta Bancária</DialogTitle></DialogHeader><div className="grid gap-4 py-4"><div className="grid gap-2"><Label>Nome Identificador</Label><Input value={accName} onChange={e => setAccName(e.target.value)} placeholder="Ex: Conta Principal PJ" required /></div><div className="grid gap-2"><Label>Banco</Label><Input value={accBank} onChange={e => setAccBank(e.target.value)} placeholder="Ex: Itaú, Nubank" required /></div><div className="grid gap-2"><Label>Tipo de Conta</Label><Select value={accType} onValueChange={(v: any) => setAccType(v)}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="Corrente">Corrente</SelectItem><SelectItem value="Poupança">Poupança</SelectItem><SelectItem value="Investimento">Investimento</SelectItem><SelectItem value="Caixinha">Caixinha</SelectItem></SelectContent></Select></div><div className="grid gap-2"><Label>Saldo Inicial</Label><Input type="number" step="0.01" value={accBalance} onChange={e => setAccBalance(Number(e.target.value))} /></div></div><DialogFooter><Button type="submit" className="w-full">Criar Conta</Button></DialogFooter></form></DialogContent>
       </Dialog>
       <Dialog open={isImportModalOpen} onOpenChange={setIsImportModalOpen}>
-        <DialogContent className="max-w-3xl"><DialogHeader><DialogTitle>Prévia da Importação</DialogTitle></DialogHeader><div className="max-h-[400px] overflow-y-auto"><Table><TableHeader><TableRow><TableHead>Data</TableHead><TableHead>Descrição</TableHead><TableHead className="text-right">Valor</TableHead></TableRow></TableHeader><TableBody>{ofxPreview.map((t, i) => (<TableRow key={i}><TableCell className="text-xs">{t.date}</TableCell><TableCell className="text-xs">{t.memo}</TableCell><TableCell className={cn("text-xs text-right font-bold", t.type === 'CREDIT' ? "text-emerald-600" : "text-destructive")}>R$ {t.amount.toLocaleString('pt-BR')}</TableCell></TableRow>))}</TableBody></Table></div><DialogFooter><Button onClick={confirmImport} className="w-full">Confirmar Importação</Button></DialogFooter></DialogContent>
+        <DialogContent className="max-w-3xl"><DialogHeader><DialogTitle>Prévia da Importação</DialogTitle></DialogHeader><div className="max-h-[400px] overflow-y-auto"><Table><TableHeader><TableRow><TableHead>Data</TableHead><TableHead>Descrição</TableHead><TableHead className="text-right">Valor</TableHead></TableRow></TableHeader><TableBody>{ofxPreview.map((t, i) => (<TableRow key={i}><TableCell className="text-xs">{t.date}</TableCell><TableCell className="text-xs">{t.memo}</TableCell><TableCell className={cn("text-xs text-right font-bold", t.type === 'CREDIT' ? "text-emerald-600" : "text-destructive")}>R$ {t.amount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</TableCell></TableRow>))}</TableBody></Table></div><DialogFooter><Button onClick={confirmImport} className="w-full">Confirmar Importação</Button></DialogFooter></DialogContent>
       </Dialog>
     </div>
   );
