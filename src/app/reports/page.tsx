@@ -7,15 +7,17 @@ import { Button } from "@/components/ui/button";
 import { 
   FileSpreadsheet, 
   Filter,
-  CalendarDays,
   Download,
   Loader2,
   RefreshCcw,
   AlertCircle,
   ArrowDownCircle,
+  ArrowUpCircle,
   CheckCircle2,
   Calculator,
-  TrendingDown
+  TrendingDown,
+  TrendingUp,
+  Clock
 } from "lucide-react";
 import { 
   Select, 
@@ -26,8 +28,6 @@ import {
 } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Badge } from "@/components/ui/badge";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { 
   useUser, 
   useFirestore, 
@@ -37,6 +37,7 @@ import {
 import { collection } from "firebase/firestore";
 import { 
   AccountsPayableEntry, 
+  AccountsReceivableEntry,
   AccountCategory, 
   Supplier, 
   CostCenter
@@ -62,13 +63,13 @@ import {
   TableRow 
 } from "@/components/ui/table";
 
-type ReportType = "pending" | "paid";
+type ReportType = "payable_pending" | "payable_paid" | "receivable_pending" | "receivable_paid";
 
 export default function ReportsPage() {
   const { user } = useUser();
   const db = useFirestore();
   const [mounted, setMounted] = useState(false);
-  const [reportType, setReportType] = useState<ReportType>("pending");
+  const [reportType, setReportType] = useState<ReportType>("payable_pending");
 
   // Filtros de Período
   const [startDate, setStartDate] = useState(format(startOfMonth(new Date()), "yyyy-MM-dd"));
@@ -84,6 +85,11 @@ export default function ReportsPage() {
     return collection(db, "users", user.uid, "accountsPayableEntries");
   }, [db, user]);
 
+  const receivablesQuery = useMemoFirebase(() => {
+    if (!db || !user) return null;
+    return collection(db, "users", user.uid, "accountsReceivableEntries");
+  }, [db, user]);
+
   const categoriesQuery = useMemoFirebase(() => {
     if (!db || !user) return null;
     return collection(db, "users", user.uid, "accountCategories");
@@ -94,101 +100,100 @@ export default function ReportsPage() {
     return collection(db, "users", user.uid, "suppliers");
   }, [db, user]);
 
-  const centersQuery = useMemoFirebase(() => {
-    if (!db || !user) return null;
-    return collection(db, "users", user.uid, "costCenters");
-  }, [db, user]);
-
   const { data: payables, isLoading: loadingPay } = useCollection<AccountsPayableEntry>(payablesQuery);
+  const { data: receivables, isLoading: loadingRec } = useCollection<AccountsReceivableEntry>(receivablesQuery);
   const { data: categories } = useCollection<AccountCategory>(categoriesQuery);
   const { data: suppliers } = useCollection<Supplier>(suppliersQuery);
-  const { data: centers } = useCollection<CostCenter>(centersQuery);
 
-  // Lógica de Filtragem
+  // Lógica de Filtragem Unificada
   const filteredData = useMemo(() => {
-    if (!payables) return [];
+    if (!payables || !receivables) return [];
 
-    if (reportType === "pending") {
-      // Filtra por Vencimento e Status Aberto/Atrasado
-      return payables
-        .filter(p => 
-          p.status !== 'Paid' && 
-          p.dueDate >= startDate && 
-          p.dueDate <= endDate
-        )
-        .sort((a, b) => (a.dueDate || "").localeCompare(b.dueDate || ""));
-    } else {
-      // Filtra por Data de Pagamento e Status Pago
-      return payables
-        .filter(p => 
-          p.status === 'Paid' && 
-          p.paymentDate &&
-          p.paymentDate >= startDate && 
-          p.paymentDate <= endDate
-        )
-        .sort((a, b) => (a.paymentDate || "").localeCompare(b.paymentDate || ""));
+    const isReceivable = reportType.startsWith("receivable");
+    const isPaid = reportType.endsWith("_paid");
+    const source = isReceivable ? receivables : payables;
+
+    return source.filter(item => {
+      const itemDate = isPaid ? item.paymentDate : item.dueDate;
+      const statusMatch = isPaid ? item.status === 'Paid' : item.status !== 'Paid';
+      
+      if (!itemDate || !statusMatch) return false;
+      return itemDate >= startDate && itemDate <= endDate;
+    }).sort((a, b) => {
+      const dateA = isPaid ? a.paymentDate! : a.dueDate;
+      const dateB = isPaid ? b.paymentDate! : b.dueDate;
+      return dateA.localeCompare(dateB);
+    });
+  }, [payables, receivables, reportType, startDate, endDate]);
+
+  const totalValue = filteredData.reduce((acc, curr: any) => {
+    if (reportType === 'payable_paid') {
+      const net = curr.originalAmount + (curr.interest || 0) + (curr.fine || 0) - (curr.discount || 0);
+      return acc + net;
     }
-  }, [payables, reportType, startDate, endDate]);
-
-  const totalValue = filteredData.reduce((acc, curr) => {
-    if (reportType === 'pending') return acc + curr.originalAmount;
-    // Para pagos, soma o valor líquido real
-    const net = curr.originalAmount + (curr.interest || 0) + (curr.fine || 0) - (curr.discount || 0);
-    return acc + net;
+    return acc + (curr.amount || curr.originalAmount || 0);
   }, 0);
 
   const handleExportExcel = () => {
     if (filteredData.length === 0) return;
 
-    const exportData = filteredData.map(p => {
-      const category = categories?.find(c => c.id === p.accountCategoryId)?.name || 'Geral';
-      const supplier = suppliers?.find(s => s.id === p.supplierId)?.name || 'N/A';
-      const center = centers?.find(c => c.id === p.costCenterId)?.name || '-';
-      
-      if (reportType === 'pending') {
+    const isReceivable = reportType.startsWith("receivable");
+    const isPaid = reportType.endsWith("_paid");
+
+    const exportData = filteredData.map((item: any) => {
+      const category = categories?.find(c => c.id === item.accountCategoryId)?.name || 'Geral';
+      const entityLabel = isReceivable ? 'Cliente' : 'Fornecedor';
+      const entityName = isReceivable ? item.customerName : (suppliers?.find(s => s.id === item.supplierId)?.name || 'N/A');
+      const dateLabel = isPaid ? 'Data Pagamento/Recebimento' : 'Vencimento';
+      const dateValue = isPaid ? item.paymentDate : item.dueDate;
+      const formattedDate = dateValue ? format(isPaid ? parseISO(dateValue) : new Date(dateValue + 'T12:00:00'), 'dd/MM/yyyy') : '-';
+
+      const baseValue = item.amount || item.originalAmount;
+
+      if (reportType === 'payable_paid') {
+        const net = baseValue + (item.interest || 0) + (item.fine || 0) - (item.discount || 0);
         return {
-          'Vencimento': p.dueDate ? format(new Date(p.dueDate + 'T12:00:00'), 'dd/MM/yyyy') : '-',
-          'Emissão': p.issueDate ? format(parseISO(p.issueDate), 'dd/MM/yyyy') : '-',
-          'Fornecedor': supplier,
-          'Descrição': p.description,
+          [dateLabel]: formattedDate,
+          'Vencimento Original': item.dueDate ? format(new Date(item.dueDate + 'T12:00:00'), 'dd/MM/yyyy') : '-',
+          [entityLabel]: entityName,
+          'Descrição': item.description,
           'Categoria': category,
-          'Centro de Custo': center,
-          'Valor (R$)': p.originalAmount,
-          'Status': p.status === 'Overdue' ? 'Atrasado' : p.status === 'DueToday' ? 'Hoje' : 'A Vencer'
-        };
-      } else {
-        const net = p.originalAmount + (p.interest || 0) + (p.fine || 0) - (p.discount || 0);
-        return {
-          'Data Pagamento': p.paymentDate ? format(parseISO(p.paymentDate), 'dd/MM/yyyy') : '-',
-          'Vencimento Original': p.dueDate ? format(new Date(p.dueDate + 'T12:00:00'), 'dd/MM/yyyy') : '-',
-          'Fornecedor': supplier,
-          'Descrição': p.description,
-          'Categoria': category,
-          'Centro de Custo': center,
-          'Valor Original (R$)': p.originalAmount,
-          'Juros/Multa (+)': (p.interest || 0) + (p.fine || 0),
-          'Desconto (-)': (p.discount || 0),
+          'Valor Original (R$)': baseValue,
+          'Juros/Multa (+)': (item.interest || 0) + (item.fine || 0),
+          'Desconto (-)': (item.discount || 0),
           'Valor Pago Líquido (R$)': net
         };
       }
+
+      return {
+        [dateLabel]: formattedDate,
+        'Emissão': item.issueDate ? format(parseISO(item.issueDate), 'dd/MM/yyyy') : '-',
+        [entityLabel]: entityName,
+        'Descrição': item.description,
+        'Categoria': category,
+        'Valor (R$)': baseValue,
+        'Status': item.status === 'Paid' ? 'Liquidado' : 'Pendente'
+      };
     });
 
-    const filename = reportType === 'pending' 
-      ? `Pendencias_Pagar_${startDate}_a_${endDate}` 
-      : `Contas_Pagas_Realizado_${startDate}_a_${endDate}`;
+    const filename = `Relatorio_${reportType}_${startDate}_a_${endDate}`;
+    const valueColumn = reportType === 'payable_paid' ? 'Valor Pago Líquido (R$)' : 'Valor (R$)';
 
     exportToExcel({ 
       data: exportData, 
       filename, 
-      sheetName: reportType === 'pending' ? 'Pendências' : 'Realizado',
+      sheetName: 'Relatório Financeiro',
       summary: { 
-        [reportType === 'pending' ? 'Descrição' : 'Descrição']: 'TOTAL GERAL NO PERÍODO', 
-        [reportType === 'pending' ? 'Valor (R$)' : 'Valor Pago Líquido (R$)']: totalValue 
+        'Descrição': 'TOTAL GERAL NO PERÍODO', 
+        [valueColumn]: totalValue 
       }
     });
   };
 
-  if (!mounted || loadingPay) return <div className="flex items-center justify-center min-h-[400px]"><Loader2 className="animate-spin h-8 w-8 text-primary" /></div>;
+  if (!mounted || loadingPay || loadingRec) return <div className="flex items-center justify-center min-h-[400px]"><Loader2 className="animate-spin h-8 w-8 text-primary" /></div>;
+
+  const isReceivableReport = reportType.startsWith("receivable");
+  const isPaidReport = reportType.endsWith("_paid");
 
   return (
     <div className="space-y-6 pb-20 animate-in fade-in duration-500">
@@ -196,9 +201,9 @@ export default function ReportsPage() {
         <div>
           <h1 className="text-3xl font-bold flex items-center gap-3">
             <FileSpreadsheet className="text-primary w-8 h-8" />
-            Relatórios Financeiros
+            Relatórios Estratégicos
           </h1>
-          <p className="text-muted-foreground">Analise o planejado e o realizado com precisão profissional.</p>
+          <p className="text-muted-foreground">Visão completa de fluxo e pendências (Pagar e Receber).</p>
         </div>
       </div>
 
@@ -206,30 +211,32 @@ export default function ReportsPage() {
         <Card className="lg:col-span-1 h-fit">
           <CardHeader>
             <CardTitle className="text-sm font-bold flex items-center gap-2">
-              <Filter className="w-4 h-4" /> Configuração do Filtro
+              <Filter className="w-4 h-4" /> Filtros de Relatório
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-6">
             <div className="space-y-2">
-              <Label className="text-[10px] uppercase font-bold text-muted-foreground">Tipo de Relatório</Label>
+              <Label className="text-[10px] uppercase font-bold text-muted-foreground">Módulo e Natureza</Label>
               <Select value={reportType} onValueChange={(v: any) => setReportType(v)}>
                 <SelectTrigger className="bg-background">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="pending">Pendências (Contas em Aberto)</SelectItem>
-                  <SelectItem value="paid">Realizado (Contas Pagas)</SelectItem>
+                  <SelectItem value="payable_pending">Contas a Pagar (Pendentes)</SelectItem>
+                  <SelectItem value="payable_paid">Contas a Pagar (Pagas)</SelectItem>
+                  <SelectItem value="receivable_pending">Contas a Receber (Pendentes)</SelectItem>
+                  <SelectItem value="receivable_paid">Contas a Receber (Recebidas)</SelectItem>
                 </SelectContent>
               </Select>
             </div>
 
             <div className="space-y-4 pt-4 border-t">
               <div className="space-y-2">
-                <Label className="text-[10px] uppercase font-bold text-muted-foreground">Data Inicial ({reportType === 'pending' ? 'Venc.' : 'Pagto'})</Label>
+                <Label className="text-[10px] uppercase font-bold text-muted-foreground">Data Inicial ({isPaidReport ? 'Pagto/Rec.' : 'Venc.'})</Label>
                 <Input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} />
               </div>
               <div className="space-y-2">
-                <Label className="text-[10px] uppercase font-bold text-muted-foreground">Data Final ({reportType === 'pending' ? 'Venc.' : 'Pagto'})</Label>
+                <Label className="text-[10px] uppercase font-bold text-muted-foreground">Data Final ({isPaidReport ? 'Pagto/Rec.' : 'Venc.'})</Label>
                 <Input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} />
               </div>
             </div>
@@ -240,7 +247,7 @@ export default function ReportsPage() {
                 onClick={handleExportExcel}
                 disabled={filteredData.length === 0}
               >
-                <Download className="w-4 h-4" /> Gerar Excel
+                <Download className="w-4 h-4" /> Exportar para Excel
               </Button>
             </div>
           </CardContent>
@@ -250,12 +257,15 @@ export default function ReportsPage() {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <Card className="bg-primary/5 border-none">
               <CardContent className="pt-6 flex items-center gap-4">
-                <div className={cn("p-3 rounded-full", reportType === 'pending' ? "bg-destructive/10 text-destructive" : "bg-emerald-100 text-emerald-700")}>
-                  {reportType === 'pending' ? <TrendingDown className="w-6 h-6" /> : <CheckCircle2 className="w-6 h-6" />}
+                <div className={cn(
+                  "p-3 rounded-full", 
+                  isReceivableReport ? "bg-emerald-100 text-emerald-700" : "bg-destructive/10 text-destructive"
+                )}>
+                  {isReceivableReport ? <TrendingUp className="w-6 h-6" /> : <TrendingDown className="w-6 h-6" />}
                 </div>
                 <div>
-                  <p className="text-[10px] font-bold uppercase text-muted-foreground">{reportType === 'pending' ? 'Volume Pendente' : 'Volume Liquidado'}</p>
-                  <p className={cn("text-2xl font-black", reportType === 'pending' ? "text-destructive" : "text-emerald-700")}>
+                  <p className="text-[10px] font-bold uppercase text-muted-foreground">Volume do Período</p>
+                  <p className={cn("text-2xl font-black", isReceivableReport ? "text-emerald-700" : "text-destructive")}>
                     {formatCurrency(totalValue)}
                   </p>
                 </div>
@@ -267,7 +277,7 @@ export default function ReportsPage() {
                   <Calculator className="w-6 h-6" />
                 </div>
                 <div>
-                  <p className="text-[10px] font-bold uppercase text-muted-foreground">Quantidade de Itens</p>
+                  <p className="text-[10px] font-bold uppercase text-muted-foreground">Itens Listados</p>
                   <p className="text-2xl font-black text-primary">{filteredData.length}</p>
                 </div>
               </CardContent>
@@ -278,14 +288,14 @@ export default function ReportsPage() {
             <CardHeader className="flex flex-row items-center justify-between border-b bg-muted/10">
               <div>
                 <CardTitle className="text-lg flex items-center gap-2">
-                  {reportType === 'pending' ? <ArrowDownCircle className="w-5 h-5 text-destructive" /> : <CheckCircle2 className="w-5 h-5 text-emerald-600" />}
-                  {reportType === 'pending' ? 'Listagem de Pendências' : 'Listagem de Contas Pagas'}
+                  {isReceivableReport ? <ArrowUpCircle className="w-5 h-5 text-emerald-600" /> : <ArrowDownCircle className="w-5 h-5 text-destructive" />}
+                  {reportType === 'payable_pending' && 'Contas a Pagar Pendentes'}
+                  {reportType === 'payable_paid' && 'Contas Pagas (Realizado)'}
+                  {reportType === 'receivable_pending' && 'Contas a Receber Pendentes'}
+                  {reportType === 'receivable_paid' && 'Contas Recebidas (Entradas)'}
                 </CardTitle>
                 <CardDescription>
-                  {reportType === 'pending' 
-                    ? `Contas vencendo entre ${format(parseISO(startDate), 'dd/MM/yy')} e ${format(parseISO(endDate), 'dd/MM/yy')}`
-                    : `Pagamentos realizados entre ${format(parseISO(startDate), 'dd/MM/yy')} e ${format(parseISO(endDate), 'dd/MM/yy')}`
-                  }
+                  Período: {format(parseISO(startDate), 'dd/MM/yyyy')} até {format(parseISO(endDate), 'dd/MM/yyyy')}
                 </CardDescription>
               </div>
             </CardHeader>
@@ -294,42 +304,43 @@ export default function ReportsPage() {
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>{reportType === 'pending' ? 'Vencimento' : 'Pagamento'}</TableHead>
-                      <TableHead>Fornecedor</TableHead>
+                      <TableHead>{isPaidReport ? (isReceivableReport ? 'Recebimento' : 'Pagamento') : 'Vencimento'}</TableHead>
+                      <TableHead>{isReceivableReport ? 'Cliente / Origem' : 'Fornecedor'}</TableHead>
                       <TableHead>Descrição</TableHead>
-                      <TableHead className="text-right">Valor {reportType === 'paid' ? 'Líquido' : ''}</TableHead>
+                      <TableHead className="text-right">Valor {isPaidReport ? 'Líquido' : ''}</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {filteredData.map((p) => {
-                      const net = reportType === 'paid' 
-                        ? p.originalAmount + (p.interest || 0) + (p.fine || 0) - (p.discount || 0)
-                        : p.originalAmount;
+                    {filteredData.map((item: any) => {
+                      const baseVal = item.amount || item.originalAmount;
+                      const net = reportType === 'payable_paid' 
+                        ? baseVal + (item.interest || 0) + (item.fine || 0) - (item.discount || 0)
+                        : baseVal;
                       
-                      const dateToDisplay = reportType === 'pending' ? p.dueDate : p.paymentDate;
-                      const dateObj = dateToDisplay ? (reportType === 'pending' ? new Date(dateToDisplay + 'T12:00:00') : parseISO(dateToDisplay)) : null;
+                      const dateToDisplay = isPaidReport ? item.paymentDate : item.dueDate;
+                      const dateObj = dateToDisplay ? (isPaidReport ? parseISO(dateToDisplay) : new Date(dateToDisplay + 'T12:00:00')) : null;
 
                       return (
-                        <TableRow key={p.id}>
+                        <TableRow key={item.id}>
                           <TableCell className="text-xs font-medium">
                             {dateObj && isValid(dateObj) ? format(dateObj, 'dd/MM/yy') : '-'}
                           </TableCell>
                           <TableCell className="text-xs font-bold truncate max-w-[150px]">
-                            {suppliers?.find(s => s.id === p.supplierId)?.name || '-'}
+                            {isReceivableReport ? item.customerName : (suppliers?.find(s => s.id === item.supplierId)?.name || '-')}
                           </TableCell>
                           <TableCell className="text-xs">
                             <div className="flex flex-col">
-                              <span className="truncate max-w-[200px]">{p.description}</span>
-                              <span className="text-[9px] text-muted-foreground uppercase">{categories?.find(c => c.id === p.accountCategoryId)?.name || 'Geral'}</span>
+                              <span className="truncate max-w-[200px]">{item.description}</span>
+                              <span className="text-[9px] text-muted-foreground uppercase">{categories?.find(c => c.id === item.accountCategoryId)?.name || 'Geral'}</span>
                             </div>
                           </TableCell>
                           <TableCell className="text-right font-bold text-xs">
                             <div className="flex flex-col items-end">
-                              <span className={cn(reportType === 'paid' ? "text-emerald-700" : "text-destructive")}>
+                              <span className={cn(isReceivableReport ? "text-emerald-700" : "text-destructive")}>
                                 {formatCurrency(net)}
                               </span>
-                              {reportType === 'paid' && (p.interest || 0 + (p.fine || 0) - (p.discount || 0) !== 0) && (
-                                <span className="text-[8px] text-muted-foreground italic">Orig: {formatCurrency(p.originalAmount)}</span>
+                              {reportType === 'payable_paid' && (item.interest || 0 + (item.fine || 0) - (item.discount || 0) !== 0) && (
+                                <span className="text-[8px] text-muted-foreground italic">Orig: {formatCurrency(item.originalAmount)}</span>
                               )}
                             </div>
                           </TableCell>
@@ -341,7 +352,7 @@ export default function ReportsPage() {
                         <TableCell colSpan={4} className="text-center py-24 text-muted-foreground italic text-sm">
                           <div className="flex flex-col items-center gap-2 opacity-30">
                             <AlertCircle className="w-12 h-12" />
-                            Nenhum registro encontrado para os critérios selecionados.
+                            Nenhum registro encontrado para este filtro.
                           </div>
                         </TableCell>
                       </TableRow>
@@ -357,16 +368,16 @@ export default function ReportsPage() {
       <Card className="bg-primary/5 border-primary/10 border-dashed">
         <CardContent className="pt-6 flex gap-4 items-start">
           <div className="p-2 bg-primary/10 rounded-full">
-            <RefreshCcw className="w-5 h-5 text-primary" />
+            <Clock className="w-5 h-5 text-primary" />
           </div>
           <div className="space-y-1">
-            <h4 className="text-sm font-bold">Diferença entre Pendente e Realizado</h4>
+            <h4 className="text-sm font-bold">Dica de Auditoria</h4>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-2">
               <p className="text-xs text-muted-foreground leading-relaxed">
-                <strong>Pendências (Fluxo Projetado):</strong> Filtra contas que ainda não foram pagas, usando a data de vencimento. Essencial para saber o quanto você precisa ter em caixa no futuro próximo.
+                <strong>Controle a Receber:</strong> Use o relatório de "Pendentes" no início da semana para cobrar clientes em atraso. Use o de "Recebidas" para conferir o que realmente caiu no banco.
               </p>
               <p className="text-xs text-muted-foreground leading-relaxed">
-                <strong>Realizado (Fluxo Efetivado):</strong> Filtra apenas o que saiu do banco, usando a data de pagamento. É este relatório que bate com seu extrato e reflete o lucro real da empresa.
+                <strong>Exportação Inteligente:</strong> Ao exportar para Excel, os arquivos já saem nomeados com o tipo de relatório e o período, facilitando o arquivamento mensal para sua contabilidade.
               </p>
             </div>
           </div>
