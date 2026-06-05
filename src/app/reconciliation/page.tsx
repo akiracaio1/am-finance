@@ -193,18 +193,29 @@ export default function ReconciliationPage() {
   const groupedLeafCategories = useMemo(() => {
     if (!categories || !matchingTransaction) return [];
     const targetType = matchingTransaction.type === 'CREDIT' ? 'Revenue' : 'Expense';
-    const leaves = categories.filter(cat => cat.type === targetType && !categories.some(child => child.parentCategoryId === cat.id));
+    
+    // Filtrar apenas categorias folha (sem filhos) e da natureza correta
+    const leaves = categories.filter(cat => 
+      cat.type === targetType && 
+      !categories.some(child => child.parentCategoryId === cat.id)
+    );
+
     const groupMap: Record<string, { parent: AccountCategory | undefined, items: AccountCategory[] }> = {};
     leaves.forEach(cat => {
       const parent = categories.find(p => p.id === cat.parentCategoryId);
       const parentId = parent?.id || "raiz";
-      if (!groupMap[parentId]) groupMap[parentId] = { parent, items: [] };
+      if (!groupMap[parentId]) {
+        groupMap[parentId] = { parent, items: [] };
+      }
       groupMap[parentId].items.push(cat);
     });
-    return Object.entries(groupMap).sort((a, b) => (a[1].parent?.code || "0").localeCompare(b[1].parent?.code || "0")).map(([_, data]) => ({
+
+    return Object.entries(groupMap)
+      .sort((a, b) => (a[1].parent?.code || "0").localeCompare(b[1].parent?.code || "0"))
+      .map(([_, data]) => ({
         parentName: data.parent ? `${data.parent.code} - ${data.parent.name}` : "Geral",
         items: data.items.sort((a, b) => a.code.localeCompare(b.code))
-    }));
+      }));
   }, [categories, matchingTransaction]);
 
   const activeCentersByGroup = useMemo(() => {
@@ -262,9 +273,8 @@ export default function ReconciliationPage() {
   const pendingDays = useMemo(() => {
     if (!selectedAccountId || !allTransactions || !noMovementDays || !allPayables || !allReceivables || !accounts) return [];
     
-    const currentAccount = accounts.find(a => a.id === selectedAccountId);
-    // Auditamos desde a data de abertura da conta ou Jan/2026 como fallback
-    const start = currentAccount?.openingDate ? parseISO(currentAccount.openingDate) : new Date("2026-01-01T12:00:00");
+    // Auditoria fixa desde 01/05/2026 conforme solicitado pelo usuário
+    const start = new Date("2026-05-01T12:00:00");
     const today = new Date();
     const selDate = parseISO(selectedDate);
     let auditEnd = isBefore(selDate, today) ? today : selDate;
@@ -412,15 +422,45 @@ export default function ReconciliationPage() {
 
   const saveDetailedEntry = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!db || !user || !matchingTransaction) return;
+    if (!db || !user || !matchingTransaction || !selectedAccountId) return;
+    
     const isPayable = matchingTransaction.type === 'DEBIT';
     const col = isPayable ? "accountsPayableEntries" : "accountsReceivableEntries";
     const entryId = `${isPayable ? 'pay' : 'rec'}_${Date.now()}`;
-    const entryData: any = { id: entryId, description: formDescription, [isPayable ? "originalAmount" : "amount"]: Number(formAmount), issueDate: formIssueDate || matchingTransaction.date, dueDate: formDueDate || matchingTransaction.date, status: 'Paid', paymentDate: matchingTransaction.date, bankAccountId: selectedAccountId, accountCategoryId: formCategoryId, costCenterId: formCostCenterId === "none" || !formCostCenterId ? null : formCostCenterId, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
-    if (isPayable) { entryData.supplierId = formSupplierId; entryData.entryType = "Confirmed"; } else { entryData.customerName = formCustomerName; }
+    
+    const entryData: any = { 
+      id: entryId, 
+      description: formDescription, 
+      [isPayable ? "originalAmount" : "amount"]: Number(formAmount), 
+      issueDate: formIssueDate || matchingTransaction.date, 
+      dueDate: formDueDate || matchingTransaction.date, 
+      status: 'Paid', 
+      paymentDate: matchingTransaction.date, 
+      bankAccountId: selectedAccountId, 
+      accountCategoryId: formCategoryId, 
+      costCenterId: formCostCenterId === "none" || !formCostCenterId ? null : formCostCenterId, 
+      createdAt: new Date().toISOString(), 
+      updatedAt: new Date().toISOString() 
+    };
+    
+    if (isPayable) { 
+      entryData.supplierId = formSupplierId; 
+      entryData.entryType = "Confirmed"; 
+    } else { 
+      entryData.customerName = formCustomerName; 
+    }
+
+    // 1. Criar o lançamento no caminho correto do usuário
     setDocumentNonBlocking(doc(db, "users", user.uid, col, entryId), entryData, { merge: true });
-    updateDocumentNonBlocking(doc(db, "users", user.uid, "bankAccounts", selectedAccountId, "bankTransactions", matchingTransaction.id), { reconciled: true, reconciledEntryId: entryId });
-    setIsDetailedCreateOpen(false); setIsMatchModalOpen(false);
+    
+    // 2. Marcar a transação do banco como conciliada
+    updateDocumentNonBlocking(doc(db, "users", user.uid, "bankAccounts", selectedAccountId, "bankTransactions", matchingTransaction.id), { 
+      reconciled: true, 
+      reconciledEntryId: entryId 
+    });
+    
+    setIsDetailedCreateOpen(false); 
+    setIsMatchModalOpen(false);
     toast({ title: "Lançamento criado e conciliado com sucesso!" });
   };
 
@@ -487,8 +527,8 @@ export default function ReconciliationPage() {
           <CardContent className="pt-6 flex gap-4 items-start">
             <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-1" />
             <div className="space-y-1">
-              <h4 className="text-sm font-bold text-amber-900">Pendências Detectadas (Desde Auditoria Dinâmica)</h4>
-              <p className="text-xs text-amber-700">Auditando do início da conta até hoje. Foram detectados {pendingDays.length} dias pendentes:</p>
+              <h4 className="text-sm font-bold text-amber-900">Pendências Detectadas (Desde 01/05/2026)</h4>
+              <p className="text-xs text-amber-700">Foram detectados {pendingDays.length} dias pendentes que precisam de atenção:</p>
               <div className="flex flex-wrap gap-2 mt-2">
                 {pendingDays.slice(0, 30).map(date => {
                    const d = new Date(date + 'T12:00:00');
@@ -566,7 +606,7 @@ export default function ReconciliationPage() {
           </div>
         </div>
       </div>
-      {/* ... (rest of modals remain same) ... */}
+
       <Dialog open={isMatchModalOpen} onOpenChange={setIsMatchModalOpen}>
         <DialogContent className="max-w-4xl max-h-[90vh] flex flex-col p-0 overflow-hidden">
           <div className="p-6 border-b bg-muted/20">
@@ -626,13 +666,19 @@ export default function ReconciliationPage() {
               </div>
               <div className="flex flex-col gap-2">
                 <Button className="w-full h-12 gap-2 text-lg shadow-lg" disabled={selectedMatchEntryIds.length === 0 || Math.abs(diffInMatch) >= 0.01} onClick={() => confirmMatch(selectedMatchEntryIds)}><CheckCircle2 className="w-5 h-5" /> Confirmar Match</Button>
-                <Button variant="outline" className="w-full text-[10px] h-8" onClick={() => setIsDetailedCreateOpen(true)}>+ Novo Detalhado</Button>
+                <Button variant="outline" className="w-full text-[10px] h-8" onClick={() => {
+                  setFormDescription(matchingTransaction?.description || "");
+                  setFormAmount(Math.abs(matchingTransaction?.amount || 0));
+                  setFormIssueDate(matchingTransaction?.date || "");
+                  setFormDueDate(matchingTransaction?.date || "");
+                  setIsDetailedCreateOpen(true);
+                }}>+ Novo Detalhado</Button>
               </div>
             </div>
           </div>
         </DialogContent>
       </Dialog>
-      {/* (Rest of modals omitted for brevity but remain intact) */}
+
       <Dialog open={isAdjustmentModalOpen} onOpenChange={setIsAdjustmentModalOpen}>
         <DialogContent className="max-w-sm">
           <DialogHeader>
@@ -660,6 +706,7 @@ export default function ReconciliationPage() {
           <DialogFooter><Button className="w-full h-11" onClick={saveSingleAdjustment}>Aplicar Ajustes</Button></DialogFooter>
         </DialogContent>
       </Dialog>
+
       <Dialog open={isDetailedCreateOpen} onOpenChange={setIsDetailedCreateOpen}>
         <DialogContent className="max-w-xl">
           <form onSubmit={saveDetailedEntry}>
@@ -676,7 +723,15 @@ export default function ReconciliationPage() {
                   <Label>Centro de Custo</Label>
                   <Select value={formCostCenterId} onValueChange={setFormCostCenterId}>
                     <SelectTrigger><SelectValue placeholder="Opcional..." /></SelectTrigger>
-                    <SelectContent><SelectItem value="none">Nenhum</SelectItem>{activeCentersByGroup.map(group => (<SelectGroup key={group.id}><SelectLabel className="text-[10px] uppercase text-primary font-bold">{group.name}</SelectLabel>{group.centers.map(center => (<SelectItem key={center.id} value={center.id}>{center.name}</SelectItem>))}</SelectGroup>))}</SelectContent>
+                    <SelectContent>
+                      <SelectItem value="none">Nenhum</SelectItem>
+                      {activeCentersByGroup.map(group => (
+                        <SelectGroup key={group.id}>
+                          <SelectLabel className="text-[10px] uppercase text-primary font-bold">{group.name}</SelectLabel>
+                          {group.centers.map(center => (<SelectItem key={center.id} value={center.id}>{center.name}</SelectItem>))}
+                        </SelectGroup>
+                      ))}
+                    </SelectContent>
                   </Select>
                 </div>
               </div>
@@ -684,7 +739,14 @@ export default function ReconciliationPage() {
                 <Label>Categoria (Plano de Contas)*</Label>
                 <Select value={formCategoryId} onValueChange={setFormCategoryId} required>
                   <SelectTrigger><SelectValue placeholder="Selecione..." /></SelectTrigger>
-                  <SelectContent>{groupedLeafCategories.map(group => (<SelectGroup key={group.parentName}><SelectLabel className="text-[10px] uppercase text-primary font-bold">{group.parentName}</SelectLabel>{group.items.map(c => (<SelectItem key={c.id} value={c.id}>{c.code} - {c.name}</SelectItem>))}</SelectGroup>))}</SelectContent>
+                  <SelectContent>
+                    {groupedLeafCategories.map(group => (
+                      <SelectGroup key={group.parentName}>
+                        <SelectLabel className="text-[10px] uppercase text-primary font-bold">{group.parentName}</SelectLabel>
+                        {group.items.map(c => (<SelectItem key={c.id} value={c.id}>{c.code} - {c.name}</SelectItem>))}
+                      </SelectGroup>
+                    ))}
+                  </SelectContent>
                 </Select>
               </div>
               {matchingTransaction?.type === 'DEBIT' ? (
@@ -697,6 +759,7 @@ export default function ReconciliationPage() {
           </form>
         </DialogContent>
       </Dialog>
+
       <Dialog open={isQuickSupplierOpen} onOpenChange={setIsQuickSupplierOpen}>
         <DialogContent className="max-sm"><form onSubmit={handleSaveQuickSupplier}><DialogHeader><DialogTitle>Novo Fornecedor Rápido</DialogTitle></DialogHeader><div className="py-4"><Label>Nome do Fornecedor</Label><Input value={quickSupName} onChange={e => setQuickSupName(e.target.value)} placeholder="Ex: Mercado Central" autoFocus required /></div><DialogFooter><Button type="submit" className="w-full">Criar e Selecionar</Button></DialogFooter></form></DialogContent>
       </Dialog>
