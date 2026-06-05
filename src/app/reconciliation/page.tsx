@@ -71,8 +71,8 @@ import {
   CostCenterGroup,
   BankAccountType
 } from "@/lib/types";
-import { format, isBefore, parseISO, eachDayOfInterval, isValid, startOfDay, endOfDay } from "date-fns";
-import { parseOfx, OFXTransaction } from "@/lib/ofx-parser";
+import { format, parseISO, eachDayOfInterval, isValid, addDays, subDays } from "date-fns";
+import { parseOFX, OFXTransaction } from "@/lib/ofx-parser";
 import { cn } from "@/lib/utils";
 
 type AdjustmentData = {
@@ -229,7 +229,6 @@ export default function ReconciliationPage() {
     if (accounts?.length === 1 && !selectedAccountId) setSelectedAccountId(accounts[0].id);
   }, [accounts, selectedAccountId]);
 
-  // Função centralizada para verificar pendência de um dia específico
   const checkDayStatus = (dateStr: string) => {
     if (!allTransactions || !noMovementDays || !allPayables || !allReceivables || !selectedAccountId) {
       return { isBalanced: true, diffIn: 0, diffOut: 0, hasAnyRecord: false };
@@ -243,8 +242,11 @@ export default function ReconciliationPage() {
     const dayPayables = allPayables.filter(p => p.paymentDate === dateStr && p.bankAccountId === selectedAccountId);
     const dayReceivables = allReceivables.filter(r => r.paymentDate === dateStr && r.bankAccountId === selectedAccountId);
 
-    const statementIn = dayTxns.filter(t => t.type === 'CREDIT' && !t.ignored).reduce((acc, t) => acc + t.amount, 0);
-    const statementOut = Math.abs(dayTxns.filter(t => t.type === 'DEBIT' && !t.ignored).reduce((acc, t) => acc + t.amount, 0));
+    const statementIn = dayTxns.filter(t => t.type === 'CREDIT' && !t.reconciled && !t.ignored).reduce((acc, t) => acc + t.amount, 0) + 
+                       dayTxns.filter(t => t.type === 'CREDIT' && t.reconciled).reduce((acc, t) => acc + t.amount, 0);
+    
+    const statementOut = Math.abs(dayTxns.filter(t => t.type === 'DEBIT' && !t.reconciled && !t.ignored).reduce((acc, t) => acc + t.amount, 0)) +
+                        Math.abs(dayTxns.filter(t => t.type === 'DEBIT' && t.reconciled).reduce((acc, t) => acc + t.amount, 0));
     
     const systemIn = dayReceivables.reduce((acc, r) => acc + r.amount, 0);
     const systemOut = dayPayables.reduce((acc, p) => acc + (p.originalAmount + (p.interest || 0) + (p.fine || 0) - (p.discount || 0)), 0);
@@ -254,8 +256,6 @@ export default function ReconciliationPage() {
     
     const hasAnyRecord = dayTxns.length > 0 || systemIn > 0 || systemOut > 0;
     const isMathBalanced = Math.abs(diffIn) < 0.01 && Math.abs(diffOut) < 0.01;
-    
-    // Um dia só é OK se o cálculo bater E se houver algum dado ou marcação manual
     const isBalanced = isMathBalanced && hasAnyRecord;
 
     return { 
@@ -286,20 +286,15 @@ export default function ReconciliationPage() {
   const pendingDays = useMemo(() => {
     if (!selectedAccountId || !allTransactions || !noMovementDays || !allPayables || !allReceivables) return [];
     
-    // Auditoria fixa desde 01/05/2026
     const start = new Date("2026-05-01T12:00:00");
     const today = new Date();
     today.setHours(12, 0, 0, 0);
     
-    const currentViewDate = new Date(selectedDate + 'T12:00:00');
-    
-    // Encontrar a maior data presente nos dados para não limitar a auditoria ao "hoje" real
-    let maxDataDate = today;
+    let maxDataDate = addDays(today, 1);
     allTransactions.forEach(t => {
       const d = new Date(t.date + 'T12:00:00');
       if (isValid(d) && d > maxDataDate) maxDataDate = d;
     });
-    if (isValid(currentViewDate) && currentViewDate > maxDataDate) maxDataDate = currentViewDate;
 
     try {
       const interval = eachDayOfInterval({ start, end: maxDataDate });
@@ -312,10 +307,10 @@ export default function ReconciliationPage() {
       .map(day => format(day, "yyyy-MM-dd"))
       .reverse();
     } catch (e) {
-      console.error("Erro ao gerar intervalo de auditoria:", e);
+      console.error("Erro auditoria:", e);
       return [];
     }
-  }, [allTransactions, noMovementDays, allPayables, allReceivables, selectedAccountId, selectedDate]);
+  }, [allTransactions, noMovementDays, allPayables, allReceivables, selectedAccountId]);
 
   const openSystemEntries = useMemo(() => {
     const payables = allPayables?.filter(p => p.status !== 'Paid') || [];
@@ -371,7 +366,7 @@ export default function ReconciliationPage() {
   const handleOFXFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    const transactions = parseOfx(await file.text());
+    const transactions = parseOFX(await file.text());
     setOfxPreview(transactions);
     setIsImportModalOpen(true);
   };
@@ -394,7 +389,7 @@ export default function ReconciliationPage() {
     entryIds.forEach(eid => {
       updateDocumentNonBlocking(doc(db, "users", user.uid, col, eid), { status: 'Open', paymentDate: null, bankAccountId: null });
     });
-    toast({ title: `Conciliação desfeita (${entryIds.length} itens)` });
+    toast({ title: `Conciliação desfeita` });
   };
 
   const toggleIgnoreTransaction = (transaction: BankTransaction) => {
@@ -429,7 +424,7 @@ export default function ReconciliationPage() {
     });
     updateDocumentNonBlocking(doc(db, "users", user.uid, "bankAccounts", selectedAccountId, "bankTransactions", matchingTransaction.id), { reconciled: true, reconciledEntryId: finalEntryIds.join(',') });
     setIsMatchModalOpen(false); setIsAdjustmentModalOpen(false); setSelectedMatchEntries([]); setEntryAdjustments({});
-    toast({ title: `Conciliado com sucesso!` });
+    toast({ title: `Conciliado!` });
   };
 
   const saveDetailedEntry = (e: React.FormEvent) => {
@@ -470,7 +465,7 @@ export default function ReconciliationPage() {
     
     setIsDetailedCreateOpen(false); 
     setIsMatchModalOpen(false);
-    toast({ title: "Lançamento criado e conciliado com sucesso!" });
+    toast({ title: "Criado e conciliado!" });
   };
 
   const handleSaveQuickSupplier = (e: React.FormEvent) => {
@@ -536,8 +531,8 @@ export default function ReconciliationPage() {
           <CardContent className="pt-6 flex gap-4 items-start">
             <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-1" />
             <div className="space-y-1">
-              <h4 className="text-sm font-bold text-amber-900">Pendências Detectadas (Desde 01/05/2026)</h4>
-              <p className="text-xs text-amber-700">Foram detectados {pendingDays.length} dias pendentes que precisam de atenção:</p>
+              <h4 className="text-sm font-bold text-amber-900">Pendências Detectadas (Auditoria Global)</h4>
+              <p className="text-xs text-amber-700">O sistema identificou {pendingDays.length} dias pendentes desde 01/05/2026:</p>
               <div className="flex flex-wrap gap-2 mt-2">
                 {pendingDays.slice(0, 30).map(date => {
                    const d = new Date(date + 'T12:00:00');
@@ -781,4 +776,3 @@ export default function ReconciliationPage() {
     </div>
   );
 }
-
