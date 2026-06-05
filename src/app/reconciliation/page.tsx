@@ -71,7 +71,7 @@ import {
   CostCenterGroup,
   BankAccountType
 } from "@/lib/types";
-import { format, parseISO, eachDayOfInterval, isValid, addDays, subDays, startOfDay } from "date-fns";
+import { format, parseISO, eachDayOfInterval, isValid, subDays, startOfDay } from "date-fns";
 import { parseOFX, OFXTransaction } from "@/lib/ofx-parser";
 import { cn } from "@/lib/utils";
 
@@ -231,7 +231,7 @@ export default function ReconciliationPage() {
 
   const checkDayStatus = (dateStr: string) => {
     if (!allTransactions || !noMovementDays || !allPayables || !allReceivables || !selectedAccountId) {
-      return { isBalanced: false, diffIn: 0, diffOut: 0, hasAnyRecord: false, isNoMovement: false, statementIn: 0, statementOut: 0, systemIn: 0, systemOut: 0, hasOFX: false };
+      return { isBalanced: false, diffIn: 0, diffOut: 0, hasAnyRecord: false, isNoMovement: false, statementIn: 0, statementOut: 0, systemIn: 0, systemOut: 0, hasOFX: false, isMathBalanced: false };
     }
 
     const isNoMovement = noMovementDays.some(d => d.date === dateStr);
@@ -256,14 +256,10 @@ export default function ReconciliationPage() {
     const hasOFX = dayTxns.filter(t => !t.ignored).length > 0;
     const isMathBalanced = Math.abs(diffIn) < 0.01 && Math.abs(diffOut) < 0.01;
     
-    /**
-     * REGRA DE OURO DA CONCILIAÇÃO:
-     * Um dia só está "Equilibrado" (Balanced) se:
-     * 1. Houve importação de OFX e a matemática bate com o sistema (Saldo Zero)
-     * OU
-     * 2. O usuário marcou explicitamente como "Sem Movimento"
-     */
-    const isBalanced = (hasOFX && isMathBalanced) || isNoMovement;
+    // REGRA DE OURO CORRIGIDA: 
+    // Se houver OFX, a regra é estritamente matemática. 
+    // Se não houver OFX, aceitamos a marcação manual de "Sem Movimento".
+    const isBalanced = hasOFX ? isMathBalanced : isNoMovement;
 
     return { 
       isBalanced, 
@@ -294,11 +290,7 @@ export default function ReconciliationPage() {
 
   const pendingDays = useMemo(() => {
     if (!selectedAccountId || !allTransactions || !noMovementDays || !allPayables || !allReceivables) return [];
-    
-    // REGRA 1: Considerar apenas a partir de 01/05/2026
     const start = new Date("2026-05-01T12:00:00");
-    
-    // REGRA 4: Considerar ontem como a última data possível para pendência
     const yesterday = subDays(startOfDay(new Date()), 1);
     
     try {
@@ -306,7 +298,6 @@ export default function ReconciliationPage() {
       return interval.filter(day => {
         const dateStr = format(day, "yyyy-MM-dd");
         const status = checkDayStatus(dateStr);
-        // REGRA 2 e 3: Aparece se não estiver "Equilibrado" (ou seja, falta OFX ou matemática não bate)
         return !status.isBalanced;
       })
       .map(day => format(day, "yyyy-MM-dd"))
@@ -579,7 +570,13 @@ export default function ReconciliationPage() {
               <CardHeader className="p-3 pb-0"><CardTitle className="text-[10px] uppercase text-muted-foreground">Resultado Geral</CardTitle></CardHeader>
               <CardContent className="p-3 flex items-center justify-between">
                 <div className={cn("text-lg font-bold", summary.isBalanced ? "text-emerald-700" : "text-foreground")}>
-                  {summary.isNoMovement ? "Sem Movimento" : summary.hasOFX ? (Math.abs(summary.diffIn - summary.diffOut) < 0.01 ? "Conferido" : `Dif: R$ ${(summary.diffIn - summary.diffOut).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`) : "Aguardando OFX"}
+                  {summary.hasOFX ? (
+                    summary.isMathBalanced ? "Conferido" : `Dif: R$ ${(Math.abs(summary.diffIn) + Math.abs(summary.diffOut)).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`
+                  ) : summary.isNoMovement ? (
+                    "Sem Movimento"
+                  ) : (
+                    "Aguardando OFX"
+                  )}
                 </div>
                 {summary.isBalanced ? <CheckCircle className="w-5 h-5 text-emerald-600" /> : <AlertTriangle className="w-5 h-5 text-muted-foreground" />}
               </CardContent>
