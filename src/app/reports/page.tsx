@@ -153,6 +153,7 @@ export default function ReportsPage() {
       const dateLabel = isPaid ? 'Data Pagamento/Recebimento' : 'Vencimento';
       const dateValue = isPaid ? item.paymentDate : item.dueDate;
       const formattedDate = dateValue ? format(isPaid ? parseISO(dateValue) : new Date(dateValue + 'T12:00:00'), 'dd/MM/yyyy') : '-';
+      const formattedIssueDate = item.issueDate ? format(parseISO(item.issueDate), 'dd/MM/yyyy') : '-';
 
       const baseValue = item.amount || item.originalAmount;
 
@@ -160,6 +161,7 @@ export default function ReportsPage() {
         const net = baseValue + (item.interest || 0) + (item.fine || 0) - (item.discount || 0);
         return {
           [dateLabel]: formattedDate,
+          'Data de Emissão': formattedIssueDate,
           'Vencimento Original': item.dueDate ? format(new Date(item.dueDate + 'T12:00:00'), 'dd/MM/yyyy') : '-',
           [entityLabel]: entityName,
           'Descrição': item.description,
@@ -174,7 +176,7 @@ export default function ReportsPage() {
 
       return {
         [dateLabel]: formattedDate,
-        'Emissão': item.issueDate ? format(parseISO(item.issueDate), 'dd/MM/yyyy') : '-',
+        'Data de Emissão': formattedIssueDate,
         [entityLabel]: entityName,
         'Descrição': item.description,
         'Categoria': category,
