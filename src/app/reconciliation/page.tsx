@@ -195,12 +195,34 @@ export default function ReconciliationPage() {
     return [...suppliers].sort((a, b) => a.name.localeCompare(b.name));
   }, [suppliers]);
 
+  // Hierarquia do Plano de Contas com Validação contra Órfãos na Conciliação
   const groupedLeafCategories = useMemo(() => {
     if (!categories || !matchingTransaction) return [];
     const targetType = matchingTransaction.type === 'CREDIT' ? 'Revenue' : 'Expense';
     
+    // 1. Identificar Roots válidos da natureza correta
+    const validRoots = categories.filter(c => c.type === targetType && (!c.parentCategoryId || c.parentCategoryId === ""));
+    
+    // 2. Construir mapa de quem é filho de quem
+    const childrenMap: Record<string, string[]> = {};
+    categories.forEach(c => {
+      if (c.parentCategoryId) {
+        if (!childrenMap[c.parentCategoryId]) childrenMap[c.parentCategoryId] = [];
+        childrenMap[c.parentCategoryId].push(c.id);
+      }
+    });
+
+    // 3. Função recursiva para validar se um item é alcançável
+    const reachableIds = new Set<string>();
+    const checkReachable = (id: string) => {
+      reachableIds.add(id);
+      (childrenMap[id] || []).forEach(childId => checkReachable(childId));
+    };
+    validRoots.forEach(r => checkReachable(r.id));
+
+    // 4. Filtrar apenas as folhas (contas de lançamento) alcançáveis
     const leaves = categories.filter(cat => 
-      cat.type === targetType && 
+      reachableIds.has(cat.id) && 
       !categories.some(child => child.parentCategoryId === cat.id)
     );
 
@@ -292,11 +314,14 @@ export default function ReconciliationPage() {
 
   const pendingDays = useMemo(() => {
     if (!selectedAccountId || !allTransactions || !noMovementDays || !allPayables || !allReceivables) return [];
-    const start = new Date("2026-05-01T12:00:00");
+    
+    const startDate = new Date("2026-05-01T12:00:00");
     const yesterday = subDays(startOfDay(new Date()), 1);
     
+    if (yesterday < startDate) return [];
+
     try {
-      const interval = eachDayOfInterval({ start, end: yesterday });
+      const interval = eachDayOfInterval({ start: startDate, end: yesterday });
       return interval.filter(day => {
         const dateStr = format(day, "yyyy-MM-dd");
         const status = checkDayStatus(dateStr);
@@ -435,7 +460,6 @@ export default function ReconciliationPage() {
     const isOutflow = matchingTransaction.type === 'DEBIT';
     const amount = Math.abs(matchingTransaction.amount);
     
-    // 1. Criar o lado da conta atual (Liquidado)
     const currentEntryId = `${isOutflow ? 'pay' : 'rec'}_transf_curr_${Date.now()}`;
     const currentEntryData: any = {
       id: currentEntryId,
@@ -452,13 +476,12 @@ export default function ReconciliationPage() {
     };
     
     if (isOutflow) {
-      currentEntryData.supplierId = `internal_${transferTargetAccountId}`; // Fornecedor virtual para transf.
+      currentEntryData.supplierId = `internal_${transferTargetAccountId}`; 
       currentEntryData.entryType = "Confirmed";
     } else {
       currentEntryData.customerName = targetAccount.name;
     }
 
-    // 2. Criar o lado da conta contraparte (Pendente)
     const otherEntryId = `${!isOutflow ? 'pay' : 'rec'}_transf_other_${Date.now()}`;
     const otherEntryData: any = {
       id: otherEntryId,
@@ -480,11 +503,9 @@ export default function ReconciliationPage() {
       otherEntryData.customerName = sourceAccount.name;
     }
 
-    // Gravar Lançamentos
     setDocumentNonBlocking(doc(db, "users", user.uid, isOutflow ? "accountsPayableEntries" : "accountsReceivableEntries", currentEntryId), currentEntryData, { merge: true });
     setDocumentNonBlocking(doc(db, "users", user.uid, !isOutflow ? "accountsPayableEntries" : "accountsReceivableEntries", otherEntryId), otherEntryData, { merge: true });
     
-    // Conciliar Transação Atual
     updateDocumentNonBlocking(doc(db, "users", user.uid, "bankAccounts", selectedAccountId, "bankTransactions", matchingTransaction.id), { 
       reconciled: true, 
       reconciledEntryId: currentEntryId 
@@ -696,7 +717,6 @@ export default function ReconciliationPage() {
         </div>
       </div>
 
-      {/* MODAL DE CONCILIAÇÃO */}
       <Dialog open={isMatchModalOpen} onOpenChange={setIsMatchModalOpen}>
         <DialogContent className="max-w-4xl max-h-[90vh] flex flex-col p-0 overflow-hidden">
           <div className="p-6 border-b bg-muted/20">
@@ -776,7 +796,6 @@ export default function ReconciliationPage() {
         </DialogContent>
       </Dialog>
 
-      {/* MODAL DE TRANSFERÊNCIA ENTRE CONTAS */}
       <Dialog open={isTransferModalOpen} onOpenChange={setIsTransferModalOpen}>
         <DialogContent className="max-w-md">
           <form onSubmit={handleConfirmTransfer}>
@@ -823,7 +842,6 @@ export default function ReconciliationPage() {
                     ))}
                   </SelectContent>
                 </Select>
-                <p className="text-[9px] text-muted-foreground italic">Recomendamos usar uma categoria específica para "Transferências Internas".</p>
               </div>
             </div>
             <DialogFooter>

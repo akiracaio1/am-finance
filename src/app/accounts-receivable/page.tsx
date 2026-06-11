@@ -105,11 +105,33 @@ export default function AccountsReceivablePage() {
   const { data: historyItems } = useCollection<AccountsReceivableEntry>(historyQuery);
   const { data: categories } = useCollection<AccountCategory>(categoriesQuery);
 
-  // Filtragem de Categorias: Somente Folhas (sem filhos) de Receita
+  // Filtragem de Categorias: Apenas categorias folha alcançáveis na árvore de Receitas
   const leafCategories = useMemo(() => {
     if (!categories) return [];
+    
+    // 1. Identificar Roots válidos de Receita
+    const validRoots = categories.filter(c => c.type === 'Revenue' && (!c.parentCategoryId || c.parentCategoryId === ""));
+    
+    // 2. Construir mapa de quem é filho de quem
+    const childrenMap: Record<string, string[]> = {};
+    categories.forEach(c => {
+      if (c.parentCategoryId) {
+        if (!childrenMap[c.parentCategoryId]) childrenMap[c.parentCategoryId] = [];
+        childrenMap[c.parentCategoryId].push(c.id);
+      }
+    });
+
+    // 3. Função recursiva para validar se um item é alcançável
+    const reachableIds = new Set<string>();
+    const checkReachable = (id: string) => {
+      reachableIds.add(id);
+      (childrenMap[id] || []).forEach(childId => checkReachable(childId));
+    };
+    validRoots.forEach(r => checkReachable(r.id));
+
+    // 4. Retornar as folhas (contas de lançamento) alcançáveis
     return categories.filter(cat => 
-      cat.type === 'Revenue' && 
+      reachableIds.has(cat.id) && 
       !categories.some(child => child.parentCategoryId === cat.id)
     ).sort((a, b) => a.code.localeCompare(b.code));
   }, [categories]);

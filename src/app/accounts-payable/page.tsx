@@ -161,7 +161,6 @@ export default function AccountsPayablePage() {
       return;
     }
 
-    // Lógica de Diferenciação
     let baseValue = 0;
     if (multiMode === 'installment') {
       baseValue = Number((formAmount / installmentsCount).toFixed(2));
@@ -180,7 +179,6 @@ export default function AccountsPayablePage() {
         default: currentDueDate = addMonths(startDate, i);
       }
 
-      // No parcelamento, ajustamos a última parcela pelo arredondamento
       let installmentValue = baseValue;
       if (multiMode === 'installment') {
         installmentValue = i === installmentsCount - 1 
@@ -251,12 +249,33 @@ export default function AccountsPayablePage() {
     return [...suppliers].sort((a, b) => a.name.localeCompare(b.name));
   }, [suppliers]);
 
-  // Estrutura hierárquica do Plano de Contas (Apenas Folhas agrupadas por Pai)
+  // Estrutura hierárquica do Plano de Contas com Validação contra Órfãos
   const groupedLeafCategories = useMemo(() => {
     if (!categories) return [];
     
+    // 1. Identificar Roots válidos de Despesa
+    const validRoots = categories.filter(c => c.type === 'Expense' && (!c.parentCategoryId || c.parentCategoryId === ""));
+    
+    // 2. Construir mapa de quem é filho de quem
+    const childrenMap: Record<string, string[]> = {};
+    categories.forEach(c => {
+      if (c.parentCategoryId) {
+        if (!childrenMap[c.parentCategoryId]) childrenMap[c.parentCategoryId] = [];
+        childrenMap[c.parentCategoryId].push(c.id);
+      }
+    });
+
+    // 3. Função recursiva para validar se um item é alcançável a partir de um Root de Despesa
+    const reachableIds = new Set<string>();
+    const checkReachable = (id: string) => {
+      reachableIds.add(id);
+      (childrenMap[id] || []).forEach(childId => checkReachable(childId));
+    };
+    validRoots.forEach(r => checkReachable(r.id));
+
+    // 4. Filtrar apenas as folhas (contas de lançamento) que são alcançáveis na árvore de Despesas
     const leaves = categories.filter(cat => 
-      cat.type === 'Expense' && 
+      reachableIds.has(cat.id) && 
       !categories.some(child => child.parentCategoryId === cat.id)
     );
 
@@ -279,14 +298,10 @@ export default function AccountsPayablePage() {
       }));
   }, [categories]);
 
-  // Lista simples de folhas para os filtros
+  // Lista simples de folhas para os filtros (apenas itens válidos e alcançáveis)
   const leafCategoriesFlat = useMemo(() => {
-    if (!categories) return [];
-    return categories.filter(cat => 
-      cat.type === 'Expense' && 
-      !categories.some(child => child.parentCategoryId === cat.id)
-    ).sort((a, b) => a.code.localeCompare(b.code));
-  }, [categories]);
+    return groupedLeafCategories.flatMap(g => g.items).sort((a, b) => a.code.localeCompare(b.code));
+  }, [groupedLeafCategories]);
 
   const activeCentersByGroup = useMemo(() => {
     if (!groups || !centers) return [];

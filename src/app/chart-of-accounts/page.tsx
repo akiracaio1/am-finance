@@ -18,7 +18,9 @@ import {
   TrendingUp,
   TrendingDown,
   AlertTriangle,
-  Pencil
+  Pencil,
+  Info,
+  Ghost
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
@@ -52,21 +54,16 @@ import { utils, writeFile } from 'xlsx';
 import { AccountCategory } from "@/lib/types";
 
 const DEFAULT_STRUCTURE = [
-  // 1.0 Operacional (Despesas)
   { id: "1", code: "1.0", name: "Operacional (Custos Variáveis e Insumos)", type: "Expense", description: "Gastos que variam de acordo com o volume de produção." },
   { id: "1.1", code: "1.1", name: "Insumos e Materiais Diretos", parentCategoryId: "1", type: "Expense" },
   { id: "1.1.1", code: "1.1.1", name: "Materiais para Revenda", parentCategoryId: "1.1", type: "Expense" },
   { id: "1.1.4", code: "1.1.4", name: "Gás GLP", parentCategoryId: "1.1", type: "Expense" },
-  
-  // 2.0 Custos Fixos (Despesas)
   { id: "2", code: "2.0", name: "Custos Fixos (Despesas Administrativas)", type: "Expense", description: "Gastos recorrentes para manter a empresa aberta." },
   { id: "2.1", code: "2.1", name: "Ocupação e Utilidades", parentCategoryId: "2", type: "Expense" },
   { id: "2.1.1", code: "2.1.1", name: "Aluguel", parentCategoryId: "2.1", type: "Expense" },
   { id: "2.1.2", code: "2.1.2", name: "Energia Elétrica", parentCategoryId: "2.1", type: "Expense" },
   { id: "2.2", code: "2.2", name: "Pessoal", parentCategoryId: "2", type: "Expense" },
   { id: "2.2.1", code: "2.2.1", name: "Salários", parentCategoryId: "2.2", type: "Expense" },
-
-  // 5.0 Receitas (A RECEBER)
   { id: "5", code: "5.0", name: "Receitas Operacionais (Vendas)", type: "Revenue", description: "Entradas provenientes da atividade principal da empresa." },
   { id: "5.1", code: "5.1", name: "Vendas de Produtos", parentCategoryId: "5", type: "Revenue" },
   { id: "5.1.1", code: "5.1.1", name: "Vendas iFood", parentCategoryId: "5.1", type: "Revenue" },
@@ -151,7 +148,7 @@ export default function ChartOfAccountsPage() {
         };
         setDocumentNonBlocking(categoryRef, data, { merge: true });
       }
-      toast({ title: "Plano provisionado com Receitas e Despesas!" });
+      toast({ title: "Plano provisionado!" });
     } finally {
       setIsProvisioning(false);
     }
@@ -204,7 +201,6 @@ export default function ChartOfAccountsPage() {
       if (parentForNew) setExpanded(prev => [...new Set([...prev, parentForNew.id])]);
       toast({ title: "Categoria criada" });
     }
-    
     setIsDialogOpen(false);
   };
 
@@ -253,6 +249,16 @@ export default function ChartOfAccountsPage() {
   };
 
   const roots = categories?.filter(x => !x.parentCategoryId || x.parentCategoryId === "") || [];
+  
+  // Detectar Categorias Órfãs (que têm pai definido mas o pai não existe na coleção)
+  const orphanedCategories = useMemo(() => {
+    if (!categories) return [];
+    return categories.filter(c => 
+      c.parentCategoryId && 
+      c.parentCategoryId !== "" && 
+      !categories.some(p => p.id === c.parentCategoryId)
+    );
+  }, [categories]);
 
   return (
     <div className="space-y-6 pb-10">
@@ -289,16 +295,42 @@ export default function ChartOfAccountsPage() {
               {roots.filter(r => r.type === 'Expense').length === 0 && <p className="text-center py-10 text-muted-foreground text-xs">Nenhum grupo de despesa cadastrado.</p>}
             </CardContent>
           </Card>
+
+          {orphanedCategories.length > 0 && (
+            <Card className="border-amber-200 bg-amber-50/30">
+              <CardHeader className="border-b border-amber-100 flex flex-row items-center gap-3">
+                <Ghost className="w-5 h-5 text-amber-600" />
+                <div>
+                  <CardTitle className="text-sm text-amber-700">Categorias Órfãs Detectadas</CardTitle>
+                  <p className="text-[10px] text-amber-600">Estes itens perderam o vínculo com o grupo pai e não aparecem nos lançamentos.</p>
+                </div>
+              </CardHeader>
+              <CardContent className="pt-4 space-y-2">
+                {orphanedCategories.map(c => (
+                  <div key={c.id} className="flex items-center justify-between p-2 bg-white/50 rounded border border-amber-100">
+                    <div className="flex flex-col">
+                      <span className="text-xs font-bold">{c.code} - {c.name}</span>
+                      <span className="text-[9px] uppercase opacity-50">{c.type === 'Expense' ? 'Despesa' : 'Receita'}</span>
+                    </div>
+                    <div className="flex gap-1">
+                      <Button variant="ghost" size="icon" className="h-7 w-7 text-primary" onClick={() => handleOpenEdit(c)}><Pencil className="w-3 h-3" /></Button>
+                      <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={() => openDeleteDialog(c)}><Trash2 className="w-3 h-3" /></Button>
+                    </div>
+                  </div>
+                ))}
+              </CardContent>
+            </Card>
+          )}
         </div>
 
         <div className="space-y-6">
           <Card className="bg-primary/5 border-primary/10">
-            <CardHeader><CardTitle className="text-xs uppercase font-bold">Importante</CardTitle></CardHeader>
-            <CardContent className="text-xs text-muted-foreground leading-relaxed space-y-2">
-              <p>Ao separar <strong>Receitas</strong> de <strong>Despesas</strong> no Plano de Contas, o sistema consegue filtrar as opções corretas em cada tela de lançamento.</p>
+            <CardHeader><CardTitle className="text-xs uppercase font-bold">Dica Técnica</CardTitle></CardHeader>
+            <CardContent className="text-xs text-muted-foreground leading-relaxed space-y-3">
+              <p>Ao excluir um grupo pai que ainda possui filhos, esses filhos se tornam <strong>Órfãos</strong> e param de aparecer nos formulários de lançamento por segurança.</p>
               <div className="flex items-start gap-2 p-3 bg-amber-50 rounded-lg border border-amber-200 text-amber-800">
-                <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
-                <p><strong>Cuidado:</strong> Se você excluir um plano de conta que já possui lançamentos vinculados, eles aparecerão como "Categoria não encontrada" nos relatórios.</p>
+                <Info className="w-4 h-4 shrink-0 mt-0.5" />
+                <p>Use o lápis de edição para mudar o grupo pai de uma categoria órfã e trazê-la de volta para a árvore ativa.</p>
               </div>
             </CardContent>
           </Card>
@@ -314,10 +346,10 @@ export default function ChartOfAccountsPage() {
               </DialogTitle>
             </DialogHeader>
             <div className="grid gap-4 py-4">
-              {!parentForNew && !editingCategory && (
+              {(!parentForNew && !editingCategory) || (editingCategory && (!editingCategory.parentCategoryId || editingCategory.parentCategoryId === "")) ? (
                 <div className="grid gap-2">
                   <Label>Natureza do Grupo</Label>
-                  <Select value={rootType} onValueChange={setRootType}>
+                  <Select value={editingCategory ? editingCategory.type : rootType} onValueChange={setRootType} disabled={!!editingCategory}>
                     <SelectTrigger><SelectValue /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value="Expense">Despesas (Contas a Pagar)</SelectItem>
@@ -325,7 +357,7 @@ export default function ChartOfAccountsPage() {
                     </SelectContent>
                   </Select>
                 </div>
-              )}
+              ) : null}
               <div className="grid grid-cols-4 items-center gap-4">
                 <Label htmlFor="code" className="text-right text-xs">Código</Label>
                 <Input id="code" value={formCode} onChange={e => setFormCode(e.target.value)} placeholder="Ex: 5.1" className="col-span-3" required />
@@ -352,7 +384,7 @@ export default function ChartOfAccountsPage() {
               <p>Esta ação não pode ser desfeita.</p>
               <p className="bg-destructive/10 p-3 rounded-lg text-destructive font-medium text-xs flex gap-2 items-start">
                 <AlertTriangle className="w-4 h-4 shrink-0" />
-                Lançamentos financeiros já realizados nesta categoria perderão o vínculo e poderão afetar seus relatórios de DRE.
+                Lançamentos financeiros já realizados nesta categoria perderão o vínculo. Se esta categoria tiver filhos, eles se tornarão "órfãos".
               </p>
             </AlertDialogDescription>
           </AlertDialogHeader>
