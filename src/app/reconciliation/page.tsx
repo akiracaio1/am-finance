@@ -35,7 +35,8 @@ import {
   Split,
   CalendarDays,
   RotateCcw,
-  EyeOff
+  EyeOff,
+  ArrowLeftRight
 } from "lucide-react";
 import { useUser, useFirestore, useCollection, useMemoFirebase } from "@/firebase";
 import { collection, doc } from "firebase/firestore";
@@ -90,6 +91,7 @@ export default function ReconciliationPage() {
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
   const [isMatchModalOpen, setIsMatchModalOpen] = useState(false);
   const [isDetailedCreateOpen, setIsDetailedCreateOpen] = useState(false);
+  const [isTransferModalOpen, setIsTransferModalOpen] = useState(false);
   const [isAdjustmentModalOpen, setIsAdjustmentModalOpen] = useState(false);
   const [isQuickSupplierOpen, setIsQuickSupplierOpen] = useState(false);
   const [isNewAccountModalOpen, setIsNewAccountModalOpen] = useState(false);
@@ -122,6 +124,9 @@ export default function ReconciliationPage() {
   const [formSupplierId, setFormSupplierId] = useState("");
   const [formCustomerName, setFormCustomerName] = useState("");
   const [formCostCenterId, setFormCostCenterId] = useState("");
+
+  const [transferTargetAccountId, setTransferTargetAccountId] = useState("");
+  const [transferCategoryId, setTransferCategoryId] = useState("");
 
   const [quickSupName, setQuickSupName] = useState("");
 
@@ -256,9 +261,6 @@ export default function ReconciliationPage() {
     const hasOFX = dayTxns.filter(t => !t.ignored).length > 0;
     const isMathBalanced = Math.abs(diffIn) < 0.01 && Math.abs(diffOut) < 0.01;
     
-    // REGRA DE OURO CORRIGIDA: 
-    // Se houver OFX, a regra é estritamente matemática. 
-    // Se não houver OFX, aceitamos a marcação manual de "Sem Movimento".
     const isBalanced = hasOFX ? isMathBalanced : isNoMovement;
 
     return { 
@@ -335,7 +337,7 @@ export default function ReconciliationPage() {
       return true;
     }).sort((a, b) => {
       const aVal = (a as any).amount || (a as any).originalAmount || 0;
-      const bVal = (b as any).amount || (b as any).originalAmount || 0;
+      const bVal = (a as any).amount || (a as any).originalAmount || 0;
       const targetVal = Math.abs(matchingTransaction.amount);
       const aMatchVal = Math.abs(aVal - targetVal) < 0.01;
       const bMatchVal = Math.abs(bVal - targetVal) < 0.01;
@@ -420,6 +422,77 @@ export default function ReconciliationPage() {
     updateDocumentNonBlocking(doc(db, "users", user.uid, "bankAccounts", selectedAccountId, "bankTransactions", matchingTransaction.id), { reconciled: true, reconciledEntryId: finalEntryIds.join(',') });
     setIsMatchModalOpen(false); setIsAdjustmentModalOpen(false); setSelectedMatchEntries([]); setEntryAdjustments({});
     toast({ title: `Conciliado!` });
+  };
+
+  const handleConfirmTransfer = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!db || !user || !matchingTransaction || !selectedAccountId || !transferTargetAccountId || !transferCategoryId) return;
+
+    const sourceAccount = accounts?.find(a => a.id === selectedAccountId);
+    const targetAccount = accounts?.find(a => a.id === transferTargetAccountId);
+    if (!sourceAccount || !targetAccount) return;
+
+    const isOutflow = matchingTransaction.type === 'DEBIT';
+    const amount = Math.abs(matchingTransaction.amount);
+    
+    // 1. Criar o lado da conta atual (Liquidado)
+    const currentEntryId = `${isOutflow ? 'pay' : 'rec'}_transf_curr_${Date.now()}`;
+    const currentEntryData: any = {
+      id: currentEntryId,
+      description: isOutflow ? `Transferência enviada para: ${targetAccount.name}` : `Transferência recebida de: ${targetAccount.name}`,
+      [isOutflow ? "originalAmount" : "amount"]: amount,
+      issueDate: matchingTransaction.date,
+      dueDate: matchingTransaction.date,
+      status: 'Paid',
+      paymentDate: matchingTransaction.date,
+      bankAccountId: selectedAccountId,
+      accountCategoryId: transferCategoryId,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+    
+    if (isOutflow) {
+      currentEntryData.supplierId = `internal_${transferTargetAccountId}`; // Fornecedor virtual para transf.
+      currentEntryData.entryType = "Confirmed";
+    } else {
+      currentEntryData.customerName = targetAccount.name;
+    }
+
+    // 2. Criar o lado da conta contraparte (Pendente)
+    const otherEntryId = `${!isOutflow ? 'pay' : 'rec'}_transf_other_${Date.now()}`;
+    const otherEntryData: any = {
+      id: otherEntryId,
+      description: isOutflow ? `Transferência recebida de: ${sourceAccount.name}` : `Transferência enviada para: ${sourceAccount.name}`,
+      [!isOutflow ? "originalAmount" : "amount"]: amount,
+      issueDate: matchingTransaction.date,
+      dueDate: matchingTransaction.date,
+      status: 'Open',
+      bankAccountId: transferTargetAccountId,
+      accountCategoryId: transferCategoryId,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+
+    if (!isOutflow) {
+      otherEntryData.supplierId = `internal_${selectedAccountId}`;
+      otherEntryData.entryType = "Confirmed";
+    } else {
+      otherEntryData.customerName = sourceAccount.name;
+    }
+
+    // Gravar Lançamentos
+    setDocumentNonBlocking(doc(db, "users", user.uid, isOutflow ? "accountsPayableEntries" : "accountsReceivableEntries", currentEntryId), currentEntryData, { merge: true });
+    setDocumentNonBlocking(doc(db, "users", user.uid, !isOutflow ? "accountsPayableEntries" : "accountsReceivableEntries", otherEntryId), otherEntryData, { merge: true });
+    
+    // Conciliar Transação Atual
+    updateDocumentNonBlocking(doc(db, "users", user.uid, "bankAccounts", selectedAccountId, "bankTransactions", matchingTransaction.id), { 
+      reconciled: true, 
+      reconciledEntryId: currentEntryId 
+    });
+
+    setIsTransferModalOpen(false);
+    setIsMatchModalOpen(false);
+    toast({ title: "Transferência registrada e conciliada!" });
   };
 
   const saveDetailedEntry = (e: React.FormEvent) => {
@@ -683,16 +756,80 @@ export default function ReconciliationPage() {
               </div>
               <div className="flex flex-col gap-2">
                 <Button className="w-full h-12 gap-2 text-lg shadow-lg" disabled={selectedMatchEntryIds.length === 0 || Math.abs(diffInMatch) >= 0.01} onClick={() => confirmMatch(selectedMatchEntryIds)}><CheckCircle2 className="w-5 h-5" /> Confirmar Match</Button>
-                <Button variant="outline" className="w-full text-[10px] h-8" onClick={() => {
-                  setFormDescription(matchingTransaction?.description || "");
-                  setFormAmount(Math.abs(matchingTransaction?.amount || 0));
-                  setFormIssueDate(matchingTransaction?.date || "");
-                  setFormDueDate(matchingTransaction?.date || "");
-                  setIsDetailedCreateOpen(true);
-                }}>+ Novo Detalhado</Button>
+                <div className="flex gap-2">
+                  <Button variant="outline" className="flex-1 text-[10px] h-8" onClick={() => {
+                    setFormDescription(matchingTransaction?.description || "");
+                    setFormAmount(Math.abs(matchingTransaction?.amount || 0));
+                    setFormIssueDate(matchingTransaction?.date || "");
+                    setFormDueDate(matchingTransaction?.date || "");
+                    setIsDetailedCreateOpen(true);
+                  }}>+ Novo Detalhado</Button>
+                  <Button variant="outline" className="flex-1 text-[10px] h-8 border-primary text-primary hover:bg-primary/5" onClick={() => {
+                    setTransferTargetAccountId("");
+                    setTransferCategoryId("");
+                    setIsTransferModalOpen(true);
+                  }}><ArrowLeftRight className="w-3 h-3 mr-1" /> É uma Transferência?</Button>
+                </div>
               </div>
             </div>
           </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* MODAL DE TRANSFERÊNCIA ENTRE CONTAS */}
+      <Dialog open={isTransferModalOpen} onOpenChange={setIsTransferModalOpen}>
+        <DialogContent className="max-w-md">
+          <form onSubmit={handleConfirmTransfer}>
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2"><ArrowLeftRight className="w-5 h-5 text-primary" /> Registrar Transferência</DialogTitle>
+              <DialogDescription>Cria automaticamente os lançamentos de saída e entrada entre suas contas.</DialogDescription>
+            </DialogHeader>
+            <div className="grid gap-4 py-4">
+              <div className="bg-primary/5 p-4 rounded-lg border border-primary/20 space-y-2">
+                <div className="flex justify-between text-xs">
+                  <span className="text-muted-foreground uppercase font-bold">Conta Atual:</span>
+                  <span className="font-bold">{accounts?.find(a => a.id === selectedAccountId)?.name}</span>
+                </div>
+                <div className="flex justify-between text-xs">
+                  <span className="text-muted-foreground uppercase font-bold">Valor:</span>
+                  <span className={cn("font-bold", matchingTransaction?.type === 'DEBIT' ? "text-destructive" : "text-emerald-600")}>
+                    R$ {Math.abs(matchingTransaction?.amount || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                  </span>
+                </div>
+              </div>
+
+              <div className="grid gap-2">
+                <Label>{matchingTransaction?.type === 'DEBIT' ? 'Conta de Destino (Recebedora)' : 'Conta de Origem (Remetente)'}*</Label>
+                <Select value={transferTargetAccountId} onValueChange={setTransferTargetAccountId} required>
+                  <SelectTrigger><SelectValue placeholder="Selecione a conta contraparte..." /></SelectTrigger>
+                  <SelectContent>
+                    {accounts?.filter(a => a.id !== selectedAccountId).map(acc => (
+                      <SelectItem key={acc.id} value={acc.id}>{acc.name} ({acc.bank})</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="grid gap-2">
+                <Label>Categoria do Plano de Contas (Transferências)*</Label>
+                <Select value={transferCategoryId} onValueChange={setTransferCategoryId} required>
+                  <SelectTrigger><SelectValue placeholder="Selecione a categoria..." /></SelectTrigger>
+                  <SelectContent>
+                    {groupedLeafCategories.map(group => (
+                      <SelectGroup key={group.parentName}>
+                        <SelectLabel className="text-[10px] uppercase text-primary font-bold">{group.parentName}</SelectLabel>
+                        {group.items.map(c => (<SelectItem key={c.id} value={c.id}>{c.code} - {c.name}</SelectItem>))}
+                      </SelectGroup>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-[9px] text-muted-foreground italic">Recomendamos usar uma categoria específica para "Transferências Internas".</p>
+              </div>
+            </div>
+            <DialogFooter>
+              <Button type="submit" className="w-full h-11 text-lg shadow-lg">Confirmar Transferência</Button>
+            </DialogFooter>
+          </form>
         </DialogContent>
       </Dialog>
 
