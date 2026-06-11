@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useState, useMemo } from "react";
@@ -16,13 +17,14 @@ import {
   Download,
   TrendingUp,
   TrendingDown,
-  AlertTriangle
+  AlertTriangle,
+  Pencil
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { useUser, useFirestore, useCollection, useMemoFirebase } from "@/firebase";
 import { collection, doc } from "firebase/firestore";
-import { setDocumentNonBlocking, deleteDocumentNonBlocking } from "@/firebase/non-blocking-updates";
+import { setDocumentNonBlocking, deleteDocumentNonBlocking, updateDocumentNonBlocking } from "@/firebase/non-blocking-updates";
 import { 
   Dialog, 
   DialogContent, 
@@ -81,9 +83,15 @@ export default function ChartOfAccountsPage() {
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [isConfirmDeleteOpen, setIsConfirmDeleteOpen] = useState(false);
   const [categoryToDelete, setCategoryToDelete] = useState<AccountCategory | null>(null);
+  const [editingCategory, setEditingCategory] = useState<AccountCategory | null>(null);
   const [isProvisioning, setIsProvisioning] = useState(false);
   const [parentForNew, setParentForNew] = useState<AccountCategory | null>(null);
   const [rootType, setRootType] = useState<string>("Expense");
+
+  // Form states
+  const [formName, setFormName] = useState("");
+  const [formCode, setFormCode] = useState("");
+  const [formDescription, setFormDescription] = useState("");
 
   const categoriesQuery = useMemoFirebase(() => {
     if (!db || !user) return null;
@@ -97,8 +105,21 @@ export default function ChartOfAccountsPage() {
   };
 
   const handleOpenNew = (parent?: AccountCategory) => {
+    setEditingCategory(null);
     setParentForNew(parent || null);
+    setFormName("");
+    setFormCode("");
+    setFormDescription("");
     if (!parent) setRootType("Expense");
+    setIsDialogOpen(true);
+  };
+
+  const handleOpenEdit = (category: AccountCategory) => {
+    setEditingCategory(category);
+    setParentForNew(categories?.find(c => c.id === category.parentCategoryId) || null);
+    setFormName(category.name);
+    setFormCode(category.code);
+    setFormDescription(category.description || "");
     setIsDialogOpen(true);
   };
 
@@ -154,25 +175,37 @@ export default function ChartOfAccountsPage() {
     toast({ title: "Excel gerado com sucesso!" });
   };
 
-  const handleSaveCategory = (e: React.FormEvent<HTMLFormElement>) => {
+  const handleSaveCategory = (e: React.FormEvent) => {
     e.preventDefault();
     if (!db || !user) return;
-    const formData = new FormData(e.currentTarget);
-    const categoryId = `cat_${Date.now()}`;
-    const newCategory: AccountCategory = {
-      id: categoryId,
-      name: formData.get("name") as string,
-      code: formData.get("code") as string,
-      description: (formData.get("description") as string) || "",
-      type: parentForNew ? parentForNew.type : rootType,
-      parentCategoryId: parentForNew?.id || "",
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    };
-    setDocumentNonBlocking(doc(db, "users", user.uid, "accountCategories", categoryId), newCategory, { merge: true });
+
+    if (editingCategory) {
+      const categoryRef = doc(db, "users", user.uid, "accountCategories", editingCategory.id);
+      updateDocumentNonBlocking(categoryRef, {
+        name: formName,
+        code: formCode,
+        description: formDescription,
+        updatedAt: new Date().toISOString()
+      });
+      toast({ title: "Categoria atualizada" });
+    } else {
+      const categoryId = `cat_${Date.now()}`;
+      const newCategory: AccountCategory = {
+        id: categoryId,
+        name: formName,
+        code: formCode,
+        description: formDescription,
+        type: parentForNew ? parentForNew.type : rootType,
+        parentCategoryId: parentForNew?.id || "",
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+      setDocumentNonBlocking(doc(db, "users", user.uid, "accountCategories", categoryId), newCategory, { merge: true });
+      if (parentForNew) setExpanded(prev => [...new Set([...prev, parentForNew.id])]);
+      toast({ title: "Categoria criada" });
+    }
+    
     setIsDialogOpen(false);
-    if (parentForNew) setExpanded(prev => [...new Set([...prev, parentForNew.id])]);
-    toast({ title: "Categoria criada" });
   };
 
   const renderItem = (id: string, level: number = 0) => {
@@ -208,8 +241,9 @@ export default function ChartOfAccountsPage() {
               </Badge>
             )}
             <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-              <Button variant="ghost" size="icon" className="h-6 w-6" onClick={(e) => { e.stopPropagation(); handleOpenNew(item); }}><Plus className="w-3 h-3" /></Button>
-              <Button variant="ghost" size="icon" className="h-6 w-6 text-destructive" onClick={(e) => { e.stopPropagation(); openDeleteDialog(item); }}><Trash2 className="w-3 h-3" /></Button>
+              <Button variant="ghost" size="icon" className="h-6 w-6" onClick={(e) => { e.stopPropagation(); handleOpenNew(item); }} title="Adicionar Subcategoria"><Plus className="w-3 h-3" /></Button>
+              <Button variant="ghost" size="icon" className="h-6 w-6 text-primary" onClick={(e) => { e.stopPropagation(); handleOpenEdit(item); }} title="Editar Categoria"><Pencil className="w-3 h-3" /></Button>
+              <Button variant="ghost" size="icon" className="h-6 w-6 text-destructive" onClick={(e) => { e.stopPropagation(); openDeleteDialog(item); }} title="Excluir Categoria"><Trash2 className="w-3 h-3" /></Button>
             </div>
           </div>
         </div>
@@ -275,10 +309,12 @@ export default function ChartOfAccountsPage() {
         <DialogContent>
           <form onSubmit={handleSaveCategory}>
             <DialogHeader>
-              <DialogTitle>{parentForNew ? `Nova Subcategoria em "${parentForNew.name}"` : "Novo Grupo Principal"}</DialogTitle>
+              <DialogTitle>
+                {editingCategory ? "Editar Categoria" : parentForNew ? `Nova Subcategoria em "${parentForNew.name}"` : "Novo Grupo Principal"}
+              </DialogTitle>
             </DialogHeader>
             <div className="grid gap-4 py-4">
-              {!parentForNew && (
+              {!parentForNew && !editingCategory && (
                 <div className="grid gap-2">
                   <Label>Natureza do Grupo</Label>
                   <Select value={rootType} onValueChange={setRootType}>
@@ -292,15 +328,15 @@ export default function ChartOfAccountsPage() {
               )}
               <div className="grid grid-cols-4 items-center gap-4">
                 <Label htmlFor="code" className="text-right text-xs">Código</Label>
-                <Input id="code" name="code" placeholder="Ex: 5.1" className="col-span-3" required />
+                <Input id="code" value={formCode} onChange={e => setFormCode(e.target.value)} placeholder="Ex: 5.1" className="col-span-3" required />
               </div>
               <div className="grid grid-cols-4 items-center gap-4">
                 <Label htmlFor="name" className="text-right text-xs">Nome</Label>
-                <Input id="name" name="name" placeholder="Ex: Vendas iFood" className="col-span-3" required />
+                <Input id="name" value={formName} onChange={e => setFormName(e.target.value)} placeholder="Ex: Vendas iFood" className="col-span-3" required />
               </div>
               <div className="grid grid-cols-4 items-center gap-4">
                 <Label htmlFor="description" className="text-right text-xs">Descrição</Label>
-                <Textarea id="description" name="description" placeholder="Opcional..." className="col-span-3 h-20" />
+                <Textarea id="description" value={formDescription} onChange={e => setFormDescription(e.target.value)} placeholder="Opcional..." className="col-span-3 h-20" />
               </div>
             </div>
             <DialogFooter><Button type="submit" className="w-full">Salvar Categoria</Button></DialogFooter>
