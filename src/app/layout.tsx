@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useEffect, useState } from "react";
@@ -22,7 +23,7 @@ export default function RootLayout({
   useEffect(() => {
     setMounted(true);
     
-    // Safety check to ensure we only run this on client
+    // Inicialização segura apenas no cliente para gerenciar redirecionamentos
     const services = initializeFirebase();
     
     if (services && services.auth) {
@@ -45,7 +46,7 @@ export default function RootLayout({
 
   const isAuthPage = pathname === "/login" || pathname === "/register" || pathname === "/forgot-password";
 
-  // SSR Placeholder to prevent Hydration Mismatch and Server Crashes
+  // Segurança de Hidratação: Retorna um placeholder durante o SSR para evitar erros de renderização no servidor
   if (!mounted) {
     return (
       <html lang="pt-BR">

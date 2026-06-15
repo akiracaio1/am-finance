@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { type ReactNode, useState, useEffect } from 'react';
@@ -9,8 +10,9 @@ interface FirebaseClientProviderProps {
 }
 
 /**
- * FirebaseClientProvider handles the initialization of Firebase services strictly on the client.
- * It prevents SSR (Server-Side Rendering) crashes by waiting for the mount event.
+ * O FirebaseClientProvider gerencia a inicialização dos serviços do Firebase estritamente no cliente.
+ * Ele evita erros de contexto garantindo que os componentes filhos (que usam hooks do Firebase)
+ * só sejam renderizados quando o provedor estiver ativo e com os serviços prontos.
  */
 export function FirebaseClientProvider({ children }: FirebaseClientProviderProps) {
   const [mounted, setMounted] = useState(false);
@@ -18,16 +20,21 @@ export function FirebaseClientProvider({ children }: FirebaseClientProviderProps
 
   useEffect(() => {
     setMounted(true);
-    // Initialize Firebase only once the component has mounted on the client
+    // Inicializa o Firebase apenas uma vez após a montagem do componente no cliente
     const services = initializeFirebase();
     if (services && services.firebaseApp) {
       setFirebaseServices(services);
     }
   }, []);
 
-  // Return a static fragment during SSR and while initializing to prevent Context errors
+  // CRITICAL: Não renderiza os filhos até que o componente esteja montado E os serviços do Firebase estejam prontos.
+  // Isso evita o erro "useFirebase must be used within a FirebaseProvider" em componentes como AppSidebar.
   if (!mounted || !firebaseServices) {
-    return <>{children}</>;
+    return (
+      <div className="flex items-center justify-center min-h-screen bg-background">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+      </div>
+    );
   }
 
   return (
