@@ -38,7 +38,10 @@ import {
   History,
   Info,
   TrendingDown,
-  TrendingUp
+  TrendingUp,
+  ArrowUpDown,
+  ArrowUp,
+  ArrowDown
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useUser, useFirestore, useCollection, useMemoFirebase } from "@/firebase";
@@ -91,6 +94,11 @@ type InstallmentDraft = {
   amount: number;
 };
 
+type SortConfig = {
+  key: 'dueDate' | 'supplier' | 'description' | 'dynamicStatus' | 'amount';
+  direction: 'asc' | 'desc';
+};
+
 export default function AccountsPayablePage() {
   const { user } = useUser();
   const db = useFirestore();
@@ -138,6 +146,9 @@ export default function AccountsPayablePage() {
   const [selectedCategoryIds, setSelectedCategoryIds] = useState<string[]>([]);
   const [filterDueDateStart, setFilterDueDateStart] = useState("");
   const [filterDueDateEnd, setFilterDueDateEnd] = useState("");
+
+  // Estado de Ordenação
+  const [sortConfig, setSortConfig] = useState<SortConfig>({ key: 'dueDate', direction: 'asc' });
 
   useEffect(() => {
     setMounted(true);
@@ -323,9 +334,21 @@ export default function AccountsPayablePage() {
     return 'Open';
   };
 
+  const toggleSort = (key: SortConfig['key']) => {
+    setSortConfig(prev => ({
+      key,
+      direction: prev.key === key && prev.direction === 'asc' ? 'desc' : 'asc'
+    }));
+  };
+
+  const SortIcon = ({ column }: { column: SortConfig['key'] }) => {
+    if (sortConfig.key !== column) return <ArrowUpDown className="ml-2 h-3 w-3 opacity-30" />;
+    return sortConfig.direction === 'asc' ? <ArrowUp className="ml-2 h-3 w-3" /> : <ArrowDown className="ml-2 h-3 w-3" />;
+  };
+
   const allFilteredEntries = useMemo(() => {
     if (!mounted) return [];
-    return entries?.map(entry => ({ ...entry, dynamicStatus: getDynamicStatus(entry) }))
+    return (entries?.map(entry => ({ ...entry, dynamicStatus: getDynamicStatus(entry) }))
       .filter(e => {
         const statusMatch = selectedStatuses.length === 0 || selectedStatuses.includes(e.dynamicStatus);
         const supplierMatch = selectedSupplierIds.length === 0 || selectedSupplierIds.includes(e.supplierId);
@@ -339,8 +362,27 @@ export default function AccountsPayablePage() {
         const searchMatch = !searchTerm || desc.includes(term) || sName.includes(term) || cName.includes(term);
 
         return statusMatch && supplierMatch && categoryMatch && dueDateMatch && searchMatch;
-      }).sort((a,b) => (a.dueDate || "").localeCompare(b.dueDate || "")) || [];
-  }, [entries, selectedStatuses, selectedSupplierIds, selectedCategoryIds, filterDueDateStart, filterDueDateEnd, searchTerm, suppliers, categories, todayStr, mounted]);
+      }) || []).sort((a, b) => {
+        const { key, direction } = sortConfig;
+        let comparison = 0;
+
+        if (key === 'dueDate') {
+          comparison = (a.dueDate || "").localeCompare(b.dueDate || "");
+        } else if (key === 'supplier') {
+          const nameA = suppliers?.find(s => s.id === a.supplierId)?.name || "";
+          const nameB = suppliers?.find(s => s.id === b.supplierId)?.name || "";
+          comparison = nameA.localeCompare(nameB);
+        } else if (key === 'description') {
+          comparison = a.description.localeCompare(b.description);
+        } else if (key === 'dynamicStatus') {
+          comparison = a.dynamicStatus.localeCompare(b.dynamicStatus);
+        } else if (key === 'amount') {
+          comparison = a.originalAmount - b.originalAmount;
+        }
+
+        return direction === 'asc' ? comparison : -comparison;
+      });
+  }, [entries, selectedStatuses, selectedSupplierIds, selectedCategoryIds, filterDueDateStart, filterDueDateEnd, searchTerm, suppliers, categories, todayStr, mounted, sortConfig]);
 
   const totalOverdue = allFilteredEntries.filter(e => e.dynamicStatus === 'Overdue').reduce((acc, curr) => acc + curr.originalAmount, 0);
   const totalDueToday = allFilteredEntries.filter(e => e.dynamicStatus === 'DueToday').reduce((acc, curr) => acc + curr.originalAmount, 0);
@@ -545,7 +587,7 @@ export default function AccountsPayablePage() {
                   <Input type="date" value={filterDueDateEnd} onChange={e => setFilterDueDateEnd(e.target.value)} />
                 </div>
                 <div>
-                  <Button variant="ghost" className="w-full gap-2 text-muted-foreground hover:text-primary" onClick={() => { setSearchTerm(""); setSelectedStatuses([]); setSelectedSupplierIds([]); setSelectedCategoryIds([]); setFilterDueDateStart(""); setFilterDueDateEnd(""); }}>
+                  <Button variant="ghost" className="w-full gap-2 text-muted-foreground hover:text-primary" onClick={() => { setSearchTerm(""); setSelectedStatuses([]); setSelectedSupplierIds([]); setSelectedCategoryIds([]); setFilterDueDateStart(""); setFilterDueDateEnd(""); setSortConfig({ key: 'dueDate', direction: 'asc' }); }}>
                     <RotateCcw className="w-4 h-4" /> Limpar
                   </Button>
                 </div>
@@ -579,7 +621,26 @@ export default function AccountsPayablePage() {
       <Card>
         <CardContent className="pt-6">
           <Table>
-            <TableHeader><TableRow><TableHead>Vencimento</TableHead><TableHead>Fornecedor</TableHead><TableHead>Descrição / Centro de Custo</TableHead><TableHead>Status</TableHead><TableHead className="text-right">Valor</TableHead><TableHead className="w-[50px]"></TableHead></TableRow></TableHeader>
+            <TableHeader>
+              <TableRow>
+                <TableHead className="cursor-pointer hover:bg-muted/50 transition-colors" onClick={() => toggleSort('dueDate')}>
+                  <div className="flex items-center">Vencimento <SortIcon column="dueDate" /></div>
+                </TableHead>
+                <TableHead className="cursor-pointer hover:bg-muted/50 transition-colors" onClick={() => toggleSort('supplier')}>
+                  <div className="flex items-center">Fornecedor <SortIcon column="supplier" /></div>
+                </TableHead>
+                <TableHead className="cursor-pointer hover:bg-muted/50 transition-colors" onClick={() => toggleSort('description')}>
+                  <div className="flex items-center">Descrição / Centro de Custo <SortIcon column="description" /></div>
+                </TableHead>
+                <TableHead className="cursor-pointer hover:bg-muted/50 transition-colors" onClick={() => toggleSort('dynamicStatus')}>
+                  <div className="flex items-center">Status <SortIcon column="dynamicStatus" /></div>
+                </TableHead>
+                <TableHead className="cursor-pointer hover:bg-muted/50 transition-colors text-right" onClick={() => toggleSort('amount')}>
+                  <div className="flex items-center justify-end">Valor <SortIcon column="amount" /></div>
+                </TableHead>
+                <TableHead className="w-[50px]"></TableHead>
+              </TableRow>
+            </TableHeader>
             <TableBody>
               {allFilteredEntries.map((entry) => {
                 const isPaid = entry.dynamicStatus === 'Paid';
@@ -1062,3 +1123,4 @@ export default function AccountsPayablePage() {
     </div>
   );
 }
+

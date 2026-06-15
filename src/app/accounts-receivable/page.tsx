@@ -29,7 +29,10 @@ import {
   Layers,
   Calculator,
   TrendingUp,
-  Clock
+  Clock,
+  ArrowUpDown,
+  ArrowUp,
+  ArrowDown
 } from "lucide-react";
 import { useUser, useFirestore, useCollection, useMemoFirebase } from "@/firebase";
 import { collection, doc, query, where } from "firebase/firestore";
@@ -62,6 +65,11 @@ import { AccountsReceivableEntry, AccountCategory } from "@/lib/types";
 import { format, parseISO, isValid } from "date-fns";
 import { cn } from "@/lib/utils";
 
+type SortConfig = {
+  key: 'dueDate' | 'customerName' | 'accountCategoryId' | 'status' | 'amount';
+  direction: 'asc' | 'desc';
+};
+
 export default function AccountsReceivablePage() {
   const { user } = useUser();
   const db = useFirestore();
@@ -78,6 +86,9 @@ export default function AccountsReceivablePage() {
   const [formDueDate, setFormDueDate] = useState("");
   const [formCategoryId, setFormCategoryId] = useState("");
   const [formDescription, setFormDescription] = useState("");
+
+  // Estado de Ordenação
+  const [sortConfig, setSortConfig] = useState<SortConfig>({ key: 'dueDate', direction: 'asc' });
 
   useEffect(() => {
     setMounted(true);
@@ -135,6 +146,42 @@ export default function AccountsReceivablePage() {
       !categories.some(child => child.parentCategoryId === cat.id)
     ).sort((a, b) => a.code.localeCompare(b.code));
   }, [categories]);
+
+  const toggleSort = (key: SortConfig['key']) => {
+    setSortConfig(prev => ({
+      key,
+      direction: prev.key === key && prev.direction === 'asc' ? 'desc' : 'asc'
+    }));
+  };
+
+  const SortIcon = ({ column }: { column: SortConfig['key'] }) => {
+    if (sortConfig.key !== column) return <ArrowUpDown className="ml-2 h-3 w-3 opacity-30" />;
+    return sortConfig.direction === 'asc' ? <ArrowUp className="ml-2 h-3 w-3" /> : <ArrowDown className="ml-2 h-3 w-3" />;
+  };
+
+  const sortedEntries = useMemo(() => {
+    if (!entries) return [];
+    return [...entries].sort((a, b) => {
+      const { key, direction } = sortConfig;
+      let comparison = 0;
+
+      if (key === 'dueDate') {
+        comparison = (a.dueDate || "").localeCompare(b.dueDate || "");
+      } else if (key === 'customerName') {
+        comparison = a.customerName.localeCompare(b.customerName);
+      } else if (key === 'accountCategoryId') {
+        const catA = categories?.find(c => c.id === a.accountCategoryId)?.name || "";
+        const catB = categories?.find(c => c.id === b.accountCategoryId)?.name || "";
+        comparison = catA.localeCompare(catB);
+      } else if (key === 'status') {
+        comparison = a.status.localeCompare(b.status);
+      } else if (key === 'amount') {
+        comparison = a.amount - b.amount;
+      }
+
+      return direction === 'asc' ? comparison : -comparison;
+    });
+  }, [entries, sortConfig, categories]);
 
   const handleOpenNew = () => {
     setEditingEntry(null);
@@ -274,16 +321,26 @@ export default function AccountsReceivablePage() {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Vencimento</TableHead>
-                <TableHead>Origem / Cliente</TableHead>
-                <TableHead>Categoria</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead className="text-right">Valor</TableHead>
+                <TableHead className="cursor-pointer hover:bg-muted/50 transition-colors" onClick={() => toggleSort('dueDate')}>
+                  <div className="flex items-center">Vencimento <SortIcon column="dueDate" /></div>
+                </TableHead>
+                <TableHead className="cursor-pointer hover:bg-muted/50 transition-colors" onClick={() => toggleSort('customerName')}>
+                  <div className="flex items-center">Origem / Cliente <SortIcon column="customerName" /></div>
+                </TableHead>
+                <TableHead className="cursor-pointer hover:bg-muted/50 transition-colors" onClick={() => toggleSort('accountCategoryId')}>
+                  <div className="flex items-center">Categoria <SortIcon column="accountCategoryId" /></div>
+                </TableHead>
+                <TableHead className="cursor-pointer hover:bg-muted/50 transition-colors" onClick={() => toggleSort('status')}>
+                  <div className="flex items-center">Status <SortIcon column="status" /></div>
+                </TableHead>
+                <TableHead className="cursor-pointer hover:bg-muted/50 transition-colors text-right" onClick={() => toggleSort('amount')}>
+                  <div className="flex items-center justify-end">Valor <SortIcon column="amount" /></div>
+                </TableHead>
                 <TableHead className="w-[50px]"></TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {entries?.sort((a,b) => (a.dueDate || "").localeCompare(b.dueDate || "")).map((entry) => {
+              {sortedEntries.map((entry) => {
                 const category = categories?.find(c => c.id === entry.accountCategoryId);
                 const dueDateObj = entry.dueDate ? new Date(entry.dueDate + 'T12:00:00') : null;
                 return (
@@ -514,3 +571,4 @@ export default function AccountsReceivablePage() {
     </div>
   );
 }
+
