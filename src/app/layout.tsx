@@ -15,40 +15,43 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   const [mounted, setMounted] = useState(false);
-  const [firebaseData, setFirebaseData] = useState<any>(null);
   const pathname = usePathname();
   const router = useRouter();
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     setMounted(true);
-    const data = initializeFirebase();
-    setFirebaseData(data);
-
-    const unsubscribe = onAuthStateChanged(data.auth, (user) => {
-      const isAuthPage = pathname === "/login" || pathname === "/register" || pathname === "/forgot-password";
-      
-      if (!user && !isAuthPage) {
-        router.push("/login");
-      } else if (user && (pathname === "/" || isAuthPage)) {
-        router.push("/dashboard");
-      }
-      
+    
+    // Safety check to ensure we only run this on client
+    const services = initializeFirebase();
+    
+    if (services && services.auth) {
+      const unsubscribe = onAuthStateChanged(services.auth, (user) => {
+        const isAuthPage = pathname === "/login" || pathname === "/register" || pathname === "/forgot-password";
+        
+        if (!user && !isAuthPage) {
+          router.push("/login");
+        } else if (user && (pathname === "/" || isAuthPage)) {
+          router.push("/dashboard");
+        }
+        
+        setLoading(false);
+      });
+      return () => unsubscribe();
+    } else {
       setLoading(false);
-    });
-
-    return () => unsubscribe();
+    }
   }, [pathname, router]);
 
   const isAuthPage = pathname === "/login" || pathname === "/register" || pathname === "/forgot-password";
 
-  // Prevenção de Hydration Mismatch
+  // SSR Placeholder to prevent Hydration Mismatch and Server Crashes
   if (!mounted) {
     return (
       <html lang="pt-BR">
         <body className="bg-background">
           <div className="flex items-center justify-center min-h-screen">
-            <div className="text-primary font-bold">Iniciando AM Finance...</div>
+            <div className="text-primary font-bold">Carregando AM Finance...</div>
           </div>
         </body>
       </html>
