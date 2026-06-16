@@ -36,11 +36,13 @@ import {
   CalendarDays,
   RotateCcw,
   EyeOff,
-  ArrowLeftRight
+  ArrowLeftRight,
+  Wallet,
+  Trash2
 } from "lucide-react";
 import { useUser, useFirestore, useCollection, useMemoFirebase } from "@/firebase";
 import { collection, doc } from "firebase/firestore";
-import { setDocumentNonBlocking, updateDocumentNonBlocking } from "@/firebase/non-blocking-updates";
+import { setDocumentNonBlocking, updateDocumentNonBlocking, deleteDocumentNonBlocking } from "@/firebase/non-blocking-updates";
 import { 
   Dialog, 
   DialogContent, 
@@ -95,6 +97,7 @@ export default function ReconciliationPage() {
   const [isAdjustmentModalOpen, setIsAdjustmentModalOpen] = useState(false);
   const [isQuickSupplierOpen, setIsQuickSupplierOpen] = useState(false);
   const [isNewAccountModalOpen, setIsNewAccountModalOpen] = useState(false);
+  const [isManualTxnModalOpen, setIsManualTxnModalOpen] = useState(false);
   
   const [matchingTransaction, setMatchingTransaction] = useState<BankTransaction | null>(null);
   const [selectedMatchEntryIds, setSelectedMatchEntries] = useState<string[]>([]);
@@ -134,6 +137,12 @@ export default function ReconciliationPage() {
   const [accBank, setAccBank] = useState("");
   const [accType, setAccType] = useState<BankAccountType>("Corrente");
   const [accBalance, setAccBalance] = useState(0);
+
+  // Estados para Registro Manual (Caixinha)
+  const [manDate, setManDate] = useState(format(new Date(), "yyyy-MM-dd"));
+  const [manDesc, setManDesc] = useState("");
+  const [manValue, setManValue] = useState(0);
+  const [manType, setManType] = useState<'DEBIT' | 'CREDIT'>('DEBIT');
 
   const accountsQuery = useMemoFirebase(() => {
     if (!db || !user) return null;
@@ -190,20 +199,19 @@ export default function ReconciliationPage() {
   const { data: costGroups } = useCollection<CostCenterGroup>(groupsQuery);
   const { data: costCenters } = useCollection<CostCenter>(centersQuery);
 
+  const selectedAccount = useMemo(() => accounts?.find(a => a.id === selectedAccountId), [accounts, selectedAccountId]);
+  const isCaixinha = selectedAccount?.type === 'Caixinha';
+
   const sortedSuppliers = useMemo(() => {
     if (!suppliers) return [];
     return [...suppliers].sort((a, b) => a.name.localeCompare(b.name));
   }, [suppliers]);
 
-  // Hierarquia do Plano de Contas com Validação contra Órfãos na Conciliação
   const groupedLeafCategories = useMemo(() => {
     if (!categories || !matchingTransaction) return [];
     const targetType = matchingTransaction.type === 'CREDIT' ? 'Revenue' : 'Expense';
     
-    // 1. Identificar Roots válidos da natureza correta
     const validRoots = categories.filter(c => c.type === targetType && (!c.parentCategoryId || c.parentCategoryId === ""));
-    
-    // 2. Construir mapa de quem é filho de quem
     const childrenMap: Record<string, string[]> = {};
     categories.forEach(c => {
       if (c.parentCategoryId) {
@@ -212,7 +220,6 @@ export default function ReconciliationPage() {
       }
     });
 
-    // 3. Função recursiva para validar se um item é alcançável
     const reachableIds = new Set<string>();
     const checkReachable = (id: string) => {
       reachableIds.add(id);
@@ -220,7 +227,6 @@ export default function ReconciliationPage() {
     };
     validRoots.forEach(r => checkReachable(r.id));
 
-    // 4. Filtrar apenas as folhas (contas de lançamento) alcançáveis
     const leaves = categories.filter(cat => 
       reachableIds.has(cat.id) && 
       !categories.some(child => child.parentCategoryId === cat.id)
@@ -261,8 +267,12 @@ export default function ReconciliationPage() {
       return { isBalanced: false, diffIn: 0, diffOut: 0, hasAnyRecord: false, isNoMovement: false, statementIn: 0, statementOut: 0, systemIn: 0, systemOut: 0, hasOFX: false, isMathBalanced: false };
     }
 
-    const isNoMovement = noMovementDays.some(d => d.date === dateStr);
     const dayTxns = allTransactions.filter(t => t.date === dateStr);
+    const hasAnyStatement = dayTxns.filter(t => !t.ignored).length > 0;
+    
+    // PRIORIDADE: Se houver extrato, a marcação de Sem Movimento é ignorada
+    const isNoMovement = noMovementDays.some(d => d.date === dateStr) && !hasAnyStatement;
+    
     const dayPayables = allPayables.filter(p => p.status === 'Paid' && p.paymentDate === dateStr && p.bankAccountId === selectedAccountId);
     const dayReceivables = allReceivables.filter(r => r.status === 'Paid' && r.paymentDate === dateStr && r.bankAccountId === selectedAccountId);
 
@@ -280,23 +290,23 @@ export default function ReconciliationPage() {
     const diffIn = statementIn - systemIn;
     const diffOut = statementOut - systemOut;
     
-    const hasOFX = dayTxns.filter(t => !t.ignored).length > 0;
     const isMathBalanced = Math.abs(diffIn) < 0.01 && Math.abs(diffOut) < 0.01;
     
-    const isBalanced = hasOFX ? isMathBalanced : isNoMovement;
+    // O dia só é "Balanced" se houver extrato E bater, OU se não houver nada E estiver marcado como sem movimento
+    const isBalanced = hasAnyStatement ? isMathBalanced : isNoMovement;
 
     return { 
       isBalanced, 
       isMathBalanced, 
       diffIn, 
       diffOut, 
-      hasAnyRecord: hasOFX || systemIn > 0 || systemOut > 0,
+      hasAnyRecord: hasAnyStatement || systemIn > 0 || systemOut > 0,
       isNoMovement,
       statementIn,
       statementOut,
       systemIn,
       systemOut,
-      hasOFX
+      hasOFX: hasAnyStatement
     };
   };
 
@@ -400,6 +410,30 @@ export default function ReconciliationPage() {
       setDocumentNonBlocking(doc(db, "users", user.uid, "bankAccounts", selectedAccountId, "bankTransactions", id), { id, date: t.date, amount: t.amount, description: t.memo, type: t.type, reconciled: false, reconciledEntryId: null, fitId: t.fitId, bankAccountId: selectedAccountId, ignored: false }, { merge: true });
     });
     setIsImportModalOpen(false);
+  };
+
+  const handleSaveManualTxn = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!db || !user || !selectedAccountId || !manDesc || manValue <= 0) return;
+    
+    const id = `man_${Date.now()}`;
+    const data: BankTransaction = {
+      id,
+      date: manDate,
+      description: `[FÍSICO] ${manDesc}`,
+      amount: manType === 'DEBIT' ? -manValue : manValue,
+      type: manType,
+      reconciled: false,
+      reconciledEntryId: null,
+      bankAccountId: selectedAccountId,
+      ignored: false
+    };
+    
+    setDocumentNonBlocking(doc(db, "users", user.uid, "bankAccounts", selectedAccountId, "bankTransactions", id), data, { merge: true });
+    toast({ title: "Registro de caixinha salvo!" });
+    setIsManualTxnModalOpen(false);
+    setManDesc("");
+    setManValue(0);
   };
 
   const undoMatch = (transaction: BankTransaction) => {
@@ -600,7 +634,7 @@ export default function ReconciliationPage() {
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
           <h1 className="text-3xl font-bold flex items-center gap-3"><Link2 className="text-primary w-8 h-8" />Conciliação Bancária</h1>
-          <p className="text-muted-foreground">Sincronize seu extrato com o plano de contas.</p>
+          <p className="text-muted-foreground">Sincronize seu extrato ou caixinha com o plano de contas.</p>
         </div>
         <div className="flex flex-wrap gap-2 w-full md:w-auto">
           <div className="flex items-center gap-1">
@@ -610,7 +644,17 @@ export default function ReconciliationPage() {
             </Select>
             <Button variant="outline" size="icon" onClick={() => setIsNewAccountModalOpen(true)} title="Nova Conta"><Plus className="w-4 h-4" /></Button>
           </div>
-          <Button disabled={!selectedAccountId} onClick={() => fileInputRef.current?.click()} className="gap-2"><Upload className="w-4 h-4" /> Importar OFX</Button>
+          
+          {isCaixinha ? (
+            <Button disabled={!selectedAccountId} onClick={() => { setManDate(selectedDate); setIsManualTxnModalOpen(true); }} className="gap-2 bg-amber-600 hover:bg-amber-700">
+              <Wallet className="w-4 h-4" /> Lançar Registro Físico (Caixinha)
+            </Button>
+          ) : (
+            <Button disabled={!selectedAccountId} onClick={() => fileInputRef.current?.click()} className="gap-2">
+              <Upload className="w-4 h-4" /> Importar OFX
+            </Button>
+          )}
+          
           <input type="file" accept=".ofx" className="hidden" ref={fileInputRef} onChange={handleOFXFileChange} />
         </div>
       </div>
@@ -621,7 +665,7 @@ export default function ReconciliationPage() {
             <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-1" />
             <div className="space-y-1">
               <h4 className="text-sm font-bold text-amber-900">Pendências de Auditoria (desde 01/05/2026)</h4>
-              <p className="text-xs text-amber-700">Dias sem OFX ou com diferença de saldo até ontem:</p>
+              <p className="text-xs text-amber-700">Dias sem {isCaixinha ? 'registro físico' : 'OFX'} ou com diferença de saldo até ontem:</p>
               <div className="flex flex-wrap gap-2 mt-2">
                 {pendingDays.slice(0, 30).map(date => {
                    const d = new Date(date + 'T12:00:00');
@@ -658,8 +702,8 @@ export default function ReconciliationPage() {
 
         <div className="lg:col-span-3 space-y-4">
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <Card className="bg-muted/30"><CardHeader className="p-3 pb-0"><CardTitle className="text-[10px] uppercase text-muted-foreground">Entradas (Extrato)</CardTitle></CardHeader><CardContent className="p-3"><div className="text-sm font-bold text-emerald-600">R$ {(summary.statementIn || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</div></CardContent></Card>
-            <Card className="bg-muted/30"><CardHeader className="p-3 pb-0"><CardTitle className="text-[10px] uppercase text-muted-foreground">Saídas (Extrato)</CardTitle></CardHeader><CardContent className="p-3"><div className="text-sm font-bold text-destructive">R$ {(summary.statementOut || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</div></CardContent></Card>
+            <Card className="bg-muted/30"><CardHeader className="p-3 pb-0"><CardTitle className="text-[10px] uppercase text-muted-foreground">Entradas ({isCaixinha ? 'Físico' : 'Extrato'})</CardTitle></CardHeader><CardContent className="p-3"><div className="text-sm font-bold text-emerald-600">R$ {(summary.statementIn || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</div></CardContent></Card>
+            <Card className="bg-muted/30"><CardHeader className="p-3 pb-0"><CardTitle className="text-[10px] uppercase text-muted-foreground">Saídas ({isCaixinha ? 'Físico' : 'Extrato'})</CardTitle></CardHeader><CardContent className="p-3"><div className="text-sm font-bold text-destructive">R$ {(summary.statementOut || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</div></CardContent></Card>
             <Card className={cn("transition-colors", summary.isBalanced ? "bg-emerald-50" : (summary.hasOFX ? "bg-destructive/5" : "bg-muted/40"))}>
               <CardHeader className="p-3 pb-0"><CardTitle className="text-[10px] uppercase text-muted-foreground">Resultado Geral</CardTitle></CardHeader>
               <CardContent className="p-3 flex items-center justify-between">
@@ -669,7 +713,7 @@ export default function ReconciliationPage() {
                   ) : summary.isNoMovement ? (
                     "Sem Movimento"
                   ) : (
-                    "Aguardando OFX"
+                    `Aguardando ${isCaixinha ? 'Registro' : 'OFX'}`
                   )}
                 </div>
                 {summary.isBalanced ? <CheckCircle className="w-5 h-5 text-emerald-600" /> : <AlertTriangle className="w-5 h-5 text-muted-foreground" />}
@@ -679,7 +723,7 @@ export default function ReconciliationPage() {
 
           <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
             <Card>
-              <CardHeader className="p-4 border-b bg-muted/20"><CardTitle className="text-xs uppercase flex items-center gap-2"><Upload className="w-3 h-3" /> Extrato Bancário</CardTitle></CardHeader>
+              <CardHeader className="p-4 border-b bg-muted/20"><CardTitle className="text-xs uppercase flex items-center gap-2">{isCaixinha ? <Wallet className="w-3 h-3" /> : <Upload className="w-3 h-3" />} {isCaixinha ? 'Movimentação do Caixinha' : 'Extrato Bancário'}</CardTitle></CardHeader>
               <CardContent className="p-0">
                 <Table>
                   <TableBody>
@@ -687,10 +731,27 @@ export default function ReconciliationPage() {
                       <TableRow key={txn.id} className={cn(txn.reconciled ? "bg-emerald-50/50" : "", txn.ignored ? "opacity-40 grayscale" : "")}>
                         <TableCell className="p-3"><div className="flex flex-col"><div className="flex items-center gap-2"><span className={cn("text-xs font-bold line-clamp-1", txn.ignored ? "line-through" : "")}>{txn.description}</span>{txn.ignored && <Badge variant="secondary" className="text-[8px] h-3 px-1">Ignorado</Badge>}</div><span className="text-[10px] text-muted-foreground">{txn.type === 'CREDIT' ? 'Entrada' : 'Saída'}</span></div></TableCell>
                         <TableCell className={cn("p-3 text-right font-bold text-xs", txn.ignored ? "text-muted-foreground" : (txn.type === 'CREDIT' ? "text-emerald-600" : "text-destructive"))}>R$ {Math.abs(txn.amount).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</TableCell>
-                        <TableCell className="p-3 text-right"><div className="flex items-center justify-end gap-1">{txn.ignored ? (<Button size="icon" variant="ghost" className="h-7 w-7 text-primary" onClick={() => toggleIgnoreTransaction(txn)} title="Restaurar Transação"><RotateCcw className="w-3 h-3" /></Button>) : !txn.reconciled ? (<><Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => { setMatchingTransaction(txn); setSelectedMatchEntries([]); setEntryAdjustments({}); setIsMatchModalOpen(true); }} title="Conciliar"><ArrowRightLeft className="w-3 h-3" /></Button><Button size="icon" variant="ghost" className="h-7 w-7 text-muted-foreground hover:text-destructive" onClick={() => toggleIgnoreTransaction(txn)} title="Desconsiderar"><EyeOff className="w-3 h-3" /></Button></>) : (<Button size="icon" variant="ghost" className="h-7 w-7 text-destructive" onClick={() => undoMatch(txn)} title="Desfazer"><X className="w-3 h-3" /></Button>)}</div></TableCell>
+                        <TableCell className="p-3 text-right">
+                          <div className="flex items-center justify-end gap-1">
+                            {txn.ignored ? (
+                              <Button size="icon" variant="ghost" className="h-7 w-7 text-primary" onClick={() => toggleIgnoreTransaction(txn)} title="Restaurar Transação"><RotateCcw className="w-3 h-3" /></Button>
+                            ) : !txn.reconciled ? (
+                              <>
+                                <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => { setMatchingTransaction(txn); setSelectedMatchEntries([]); setEntryAdjustments({}); setIsMatchModalOpen(true); }} title="Conciliar"><ArrowRightLeft className="w-3 h-3" /></Button>
+                                {isCaixinha ? (
+                                  <Button size="icon" variant="ghost" className="h-7 w-7 text-destructive" onClick={() => deleteDocumentNonBlocking(doc(db!, "users", user!.uid, "bankAccounts", selectedAccountId, "bankTransactions", txn.id))} title="Excluir Registro Físico"><Trash2 className="w-3 h-3" /></Button>
+                                ) : (
+                                  <Button size="icon" variant="ghost" className="h-7 w-7 text-muted-foreground hover:text-destructive" onClick={() => toggleIgnoreTransaction(txn)} title="Desconsiderar"><EyeOff className="w-3 h-3" /></Button>
+                                )}
+                              </>
+                            ) : (
+                              <Button size="icon" variant="ghost" className="h-7 w-7 text-destructive" onClick={() => undoMatch(txn)} title="Desfazer"><X className="w-3 h-3" /></Button>
+                            )}
+                          </div>
+                        </TableCell>
                       </TableRow>
                     ))}
-                    {dailyTransactions.length === 0 && <TableRow><TableCell colSpan={3} className="py-10 text-center text-xs text-muted-foreground italic">Nenhum extrato importado para este dia.</TableCell></TableRow>}
+                    {dailyTransactions.length === 0 && <TableRow><TableCell colSpan={3} className="py-10 text-center text-xs text-muted-foreground italic">Nenhum registro {isCaixinha ? 'físico lançado' : 'de extrato importado'} para este dia.</TableCell></TableRow>}
                   </TableBody>
                 </Table>
               </CardContent>
@@ -717,13 +778,57 @@ export default function ReconciliationPage() {
         </div>
       </div>
 
+      {/* MODAL DE REGISTRO MANUAL PARA CAIXINHA */}
+      <Dialog open={isManualTxnModalOpen} onOpenChange={setIsManualTxnModalOpen}>
+        <DialogContent className="max-w-md">
+          <form onSubmit={handleSaveManualTxn}>
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2"><Wallet className="w-5 h-5 text-amber-600" /> Registro Físico de Caixinha</DialogTitle>
+              <DialogDescription>Lance aqui o que aconteceu fisicamente no seu dinheiro vivo para auditar contra o sistema.</DialogDescription>
+            </DialogHeader>
+            <div className="grid gap-4 py-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div className="grid gap-2">
+                  <Label>Data do Evento</Label>
+                  <Input type="date" value={manDate} onChange={e => setManDate(e.target.value)} required />
+                </div>
+                <div className="grid gap-2">
+                  <Label>Tipo de Movimento</Label>
+                  <Select value={manType} onValueChange={(v: any) => setManType(v)}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="DEBIT">Saída de Dinheiro</SelectItem>
+                      <SelectItem value="CREDIT">Entrada de Dinheiro</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+              <div className="grid gap-2">
+                <Label>Descrição (O que aconteceu?)</Label>
+                <Input value={manDesc} onChange={e => setManDesc(e.target.value)} placeholder="Ex: Saída para padaria, Recebido de cliente..." required />
+              </div>
+              <div className="grid gap-2">
+                <Label>Valor Real Movimentado</Label>
+                <div className="relative">
+                  <span className="absolute left-3 top-2.5 text-xs text-muted-foreground">R$</span>
+                  <Input type="number" step="0.01" value={manValue || ""} onChange={e => setManValue(Number(e.target.value))} className="pl-9 text-lg font-bold" required />
+                </div>
+              </div>
+            </div>
+            <DialogFooter>
+              <Button type="submit" className="w-full h-11 bg-amber-600 hover:bg-amber-700">Lançar Registro</Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
       <Dialog open={isMatchModalOpen} onOpenChange={setIsMatchModalOpen}>
         <DialogContent className="max-w-4xl max-h-[90vh] flex flex-col p-0 overflow-hidden">
           <div className="p-6 border-b bg-muted/20">
             <DialogHeader>
               <DialogTitle className="flex items-center gap-2"><ArrowRightLeft className="w-5 h-5 text-primary" />Conciliar Lançamentos</DialogTitle>
               <DialogDescription className="font-bold text-primary">
-                Transação no Extrato: <span className="text-foreground">{matchingTransaction?.description}</span>
+                {isCaixinha ? 'Registro Físico:' : 'Transação no Extrato:'} <span className="text-foreground">{matchingTransaction?.description}</span>
                 <br />
                 Valor a Conciliar: <span className="text-xl">R$ {Math.abs(matchingTransaction?.amount || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
               </DialogDescription>
