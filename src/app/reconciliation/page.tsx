@@ -38,7 +38,9 @@ import {
   EyeOff,
   ArrowLeftRight,
   Wallet,
-  Trash2
+  Trash2,
+  FileSpreadsheet,
+  Download
 } from "lucide-react";
 import { useUser, useFirestore, useCollection, useMemoFirebase } from "@/firebase";
 import { collection, doc } from "firebase/firestore";
@@ -77,6 +79,7 @@ import {
 import { format, parseISO, eachDayOfInterval, isValid, subDays, startOfDay } from "date-fns";
 import { parseOFX, OFXTransaction } from "@/lib/ofx-parser";
 import { cn } from "@/lib/utils";
+import { read, utils, writeFile } from 'xlsx';
 
 type AdjustmentData = {
   interest: number;
@@ -98,6 +101,7 @@ export default function ReconciliationPage() {
   const [isQuickSupplierOpen, setIsQuickSupplierOpen] = useState(false);
   const [isNewAccountModalOpen, setIsNewAccountModalOpen] = useState(false);
   const [isManualTxnModalOpen, setIsManualTxnModalOpen] = useState(false);
+  const [isCaixinhaImportModalOpen, setIsCaixinhaImportModalOpen] = useState(false);
   
   const [matchingTransaction, setMatchingTransaction] = useState<BankTransaction | null>(null);
   const [selectedMatchEntryIds, setSelectedMatchEntries] = useState<string[]>([]);
@@ -112,6 +116,7 @@ export default function ReconciliationPage() {
 
   const [ofxPreview, setOfxPreview] = useState<OFXTransaction[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const caixinhaFileInputRef = useRef<HTMLInputElement>(null);
 
   const [matchSearchTerm, setMatchSearchTerm] = useState("");
   const [matchDateStart, setMatchDateStart] = useState("");
@@ -412,6 +417,78 @@ export default function ReconciliationPage() {
     setIsImportModalOpen(false);
   };
 
+  const handleExportCaixinhaTemplate = () => {
+    const headers = ["Data", "Descrição", "Tipo", "Valor"];
+    const sampleData = [
+      { "Data": "20/05/2026", "Descrição": "Venda Balcão", "Tipo": "Entrada", "Valor": 150.00 },
+      { "Data": "20/05/2026", "Descrição": "Compra Pão", "Tipo": "Saída", "Valor": 12.50 }
+    ];
+    const ws = utils.json_to_sheet(sampleData, { header: headers });
+    const wb = utils.book_new();
+    utils.book_append_sheet(wb, ws, "Modelo Caixinha");
+    writeFile(wb, "modelo_importacao_caixinha.xlsx");
+    toast({ title: "Modelo exportado!" });
+  };
+
+  const handleImportCaixinhaExcel = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !db || !user || !selectedAccountId) return;
+    
+    try {
+      const dataBuffer = await file.arrayBuffer();
+      const workbook = read(dataBuffer, { type: 'array' });
+      const sheetName = workbook.SheetNames[0];
+      const sheet = workbook.Sheets[sheetName];
+      const rows = utils.sheet_to_json(sheet) as any[];
+
+      let count = 0;
+      rows.forEach((row, index) => {
+        const desc = row["Descrição"] || row["descrição"];
+        const rawDate = row["Data"] || row["data"];
+        const rawTipo = row["Tipo"] || row["tipo"];
+        const rawValue = row["Valor"] || row["valor"];
+
+        if (!desc || !rawDate || !rawTipo || !rawValue) return;
+
+        let dateStr = "";
+        if (typeof rawDate === 'number') {
+           // Excel serial date
+           const date = new Date((rawDate - 25569) * 86400 * 1000);
+           dateStr = format(date, "yyyy-MM-dd");
+        } else {
+           const parts = String(rawDate).split('/');
+           if (parts.length === 3) dateStr = `${parts[2]}-${parts[1]}-${parts[0]}`;
+        }
+
+        if (!dateStr || !isValid(parseISO(dateStr))) return;
+
+        const type = String(rawTipo).toLowerCase().includes("entrada") ? 'CREDIT' : 'DEBIT';
+        const amount = type === 'DEBIT' ? -Math.abs(Number(rawValue)) : Math.abs(Number(rawValue));
+        const id = `man_imp_${Date.now()}_${index}`;
+
+        setDocumentNonBlocking(doc(db, "users", user.uid, "bankAccounts", selectedAccountId, "bankTransactions", id), {
+          id,
+          date: dateStr,
+          description: `[PLANILHA] ${desc}`,
+          amount,
+          type,
+          reconciled: false,
+          reconciledEntryId: null,
+          bankAccountId: selectedAccountId,
+          ignored: false
+        }, { merge: true });
+        count++;
+      });
+
+      toast({ title: "Sucesso!", description: `${count} registros do caixinha importados.` });
+      setIsCaixinhaImportModalOpen(false);
+    } catch (err) {
+      toast({ variant: "destructive", title: "Erro na leitura", description: "O arquivo XLSX parece inválido." });
+    } finally {
+      if (caixinhaFileInputRef.current) caixinhaFileInputRef.current.value = "";
+    }
+  };
+
   const handleSaveManualTxn = (e: React.FormEvent) => {
     e.preventDefault();
     if (!db || !user || !selectedAccountId || !manDesc || manValue <= 0) return;
@@ -646,9 +723,14 @@ export default function ReconciliationPage() {
           </div>
           
           {isCaixinha ? (
-            <Button disabled={!selectedAccountId} onClick={() => { setManDate(selectedDate); setIsManualTxnModalOpen(true); }} className="gap-2 bg-amber-600 hover:bg-amber-700">
-              <Wallet className="w-4 h-4" /> Lançar Registro Físico (Caixinha)
-            </Button>
+            <div className="flex gap-2">
+              <Button disabled={!selectedAccountId} onClick={() => setIsCaixinhaImportModalOpen(true)} variant="outline" className="gap-2 border-amber-600 text-amber-700 hover:bg-amber-50">
+                <FileSpreadsheet className="w-4 h-4" /> Importar Planilha (Caixinha)
+              </Button>
+              <Button disabled={!selectedAccountId} onClick={() => { setManDate(selectedDate); setIsManualTxnModalOpen(true); }} className="gap-2 bg-amber-600 hover:bg-amber-700">
+                <Wallet className="w-4 h-4" /> Lançar Registro Físico (Manual)
+              </Button>
+            </div>
           ) : (
             <Button disabled={!selectedAccountId} onClick={() => fileInputRef.current?.click()} className="gap-2">
               <Upload className="w-4 h-4" /> Importar OFX
@@ -656,6 +738,7 @@ export default function ReconciliationPage() {
           )}
           
           <input type="file" accept=".ofx" className="hidden" ref={fileInputRef} onChange={handleOFXFileChange} />
+          <input type="file" accept=".xlsx, .xls" className="hidden" ref={caixinhaFileInputRef} onChange={handleImportCaixinhaExcel} />
         </div>
       </div>
 
@@ -739,7 +822,7 @@ export default function ReconciliationPage() {
                               <>
                                 <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => { setMatchingTransaction(txn); setSelectedMatchEntries([]); setEntryAdjustments({}); setIsMatchModalOpen(true); }} title="Conciliar"><ArrowRightLeft className="w-3 h-3" /></Button>
                                 {isCaixinha ? (
-                                  <Button size="icon" variant="ghost" className="h-7 w-7 text-destructive" onClick={() => deleteDocumentNonBlocking(doc(db!, "users", user!.uid, "bankAccounts", selectedAccountId, "bankTransactions", txn.id))} title="Excluir Registro Físico"><Trash2 className="w-3 h-3" /></Button>
+                                  <Button size="icon" variant="ghost" className="h-7 w-7 text-destructive" onClick={() => deleteDocumentNonBlocking(doc(db!, "users", user!.uid, "bankAccounts", selectedAccountId, "bankTransactions", txn.id))} title="Excluir Registro Fís"><Trash2 className="w-3 h-3" /></Button>
                                 ) : (
                                   <Button size="icon" variant="ghost" className="h-7 w-7 text-muted-foreground hover:text-destructive" onClick={() => toggleIgnoreTransaction(txn)} title="Desconsiderar"><EyeOff className="w-3 h-3" /></Button>
                                 )}
@@ -777,6 +860,36 @@ export default function ReconciliationPage() {
           </div>
         </div>
       </div>
+
+      {/* MODAL DE IMPORTAÇÃO XLSX CAIXINHA */}
+      <Dialog open={isCaixinhaImportModalOpen} onOpenChange={setIsCaixinhaImportModalOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2"><FileSpreadsheet className="w-5 h-5 text-amber-600" /> Importar Movimentação do Caixinha</DialogTitle>
+            <DialogDescription>Use uma planilha para lançar múltiplos registros físicos de uma só vez.</DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-6 py-6">
+            <div className="bg-muted/50 p-4 rounded-lg space-y-3">
+              <h4 className="text-xs font-bold uppercase text-muted-foreground flex items-center gap-2"><Download className="w-3 h-3" /> Passo 1: Preparar Dados</h4>
+              <p className="text-xs text-muted-foreground">Baixe o modelo oficial para garantir que o sistema entenda suas colunas de Data, Descrição e Valor.</p>
+              <Button variant="outline" className="w-full gap-2 text-xs" onClick={handleExportCaixinhaTemplate}>
+                <Download className="w-3 h-3" /> Exportar Modelo XLSX
+              </Button>
+            </div>
+            
+            <div className="bg-primary/5 p-4 rounded-lg space-y-3 border border-primary/10">
+              <h4 className="text-xs font-bold uppercase text-primary flex items-center gap-2"><Upload className="w-3 h-3" /> Passo 2: Enviar Planilha</h4>
+              <p className="text-xs text-muted-foreground">Selecione o arquivo preenchido para carregar os registros no sistema.</p>
+              <Button className="w-full gap-2" onClick={() => caixinhaFileInputRef.current?.click()}>
+                <Upload className="w-4 h-4" /> Selecionar e Importar
+              </Button>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setIsCaixinhaImportModalOpen(false)} className="w-full">Cancelar</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* MODAL DE REGISTRO MANUAL PARA CAIXINHA */}
       <Dialog open={isManualTxnModalOpen} onOpenChange={setIsManualTxnModalOpen}>
