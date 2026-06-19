@@ -41,7 +41,8 @@ import {
   TrendingUp,
   ArrowUpDown,
   ArrowUp,
-  ArrowDown
+  ArrowDown,
+  Wallet
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useUser, useFirestore, useCollection, useMemoFirebase } from "@/firebase";
@@ -77,7 +78,7 @@ import { Collapsible, CollapsibleContent } from "@/components/ui/collapsible";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { toast } from "@/hooks/use-toast";
-import { Supplier, AccountCategory, AccountsPayableEntry, EntryType, CostCenter, CostCenterGroup } from "@/lib/types";
+import { Supplier, AccountCategory, AccountsPayableEntry, EntryType, CostCenter, CostCenterGroup, BankAccount } from "@/lib/types";
 import { 
   format, 
   isBefore,
@@ -248,12 +249,18 @@ export default function AccountsPayablePage() {
     return collection(db, "users", user.uid, "costCenters");
   }, [db, user]);
 
+  const accountsQuery = useMemoFirebase(() => {
+    if (!db || !user) return null;
+    return collection(db, "users", user.uid, "bankAccounts");
+  }, [db, user]);
+
   const { data: entries } = useCollection<AccountsPayableEntry>(entriesQuery);
   const { data: historyItems } = useCollection<AccountsPayableEntry>(historyQuery);
   const { data: suppliers } = useCollection<Supplier>(suppliersQuery);
   const { data: categories } = useCollection<AccountCategory>(categoriesQuery);
   const { data: groups } = useCollection<CostCenterGroup>(groupsQuery);
   const { data: centers } = useCollection<CostCenter>(centersQuery);
+  const { data: accounts } = useCollection<BankAccount>(accountsQuery);
 
   const sortedSuppliers = useMemo(() => {
     if (!suppliers) return [];
@@ -648,6 +655,7 @@ export default function AccountsPayablePage() {
                 const hasAdjustments = (entry.interest || 0) > 0 || (entry.fine || 0) > 0 || (entry.discount || 0) > 0;
                 const category = categories?.find(c => c.id === entry.accountCategoryId);
                 const dueDateObj = entry.dueDate ? new Date(entry.dueDate + 'T12:00:00') : null;
+                const bankAccount = accounts?.find(a => a.id === entry.bankAccountId);
 
                 return (
                   <TableRow key={entry.id}>
@@ -692,7 +700,16 @@ export default function AccountsPayablePage() {
                       {entry.dynamicStatus === 'Paid' ? (
                         <div className="flex flex-col">
                           <Badge className="bg-emerald-100 text-emerald-700 border-none">Pago</Badge>
-                          {entry.paymentDate && <span className="text-[9px] text-emerald-600 font-bold mt-1">Em {format(parseISO(entry.paymentDate), "dd/MM/yy")}</span>}
+                          {entry.paymentDate && (
+                            <div className="flex flex-col mt-1">
+                              <span className="text-[9px] text-emerald-600 font-bold">Em {format(parseISO(entry.paymentDate), "dd/MM/yy")}</span>
+                              {bankAccount && (
+                                <span className="text-[9px] text-muted-foreground flex items-center gap-1 italic">
+                                  <Wallet className="w-2 h-2" /> via {bankAccount.name}
+                                </span>
+                              )}
+                            </div>
+                          )}
                         </div>
                       ) : entry.dynamicStatus === 'Overdue' ? (
                         <Badge variant="destructive">Atrasado</Badge>
@@ -1123,4 +1140,3 @@ export default function AccountsPayablePage() {
     </div>
   );
 }
-

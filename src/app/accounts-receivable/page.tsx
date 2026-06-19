@@ -32,7 +32,8 @@ import {
   Clock,
   ArrowUpDown,
   ArrowUp,
-  ArrowDown
+  ArrowDown,
+  Wallet
 } from "lucide-react";
 import { useUser, useFirestore, useCollection, useMemoFirebase } from "@/firebase";
 import { collection, doc, query, where } from "firebase/firestore";
@@ -61,7 +62,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "@/hooks/use-toast";
-import { AccountsReceivableEntry, AccountCategory } from "@/lib/types";
+import { AccountsReceivableEntry, AccountCategory, BankAccount } from "@/lib/types";
 import { format, parseISO, isValid } from "date-fns";
 import { cn } from "@/lib/utils";
 
@@ -112,9 +113,15 @@ export default function AccountsReceivablePage() {
     return collection(db, "users", user.uid, "accountCategories");
   }, [db, user]);
 
+  const accountsQuery = useMemoFirebase(() => {
+    if (!db || !user) return null;
+    return collection(db, "users", user.uid, "bankAccounts");
+  }, [db, user]);
+
   const { data: entries, isLoading: loadingEntries } = useCollection<AccountsReceivableEntry>(entriesQuery);
   const { data: historyItems } = useCollection<AccountsReceivableEntry>(historyQuery);
   const { data: categories } = useCollection<AccountCategory>(categoriesQuery);
+  const { data: accounts } = useCollection<BankAccount>(accountsQuery);
 
   // Filtragem de Categorias: Apenas categorias folha alcançáveis na árvore de Receitas
   const leafCategories = useMemo(() => {
@@ -343,6 +350,8 @@ export default function AccountsReceivablePage() {
               {sortedEntries.map((entry) => {
                 const category = categories?.find(c => c.id === entry.accountCategoryId);
                 const dueDateObj = entry.dueDate ? new Date(entry.dueDate + 'T12:00:00') : null;
+                const bankAccount = accounts?.find(a => a.id === entry.bankAccountId);
+
                 return (
                   <TableRow key={entry.id}>
                     <TableCell className="text-xs">
@@ -379,9 +388,16 @@ export default function AccountsReceivablePage() {
                             <CheckCircle2 className="w-3 h-3" /> Recebido
                           </Badge>
                           {entry.paymentDate && (
-                            <span className="text-[9px] text-emerald-600 font-bold mt-1 ml-1">
-                              {format(parseISO(entry.paymentDate), "dd/MM/yy")}
-                            </span>
+                            <div className="flex flex-col mt-1 ml-1">
+                              <span className="text-[9px] text-emerald-600 font-bold">
+                                {format(parseISO(entry.paymentDate), "dd/MM/yy")}
+                              </span>
+                              {bankAccount && (
+                                <span className="text-[9px] text-muted-foreground flex items-center gap-1 italic">
+                                  <Wallet className="w-2 h-2" /> via {bankAccount.name}
+                                </span>
+                              )}
+                            </div>
                           )}
                         </div>
                       ) : (
@@ -571,4 +587,3 @@ export default function AccountsReceivablePage() {
     </div>
   );
 }
-

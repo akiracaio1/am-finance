@@ -16,7 +16,8 @@ import {
   TrendingDown,
   TrendingUp,
   Clock,
-  LayoutGrid
+  LayoutGrid,
+  Wallet
 } from "lucide-react";
 import { 
   Select, 
@@ -39,7 +40,8 @@ import {
   AccountsReceivableEntry,
   AccountCategory, 
   Supplier, 
-  CostCenter
+  CostCenter,
+  BankAccount
 } from "@/lib/types";
 import { 
   format, 
@@ -104,11 +106,17 @@ export default function ReportsPage() {
     return collection(db, "users", user.uid, "costCenters");
   }, [db, user]);
 
+  const accountsQuery = useMemoFirebase(() => {
+    if (!db || !user) return null;
+    return collection(db, "users", user.uid, "bankAccounts");
+  }, [db, user]);
+
   const { data: payables, isLoading: loadingPay } = useCollection<AccountsPayableEntry>(payablesQuery);
   const { data: receivables, isLoading: loadingRec } = useCollection<AccountsReceivableEntry>(receivablesQuery);
   const { data: categories } = useCollection<AccountCategory>(categoriesQuery);
   const { data: suppliers } = useCollection<Supplier>(suppliersQuery);
   const { data: centers } = useCollection<CostCenter>(centersQuery);
+  const { data: accounts } = useCollection<BankAccount>(accountsQuery);
 
   // Lógica de Filtragem Unificada
   const filteredData = useMemo(() => {
@@ -148,6 +156,7 @@ export default function ReportsPage() {
     const exportData = filteredData.map((item: any) => {
       const category = categories?.find(c => c.id === item.accountCategoryId)?.name || 'Geral';
       const centerName = centers?.find(c => c.id === item.costCenterId)?.name || '-';
+      const bankAccountName = accounts?.find(a => a.id === item.bankAccountId)?.name || 'N/A';
       const entityLabel = isReceivable ? 'Cliente' : 'Fornecedor';
       const entityName = isReceivable ? item.customerName : (suppliers?.find(s => s.id === item.supplierId)?.name || 'N/A');
       const dateLabel = isPaid ? 'Data Pagamento/Recebimento' : 'Vencimento';
@@ -162,6 +171,7 @@ export default function ReportsPage() {
         return {
           [dateLabel]: formattedDate,
           'Data de Emissão': formattedIssueDate,
+          'Conta Bancária': bankAccountName,
           'Vencimento Original': item.dueDate ? format(new Date(item.dueDate + 'T12:00:00'), 'dd/MM/yyyy') : '-',
           [entityLabel]: entityName,
           'Descrição': item.description,
@@ -177,6 +187,7 @@ export default function ReportsPage() {
       return {
         [dateLabel]: formattedDate,
         'Data de Emissão': formattedIssueDate,
+        'Conta Bancária': isPaid ? bankAccountName : 'Pendente',
         [entityLabel]: entityName,
         'Descrição': item.description,
         'Categoria': category,
@@ -235,7 +246,7 @@ export default function ReportsPage() {
                   <SelectItem value="payable_pending">Contas a Pagar (Pendentes)</SelectItem>
                   <SelectItem value="payable_paid">Contas a Pagar (Pagas)</SelectItem>
                   <SelectItem value="receivable_pending">Contas a Receber (Pendentes)</SelectItem>
-                  <SelectItem value="receivable_paid">Contas a Receber (Recebidas)</SelectItem>
+                  <SelectItem value="receivable_paid">Contas Receber (Recebidas)</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -317,7 +328,7 @@ export default function ReportsPage() {
                       <TableHead>{isPaidReport ? (isReceivableReport ? 'Recebimento' : 'Pagamento') : 'Vencimento'}</TableHead>
                       <TableHead>{isReceivableReport ? 'Cliente / Origem' : 'Fornecedor'}</TableHead>
                       <TableHead>Descrição / Categoria</TableHead>
-                      <TableHead>Centro de Custo</TableHead>
+                      <TableHead>Centro de Custo / Conta</TableHead>
                       <TableHead className="text-right">Valor {isPaidReport ? 'Líquido' : ''}</TableHead>
                     </TableRow>
                   </TableHeader>
@@ -331,6 +342,7 @@ export default function ReportsPage() {
                       const dateToDisplay = isPaidReport ? item.paymentDate : item.dueDate;
                       const dateObj = dateToDisplay ? (isPaidReport ? parseISO(dateToDisplay) : new Date(dateToDisplay + 'T12:00:00')) : null;
                       const center = centers?.find(c => c.id === item.costCenterId);
+                      const bankAccount = accounts?.find(a => a.id === item.bankAccountId);
 
                       return (
                         <TableRow key={item.id}>
@@ -347,12 +359,20 @@ export default function ReportsPage() {
                             </div>
                           </TableCell>
                           <TableCell className="text-xs">
-                            {center ? (
-                              <div className="flex items-center gap-1.5 text-muted-foreground">
-                                <LayoutGrid className="w-3 h-3" />
-                                {center.name}
-                              </div>
-                            ) : '-'}
+                            <div className="flex flex-col gap-1">
+                              {center && (
+                                <div className="flex items-center gap-1.5 text-muted-foreground">
+                                  <LayoutGrid className="w-3 h-3" />
+                                  {center.name}
+                                </div>
+                              )}
+                              {bankAccount && (
+                                <div className="flex items-center gap-1.5 text-primary italic font-medium">
+                                  <Wallet className="w-3 h-3" />
+                                  {bankAccount.name}
+                                </div>
+                              )}
+                            </div>
                           </TableCell>
                           <TableCell className="text-right font-bold text-xs">
                             <div className="flex flex-col items-end">
@@ -394,10 +414,10 @@ export default function ReportsPage() {
             <h4 className="text-sm font-bold">Dica de Auditoria</h4>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-2">
               <p className="text-xs text-muted-foreground leading-relaxed">
-                <strong>Análise por Centro de Custo:</strong> A inclusão do centro de custo nos relatórios permite que você veja qual unidade de negócio ou projeto está consumindo mais recursos ou gerando mais receita no período selecionado.
+                <strong>Análise por Conta Bancária:</strong> Os relatórios de itens pagos agora mostram por qual conta o dinheiro transitou, facilitando o batimento com seus extratos físicos ou de PDF.
               </p>
               <p className="text-xs text-muted-foreground leading-relaxed">
-                <strong>Exportação Inteligente:</strong> Ao exportar para Excel, os arquivos já saem nomeados com o tipo de relatório e o período, facilitando o arquivamento mensal para sua contabilidade.
+                <strong>Exportação Inteligente:</strong> Ao exportar para Excel, a nova coluna "Conta Bancária" permitirá que você faça tabelas dinâmicas para ver o faturamento total por banco ou canal de recebimento.
               </p>
             </div>
           </div>
