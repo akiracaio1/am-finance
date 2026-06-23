@@ -460,7 +460,8 @@ export default function ReconciliationPage() {
 
         let dateStr = "";
         if (typeof rawDate === 'number') {
-           const date = new Date((rawDate - 25569) * 86400 * 1000);
+           // Excel serial date to JS Date (adding 12 hours offset to avoid timezone shifts to previous day)
+           const date = new Date((rawDate - 25569) * 86400 * 1000 + 43200000);
            dateStr = format(date, "yyyy-MM-dd");
         } else {
            const parts = String(rawDate).split('/');
@@ -992,7 +993,7 @@ export default function ReconciliationPage() {
 
       {/* MODAL DE REGISTRO MANUAL PARA CAIXINHA */}
       <Dialog open={isManualTxnModalOpen} onOpenChange={setIsManualTxnModalOpen}>
-        <DialogContent className="max-w-md">
+        <DialogContent className="max-md">
           <form onSubmit={handleSaveManualTxn}>
             <DialogHeader>
               <DialogTitle className="flex items-center gap-2"><Wallet className="w-5 h-5 text-amber-600" /> Registro Físico de Caixinha</DialogTitle>
