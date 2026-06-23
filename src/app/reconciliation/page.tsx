@@ -40,7 +40,8 @@ import {
   Wallet,
   Trash2,
   FileSpreadsheet,
-  Download
+  Download,
+  AlertCircle
 } from "lucide-react";
 import { useUser, useFirestore, useCollection, useMemoFirebase } from "@/firebase";
 import { collection, doc } from "firebase/firestore";
@@ -102,6 +103,7 @@ export default function ReconciliationPage() {
   const [isNewAccountModalOpen, setIsNewAccountModalOpen] = useState(false);
   const [isManualTxnModalOpen, setIsManualTxnModalOpen] = useState(false);
   const [isCaixinhaImportModalOpen, setIsCaixinhaImportModalOpen] = useState(false);
+  const [isDeleteAccountModalOpen, setIsDeleteAccountModalOpen] = useState(false);
   
   const [matchingTransaction, setMatchingTransaction] = useState<BankTransaction | null>(null);
   const [selectedMatchEntryIds, setSelectedMatchEntries] = useState<string[]>([]);
@@ -142,6 +144,8 @@ export default function ReconciliationPage() {
   const [accBank, setAccBank] = useState("");
   const [accType, setAccType] = useState<BankAccountType>("Corrente");
   const [accBalance, setAccBalance] = useState(0);
+
+  const [reassignToAccountId, setReassignToAccountId] = useState<string>("");
 
   // Estados para Registro Manual (Caixinha)
   const [manDate, setManDate] = useState(format(new Date(), "yyyy-MM-dd"));
@@ -206,6 +210,13 @@ export default function ReconciliationPage() {
 
   const selectedAccount = useMemo(() => accounts?.find(a => a.id === selectedAccountId), [accounts, selectedAccountId]);
   const isCaixinha = selectedAccount?.type === 'Caixinha';
+
+  const linkedEntries = useMemo(() => {
+    if (!selectedAccountId || !allPayables || !allReceivables) return [];
+    const p = allPayables.filter(item => item.bankAccountId === selectedAccountId).map(item => ({ ...item, isPayable: true }));
+    const r = allReceivables.filter(item => item.bankAccountId === selectedAccountId).map(item => ({ ...item, isPayable: false }));
+    return [...p, ...r];
+  }, [selectedAccountId, allPayables, allReceivables]);
 
   const sortedSuppliers = useMemo(() => {
     if (!suppliers) return [];
@@ -275,7 +286,6 @@ export default function ReconciliationPage() {
     const dayTxns = allTransactions.filter(t => t.date === dateStr);
     const hasAnyStatement = dayTxns.filter(t => !t.ignored).length > 0;
     
-    // PRIORIDADE: Se houver extrato, a marcação de Sem Movimento é ignorada
     const isNoMovement = noMovementDays.some(d => d.date === dateStr) && !hasAnyStatement;
     
     const dayPayables = allPayables.filter(p => p.status === 'Paid' && p.paymentDate === dateStr && p.bankAccountId === selectedAccountId);
@@ -296,8 +306,6 @@ export default function ReconciliationPage() {
     const diffOut = statementOut - systemOut;
     
     const isMathBalanced = Math.abs(diffIn) < 0.01 && Math.abs(diffOut) < 0.01;
-    
-    // O dia só é "Balanced" se houver extrato E bater, OU se não houver nada E estiver marcado como sem movimento
     const isBalanced = hasAnyStatement ? isMathBalanced : isNoMovement;
 
     return { 
@@ -452,7 +460,6 @@ export default function ReconciliationPage() {
 
         let dateStr = "";
         if (typeof rawDate === 'number') {
-           // Excel serial date
            const date = new Date((rawDate - 25569) * 86400 * 1000);
            dateStr = format(date, "yyyy-MM-dd");
         } else {
@@ -688,6 +695,34 @@ export default function ReconciliationPage() {
     toast({ title: "Conta bancária criada!" });
   };
 
+  const handleDeleteAccountConfirm = () => {
+    if (!db || !user || !selectedAccountId || !selectedAccount) return;
+
+    const needsReassignment = linkedEntries.length > 0;
+    if (needsReassignment && !reassignToAccountId) {
+      toast({ variant: "destructive", title: "Atenção", description: "Selecione uma conta de destino para transferir os lançamentos." });
+      return;
+    }
+
+    if (needsReassignment) {
+      linkedEntries.forEach(entry => {
+        const col = entry.isPayable ? "accountsPayableEntries" : "accountsReceivableEntries";
+        updateDocumentNonBlocking(doc(db, "users", user.uid, col, entry.id), {
+          bankAccountId: reassignToAccountId,
+          updatedAt: new Date().toISOString()
+        });
+      });
+      toast({ title: "Lançamentos transferidos!" });
+    }
+
+    deleteDocumentNonBlocking(doc(db, "users", user.uid, "bankAccounts", selectedAccountId));
+    toast({ title: "Conta excluída com sucesso." });
+    
+    setSelectedAccountId("");
+    setIsDeleteAccountModalOpen(false);
+    setReassignToAccountId("");
+  };
+
   const toggleEntrySelection = (entryId: string) => {
     setSelectedMatchEntries(prev => prev.includes(entryId) ? prev.filter(id => id !== entryId) : [...prev, entryId]);
   };
@@ -720,6 +755,11 @@ export default function ReconciliationPage() {
               <SelectContent>{accounts?.map(acc => <SelectItem key={acc.id} value={acc.id}>{acc.name} ({acc.bank})</SelectItem>)}</SelectContent>
             </Select>
             <Button variant="outline" size="icon" onClick={() => setIsNewAccountModalOpen(true)} title="Nova Conta"><Plus className="w-4 h-4" /></Button>
+            {selectedAccountId && (
+              <Button variant="outline" size="icon" className="text-destructive hover:bg-destructive/10" onClick={() => setIsDeleteAccountModalOpen(true)} title="Excluir Conta">
+                <Trash2 className="w-4 h-4" />
+              </Button>
+            )}
           </div>
           
           {isCaixinha ? (
@@ -860,6 +900,65 @@ export default function ReconciliationPage() {
           </div>
         </div>
       </div>
+
+      {/* MODAL EXCLUIR CONTA */}
+      <Dialog open={isDeleteAccountModalOpen} onOpenChange={setIsDeleteAccountModalOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-destructive"><Trash2 className="w-5 h-5" /> Excluir Conta: {selectedAccount?.name}</DialogTitle>
+          </DialogHeader>
+          <div className="py-4 space-y-4">
+            {linkedEntries.length > 0 ? (
+              <>
+                <div className="bg-amber-50 p-4 rounded-lg border border-amber-200 flex gap-3 items-start">
+                  <AlertCircle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+                  <div className="space-y-1">
+                    <p className="text-sm font-bold text-amber-900">Ação Necessária</p>
+                    <p className="text-xs text-amber-700 leading-relaxed">
+                      Esta conta possui <strong>{linkedEntries.length} lançamentos</strong> conciliados. Para excluí-la, você deve transferir o vínculo desses registros para outra conta ativa.
+                    </p>
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <Label className="text-xs uppercase font-bold text-muted-foreground">Transferir lançamentos para:</Label>
+                  <Select value={reassignToAccountId} onValueChange={setReassignToAccountId}>
+                    <SelectTrigger><SelectValue placeholder="Selecione a conta de destino..." /></SelectTrigger>
+                    <SelectContent>
+                      {accounts?.filter(a => a.id !== selectedAccountId).map(acc => (
+                        <SelectItem key={acc.id} value={acc.id}>{acc.name} ({acc.bank})</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="max-h-[150px] overflow-auto border rounded-md p-2 bg-muted/20">
+                  <p className="text-[10px] uppercase font-bold text-muted-foreground mb-2">Lista de Itens (Amostra):</p>
+                  {linkedEntries.slice(0, 10).map(item => (
+                    <div key={item.id} className="text-[10px] py-1 border-b last:border-0 flex justify-between">
+                      <span className="truncate max-w-[200px]">{item.description}</span>
+                      <span className="font-bold">R$ {((item as any).amount || (item as any).originalAmount).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
+                    </div>
+                  ))}
+                  {linkedEntries.length > 10 && <p className="text-[9px] text-center mt-2 italic">...e mais {linkedEntries.length - 10} itens.</p>}
+                </div>
+              </>
+            ) : (
+              <p className="text-sm text-muted-foreground leading-relaxed">
+                Tem certeza que deseja excluir esta conta? Esta ação é irreversível e removerá também todo o histórico de extratos (OFX e físico) vinculados a ela.
+              </p>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setIsDeleteAccountModalOpen(false)}>Cancelar</Button>
+            <Button 
+              variant="destructive" 
+              onClick={handleDeleteAccountConfirm}
+              disabled={linkedEntries.length > 0 && !reassignToAccountId}
+            >
+              {linkedEntries.length > 0 ? "Transferir e Excluir" : "Sim, Excluir Conta"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* MODAL DE IMPORTAÇÃO XLSX CAIXINHA */}
       <Dialog open={isCaixinhaImportModalOpen} onOpenChange={setIsCaixinhaImportModalOpen}>
