@@ -267,7 +267,7 @@ export default function AccountsReceivablePage() {
     if (!db || !user) return;
     if (!confirm("Excluir permanentemente este registro?")) return;
 
-    deleteDocumentNonBlocking(doc(db, "users", user.uid, "accountsReceivableEntries", entry.id));
+    deleteDocumentNonBlocking(doc(db, "users", user.uid, "accountsReceivableEntries", entry.id), entry);
     toast({ title: "Recebimento excluído" });
   };
 

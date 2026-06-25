@@ -20,7 +20,8 @@ import {
   Calendar,
   User,
   Activity,
-  ArrowRight
+  ArrowRight,
+  Database
 } from "lucide-react";
 import { useUser, useFirestore, useCollection, useMemoFirebase } from "@/firebase";
 import { collection, query, orderBy, limit } from "firebase/firestore";
@@ -263,7 +264,7 @@ export default function SettingsPage() {
               Detalhamento de Atividade
             </DialogTitle>
             <DialogDescription>
-              Informações técnicas capturadas no momento da operação.
+              Snapshot técnico capturado no momento da operação.
             </DialogDescription>
           </DialogHeader>
 
@@ -272,12 +273,12 @@ export default function SettingsPage() {
               <div className="grid grid-cols-2 gap-4">
                 <div className="bg-muted/50 p-4 rounded-lg space-y-3">
                   <div className="flex items-center gap-2 text-xs font-bold text-muted-foreground uppercase tracking-widest">
-                    <Activity className="w-3 h-3" /> Ação Realizada
+                    <Activity className="w-3 h-3" /> Ação
                   </div>
                   <div className="flex items-center gap-2">
-                    {selectedLog.action === 'CREATE' && <Badge className="bg-emerald-100 text-emerald-700">Criação de Registro</Badge>}
-                    {selectedLog.action === 'UPDATE' && <Badge className="bg-amber-100 text-amber-700">Atualização de Dados</Badge>}
-                    {selectedLog.action === 'DELETE' && <Badge variant="destructive">Exclusão Permanente</Badge>}
+                    {selectedLog.action === 'CREATE' && <Badge className="bg-emerald-100 text-emerald-700">Criação</Badge>}
+                    {selectedLog.action === 'UPDATE' && <Badge className="bg-amber-100 text-amber-700">Edição</Badge>}
+                    {selectedLog.action === 'DELETE' && <Badge variant="destructive">Exclusão</Badge>}
                   </div>
                 </div>
 
@@ -291,39 +292,38 @@ export default function SettingsPage() {
                 </div>
               </div>
 
-              <div className="bg-muted/30 p-4 rounded-lg border border-dashed flex gap-4 items-center">
-                <div className="w-10 h-10 rounded-full bg-accent flex items-center justify-center text-accent-foreground font-black text-lg">
+              <div className="bg-primary/5 p-4 rounded-lg border border-primary/20 flex gap-4 items-center">
+                <div className="w-10 h-10 rounded-full bg-primary text-primary-foreground flex items-center justify-center font-black text-lg">
                   {selectedLog.userEmail.charAt(0).toUpperCase()}
                 </div>
                 <div>
-                  <p className="text-[10px] uppercase font-bold text-muted-foreground flex items-center gap-1">
-                    <User className="w-2 h-2" /> Responsável
-                  </p>
+                  <p className="text-[10px] uppercase font-bold text-muted-foreground">Responsável</p>
                   <p className="text-sm font-bold">{selectedLog.userEmail}</p>
                 </div>
-                <div className="ml-auto text-right border-l pl-4">
-                  <p className="text-[10px] uppercase font-bold text-muted-foreground">ID do Usuário</p>
-                  <p className="text-[10px] font-mono opacity-50">{selectedLog.userId}</p>
+                <div className="ml-auto text-right border-l pl-4 border-primary/20">
+                  <p className="text-[10px] uppercase font-bold text-muted-foreground">ID do Item</p>
+                  <p className="text-[10px] font-mono opacity-50">{selectedLog.entityId}</p>
                 </div>
               </div>
 
               <div className="space-y-3">
                 <h4 className="text-xs font-bold uppercase text-primary flex items-center gap-2">
-                  <FileJson className="w-3 h-3" /> Dados do Snapshot
+                  <Database className="w-3 h-3" /> Dados do Registro
                 </h4>
-                <div className="max-h-[300px] overflow-auto rounded-md border bg-slate-950 p-4">
+                <div className="max-h-[350px] overflow-auto rounded-lg border bg-slate-900 p-6 shadow-inner">
                   {selectedLog.details && Object.keys(selectedLog.details).length > 0 ? (
-                    <pre className="text-[11px] text-emerald-400 font-mono leading-relaxed">
+                    <pre className="text-[12px] text-emerald-400 font-mono leading-relaxed whitespace-pre-wrap">
                       {JSON.stringify(selectedLog.details, null, 2)}
                     </pre>
                   ) : (
                     <p className="text-[11px] text-slate-500 italic text-center py-10">
-                      Nenhum snapshot de dados detalhado foi capturado para esta ação (Padrão para exclusões).
+                      Nenhum snapshot de dados capturado.
                     </p>
                   )}
                 </div>
-                <p className="text-[9px] text-muted-foreground italic">
-                  * Os dados acima representam o estado final do objeto no momento em que a ação foi disparada.
+                <p className="text-[10px] text-muted-foreground italic flex items-center gap-2 justify-center mt-2">
+                  <AlertCircle className="w-3 h-3" />
+                  Este bloco contém os campos exatos salvos no banco de dados.
                 </p>
               </div>
             </div>
@@ -331,7 +331,7 @@ export default function SettingsPage() {
 
           <DialogFooter>
             <Button variant="outline" onClick={() => setIsDetailsOpen(false)} className="w-full">
-              Fechar Detalhamento
+              Fechar
             </Button>
           </DialogFooter>
         </DialogContent>

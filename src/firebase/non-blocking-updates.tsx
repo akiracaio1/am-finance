@@ -44,7 +44,7 @@ function logActivity(action: 'CREATE' | 'UPDATE' | 'DELETE', path: string, data:
     action,
     entityType,
     entityId,
-    description: `${action} em ${entityType}: ${description}`,
+    description: `${action === 'CREATE' ? 'Criou' : action === 'UPDATE' ? 'Editou' : 'Excluiu'} em ${entityType}: ${description}`,
     timestamp: new Date().toISOString(),
     details: data || {} // Salva o snapshot dos dados para auditoria detalhada
   };
@@ -114,10 +114,11 @@ export function updateDocumentNonBlocking(docRef: DocumentReference, data: any) 
 
 /**
  * Executa um deleteDoc de forma não-bloqueante com registro de auditoria.
+ * Aceita opcionalmente os dados que estão sendo excluídos para manter no log.
  */
-export function deleteDocumentNonBlocking(docRef: DocumentReference) {
+export function deleteDocumentNonBlocking(docRef: DocumentReference, dataForLog?: any) {
   deleteDoc(docRef)
-    .then(() => logActivity('DELETE', docRef.path, { description: 'Item removido' }))
+    .then(() => logActivity('DELETE', docRef.path, dataForLog || { info: 'Item removido' }))
     .catch(error => {
       errorEmitter.emit(
         'permission-error',

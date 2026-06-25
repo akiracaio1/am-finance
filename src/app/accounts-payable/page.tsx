@@ -755,7 +755,7 @@ export default function AccountsPayablePage() {
                           }}>Editar</DropdownMenuItem>
                           <DropdownMenuItem onClick={() => {
                             if (confirm("Excluir este lançamento permanentemente?")) {
-                              deleteDocumentNonBlocking(doc(db!, "users", user!.uid, "accountsPayableEntries", entry.id));
+                              deleteDocumentNonBlocking(doc(db!, "users", user!.uid, "accountsPayableEntries", entry.id), entry);
                               toast({ title: "Lançamento excluído" });
                             }
                           }} className="text-destructive">Excluir</DropdownMenuItem>
