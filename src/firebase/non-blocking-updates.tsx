@@ -5,9 +5,8 @@ import {
   addDoc,
   updateDoc,
   deleteDoc,
-  collection,
-  doc,
   getFirestore,
+  doc,
   CollectionReference,
   DocumentReference,
   SetOptions,
@@ -18,25 +17,23 @@ import { FirestorePermissionError } from '@/firebase/errors';
 
 /**
  * Grava um log de auditoria de forma assíncrona e não-bloqueante.
+ * O log é gravado na subcoleção do próprio usuário.
  */
 function logActivity(action: 'CREATE' | 'UPDATE' | 'DELETE', path: string, data: any) {
   const auth = getAuth();
   const user = auth.currentUser;
   if (!user) return;
 
-  // Extrai o tipo de entidade do path (ex: /users/XYZ/suppliers/ABC -> suppliers)
   const pathParts = path.split('/');
   const entityType = pathParts[pathParts.length - 2] || 'unknown';
   const entityId = pathParts[pathParts.length - 1] || 'unknown';
   
-  // Ignora logs de logs para evitar recursividade infinita
   if (entityType === 'auditLogs') return;
 
-  const logId = `log_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
+  const logId = `log_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
   const db = getFirestore();
   const logRef = doc(db, "users", user.uid, "auditLogs", logId);
 
-  // Tentativa simplificada de pegar uma descrição útil
   const description = data?.description || data?.name || data?.customerName || entityId;
   
   const logData = {
@@ -50,17 +47,17 @@ function logActivity(action: 'CREATE' | 'UPDATE' | 'DELETE', path: string, data:
     timestamp: new Date().toISOString()
   };
 
-  // Gravação direta para evitar overhead
-  setDoc(logRef, logData).catch(() => {});
+  setDoc(logRef, logData).catch(() => {
+    // Falha silenciosa no log para não travar a operação principal
+  });
 }
 
 /**
- * Initiates a setDoc operation for a document reference.
- * Does NOT await the write operation internally.
+ * Executa um setDoc de forma não-bloqueante com registro de auditoria.
  */
-export function setDocumentNonBlocking(docRef: DocumentReference, data: any, options: SetOptions) {
+export function setDocumentNonBlocking(docRef: DocumentReference, data: any, options?: SetOptions) {
   const isCreate = !options || !('merge' in options);
-  setDoc(docRef, data, options)
+  setDoc(docRef, data, options || {})
     .then(() => logActivity(isCreate ? 'CREATE' : 'UPDATE', docRef.path, data))
     .catch(error => {
       errorEmitter.emit(
@@ -70,17 +67,15 @@ export function setDocumentNonBlocking(docRef: DocumentReference, data: any, opt
           operation: 'write',
           requestResourceData: data,
         })
-      )
+      );
     });
 }
 
-
 /**
- * Initiates an addDoc operation for a collection reference.
- * Does NOT await the write operation internally.
+ * Executa um addDoc de forma não-bloqueante com registro de auditoria.
  */
 export function addDocumentNonBlocking(colRef: CollectionReference, data: any) {
-  const promise = addDoc(colRef, data)
+  return addDoc(colRef, data)
     .then((docRef) => {
       logActivity('CREATE', docRef.path, data);
       return docRef;
@@ -93,15 +88,12 @@ export function addDocumentNonBlocking(colRef: CollectionReference, data: any) {
           operation: 'create',
           requestResourceData: data,
         })
-      )
+      );
     });
-  return promise;
 }
 
-
 /**
- * Initiates an updateDoc operation for a document reference.
- * Does NOT await the write operation internally.
+ * Executa um updateDoc de forma não-bloqueante com registro de auditoria.
  */
 export function updateDocumentNonBlocking(docRef: DocumentReference, data: any) {
   updateDoc(docRef, data)
@@ -114,14 +106,12 @@ export function updateDocumentNonBlocking(docRef: DocumentReference, data: any) 
           operation: 'update',
           requestResourceData: data,
         })
-      )
+      );
     });
 }
 
-
 /**
- * Initiates a deleteDoc operation for a document reference.
- * Does NOT await the write operation internally.
+ * Executa um deleteDoc de forma não-bloqueante com registro de auditoria.
  */
 export function deleteDocumentNonBlocking(docRef: DocumentReference) {
   deleteDoc(docRef)
@@ -133,6 +123,6 @@ export function deleteDocumentNonBlocking(docRef: DocumentReference) {
           path: docRef.path,
           operation: 'delete',
         })
-      )
+      );
     });
 }

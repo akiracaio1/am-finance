@@ -6,7 +6,7 @@ service cloud.firestore {
      * AM Finance - Security Rules
      *
      * CORE PHILOSOPHY:
-     * Strict path-based ownership. Data is segregated by user or company.
+     * Strict path-based ownership. Data is segregated by user.
      */
 
     function isSignedIn() {
@@ -17,96 +17,87 @@ service cloud.firestore {
       return isSignedIn() && request.auth.uid == userId;
     }
 
-    // --- Collection Rules ---
+    // --- User-based Data Segregation ---
 
-    /** Rules for User Profiles and Company associations */
     match /users/{userId} {
+      // Permission for the user profile itself
       allow get, write: if isOwner(userId);
-    }
 
-    /** Rules for Companies */
-    match /companies/{companyId} {
-      allow create: if isSignedIn();
-      allow get, update: if isSignedIn(); // In a real app, we'd check if user belongs to company
-    }
-
-    /** Rules for Supplier records nested under users */
-    match /users/{userId}/suppliers/{supplierId} {
-      allow get, list: if isOwner(userId);
-      allow create: if isOwner(userId) && request.resource.data.id == supplierId;
-      allow update: if isOwner(userId) && request.resource.data.id == resource.data.id;
-      allow delete: if isOwner(userId);
-    }
-
-    /** Rules for Account Categories */
-    match /users/{userId}/accountCategories/{categoryId} {
-      allow get, list: if isOwner(userId);
-      allow create: if isOwner(userId) && request.resource.data.id == categoryId;
-      allow update: if isOwner(userId) && request.resource.data.id == resource.data.id;
-      allow delete: if isOwner(userId);
-    }
-
-    /** Rules for Cost Center Groups */
-    match /users/{userId}/costCenterGroups/{groupId} {
-      allow get, list: if isOwner(userId);
-      allow create: if isOwner(userId) && request.resource.data.id == groupId;
-      allow update: if isOwner(userId) && request.resource.data.id == resource.data.id;
-      allow delete: if isOwner(userId);
-    }
-
-    /** Rules for Cost Centers */
-    match /users/{userId}/costCenters/{centerId} {
-      allow get, list: if isOwner(userId);
-      allow create: if isOwner(userId) && request.resource.data.id == centerId;
-      allow update: if isOwner(userId) && request.resource.data.id == resource.data.id;
-      allow delete: if isOwner(userId);
-    }
-
-    /** Rules for Bank Accounts and Transactions */
-    match /users/{userId}/bankAccounts/{bankAccountId} {
-      allow get, list: if isOwner(userId);
-      allow create: if isOwner(userId) && request.resource.data.id == bankAccountId;
-      allow update: if isOwner(userId) && request.resource.data.id == resource.data.id;
-      allow delete: if isOwner(userId);
-
-      match /bankTransactions/{transactionId} {
+      /** Rules for Supplier records */
+      match /suppliers/{supplierId} {
         allow get, list: if isOwner(userId);
-        allow create: if isOwner(userId) && request.resource.data.id == transactionId;
+        allow create: if isOwner(userId) && request.resource.data.id == supplierId;
         allow update: if isOwner(userId) && request.resource.data.id == resource.data.id;
         allow delete: if isOwner(userId);
       }
 
-      match /noMovementDays/{date} {
+      /** Rules for Account Categories */
+      match /accountCategories/{categoryId} {
+        allow get, list: if isOwner(userId);
+        allow create: if isOwner(userId) && request.resource.data.id == categoryId;
+        allow update: if isOwner(userId) && request.resource.data.id == resource.data.id;
+        allow delete: if isOwner(userId);
+      }
+
+      /** Rules for Cost Center Groups and Centers */
+      match /costCenterGroups/{groupId} {
+        allow get, list: if isOwner(userId);
+        allow create: if isOwner(userId) && request.resource.data.id == groupId;
+        allow update: if isOwner(userId) && request.resource.data.id == resource.data.id;
+        allow delete: if isOwner(userId);
+      }
+
+      match /costCenters/{centerId} {
+        allow get, list: if isOwner(userId);
+        allow create: if isOwner(userId) && request.resource.data.id == centerId;
+        allow update: if isOwner(userId) && request.resource.data.id == resource.data.id;
+        allow delete: if isOwner(userId);
+      }
+
+      /** Rules for Bank Accounts and Transactions */
+      match /bankAccounts/{bankAccountId} {
+        allow get, list: if isOwner(userId);
+        allow create: if isOwner(userId) && request.resource.data.id == bankAccountId;
+        allow update: if isOwner(userId) && request.resource.data.id == resource.data.id;
+        allow delete: if isOwner(userId);
+
+        match /bankTransactions/{transactionId} {
+          allow get, list: if isOwner(userId);
+          allow create: if isOwner(userId) && request.resource.data.id == transactionId;
+          allow update: if isOwner(userId) && request.resource.data.id == resource.data.id;
+          allow delete: if isOwner(userId);
+        }
+
+        match /noMovementDays/{date} {
+          allow get, list, write: if isOwner(userId);
+        }
+      }
+
+      /** Rules for Financial Entries (Payable/Receivable) */
+      match /accountsPayableEntries/{entryId} {
+        allow get, list: if isOwner(userId);
+        allow create: if isOwner(userId) && request.resource.data.id == entryId;
+        allow update: if isOwner(userId) && request.resource.data.id == resource.data.id;
+        allow delete: if isOwner(userId);
+      }
+
+      match /accountsReceivableEntries/{entryId} {
+        allow get, list: if isOwner(userId);
+        allow create: if isOwner(userId) && request.resource.data.id == entryId;
+        allow update: if isOwner(userId) && request.resource.data.id == resource.data.id;
+        allow delete: if isOwner(userId);
+      }
+
+      /** Rules for Audit Logs - Critical Fix */
+      match /auditLogs/{logId} {
         allow get, list, write: if isOwner(userId);
       }
     }
 
-    /** Rules for Financial Entries (Payable/Receivable) */
-    match /users/{userId}/accountsPayableEntries/{entryId} {
-      allow get, list: if isOwner(userId);
-      allow create: if isOwner(userId) && request.resource.data.id == entryId;
-      allow update: if isOwner(userId) && request.resource.data.id == resource.data.id;
-      allow delete: if isOwner(userId);
-    }
-
-    match /users/{userId}/accountsReceivableEntries/{entryId} {
-      allow get, list: if isOwner(userId);
-      allow create: if isOwner(userId) && request.resource.data.id == entryId;
-      allow update: if isOwner(userId) && request.resource.data.id == resource.data.id;
-      allow delete: if isOwner(userId);
-    }
-
-    /** Rules for Cash Flow Projections */
-    match /users/{userId}/cashFlowProjections/{projectionId} {
-      allow get, list: if isOwner(userId);
-      allow create: if isOwner(userId) && request.resource.data.id == projectionId;
-      allow update: if isOwner(userId) && request.resource.data.id == resource.data.id;
-      allow delete: if isOwner(userId);
-    }
-
-    /** Rules for Audit Logs */
-    match /users/{userId}/auditLogs/{logId} {
-      allow get, list, write: if isOwner(userId);
+    /** Rules for Companies (Master record) */
+    match /companies/{companyId} {
+      allow create: if isSignedIn();
+      allow get, update: if isSignedIn();
     }
   }
 }
