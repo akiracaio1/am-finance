@@ -123,6 +123,7 @@ export interface AuditLog {
   entityId: string;
   description: string;
   timestamp: string;
+  details?: any; // Snapshot dos dados
 }
 
 export interface UserProfile {

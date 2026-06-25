@@ -160,7 +160,8 @@
         "entityType": { "type": "string" },
         "entityId": { "type": "string" },
         "description": { "type": "string" },
-        "timestamp": { "type": "string", "format": "date-time" }
+        "timestamp": { "type": "string", "format": "date-time" },
+        "details": { "type": "object", "description": "JSON snapshot of the entity data at the time of log." }
       },
       "required": ["id", "userId", "action", "entityType", "timestamp"]
     }

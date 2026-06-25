@@ -1,3 +1,4 @@
+
 'use client';
     
 import {
@@ -44,7 +45,8 @@ function logActivity(action: 'CREATE' | 'UPDATE' | 'DELETE', path: string, data:
     entityType,
     entityId,
     description: `${action} em ${entityType}: ${description}`,
-    timestamp: new Date().toISOString()
+    timestamp: new Date().toISOString(),
+    details: data || {} // Salva o snapshot dos dados para auditoria detalhada
   };
 
   setDoc(logRef, logData).catch(() => {

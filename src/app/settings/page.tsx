@@ -9,15 +9,18 @@ import {
   ShieldCheck, 
   History, 
   UserCircle, 
-  Bell, 
   Lock,
   Trash2,
   AlertCircle,
   CheckCircle2,
   Clock,
   Search,
-  Filter,
-  UserCog
+  UserCog,
+  FileJson,
+  Calendar,
+  User,
+  Activity,
+  ArrowRight
 } from "lucide-react";
 import { useUser, useFirestore, useCollection, useMemoFirebase } from "@/firebase";
 import { collection, query, orderBy, limit } from "firebase/firestore";
@@ -36,6 +39,14 @@ import {
   TableHeader, 
   TableRow 
 } from "@/components/ui/table";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter
+} from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 
 export default function SettingsPage() {
@@ -43,10 +54,13 @@ export default function SettingsPage() {
   const db = useFirestore();
   const [searchTerm, setSearchTerm] = useState("");
   const [activeTab, setActiveTab] = useState("audit");
+  
+  // Estados para detalhamento de log
+  const [selectedLog, setSelectedLog] = useState<AuditLog | null>(null);
+  const [isDetailsOpen, setIsDetailsOpen] = useState(false);
 
   const auditQuery = useMemoFirebase(() => {
     if (!db || !user) return null;
-    // Pega os últimos 100 eventos para não sobrecarregar
     return query(
       collection(db, "users", user.uid, "auditLogs"),
       orderBy("timestamp", "desc"),
@@ -64,6 +78,11 @@ export default function SettingsPage() {
       log.action.toLowerCase().includes(searchTerm.toLowerCase())
     );
   }, [logs, searchTerm]);
+
+  const handleOpenDetails = (log: AuditLog) => {
+    setSelectedLog(log);
+    setIsDetailsOpen(true);
+  };
 
   return (
     <div className="space-y-6 pb-20 animate-in fade-in duration-700">
@@ -150,7 +169,7 @@ export default function SettingsPage() {
                   <TableRow className="bg-muted/20">
                     <TableHead className="w-[180px]">Data e Hora</TableHead>
                     <TableHead className="w-[120px]">Ação</TableHead>
-                    <TableHead>Descrição da Atividade</TableHead>
+                    <TableHead>Descrição da Atividade (Clique para detalhes)</TableHead>
                     <TableHead className="w-[200px]">Realizado por</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -158,7 +177,11 @@ export default function SettingsPage() {
                   {filteredLogs.map((log) => {
                     const date = parseISO(log.timestamp);
                     return (
-                      <TableRow key={log.id} className="hover:bg-muted/50 transition-colors">
+                      <TableRow 
+                        key={log.id} 
+                        className="hover:bg-muted/50 transition-colors cursor-pointer group"
+                        onClick={() => handleOpenDetails(log)}
+                      >
                         <TableCell className="text-xs font-mono text-muted-foreground">
                           {format(date, "dd/MM/yy 'às' HH:mm", { locale: ptBR })}
                         </TableCell>
@@ -180,8 +203,11 @@ export default function SettingsPage() {
                           )}
                         </TableCell>
                         <TableCell>
-                          <div className="flex flex-col gap-0.5">
-                            <span className="text-sm font-medium">{log.description}</span>
+                          <div className="flex flex-col gap-0.5 group-hover:translate-x-1 transition-transform">
+                            <span className="text-sm font-medium flex items-center gap-2">
+                              {log.description}
+                              <ArrowRight className="w-3 h-3 opacity-0 group-hover:opacity-100 text-primary transition-opacity" />
+                            </span>
                             <span className="text-[10px] text-muted-foreground uppercase font-bold tracking-tight">Entidade: {log.entityType}</span>
                           </div>
                         </TableCell>
@@ -207,18 +233,6 @@ export default function SettingsPage() {
               </Table>
             </CardContent>
           </Card>
-
-          <Card className="bg-primary/5 border-primary/10">
-            <CardContent className="pt-6 flex gap-4 items-start">
-              <AlertCircle className="w-5 h-5 text-primary shrink-0 mt-0.5" />
-              <div className="space-y-1">
-                <h4 className="text-sm font-bold">Por que logs são importantes?</h4>
-                <p className="text-xs text-muted-foreground leading-relaxed">
-                  Os logs de auditoria garantem a integridade dos dados da sua empresa. Se um lançamento sumir, você poderá ver aqui exatamente quem o removeu e quando. Isso evita falhas de comunicação e aumenta a confiança na gestão financeira.
-                </p>
-              </div>
-            </CardContent>
-          </Card>
         </TabsContent>
 
         <TabsContent value="security" className="pt-6">
@@ -235,17 +249,93 @@ export default function SettingsPage() {
                 </div>
                 <Button variant="outline" size="sm">Trocar agora</Button>
               </div>
-              <div className="p-4 bg-muted/30 rounded-lg flex items-center justify-between border">
-                <div>
-                  <p className="text-sm font-bold">Autenticação de Dois Fatores</p>
-                  <p className="text-xs text-muted-foreground">Adicione uma camada extra de segurança ao seu login.</p>
-                </div>
-                <Badge variant="secondary">Em Breve</Badge>
-              </div>
             </CardContent>
           </Card>
         </TabsContent>
       </Tabs>
+
+      {/* MODAL DE DETALHES DO LOG */}
+      <Dialog open={isDetailsOpen} onOpenChange={setIsDetailsOpen}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Activity className="w-5 h-5 text-primary" />
+              Detalhamento de Atividade
+            </DialogTitle>
+            <DialogDescription>
+              Informações técnicas capturadas no momento da operação.
+            </DialogDescription>
+          </DialogHeader>
+
+          {selectedLog && (
+            <div className="space-y-6 py-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div className="bg-muted/50 p-4 rounded-lg space-y-3">
+                  <div className="flex items-center gap-2 text-xs font-bold text-muted-foreground uppercase tracking-widest">
+                    <Activity className="w-3 h-3" /> Ação Realizada
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {selectedLog.action === 'CREATE' && <Badge className="bg-emerald-100 text-emerald-700">Criação de Registro</Badge>}
+                    {selectedLog.action === 'UPDATE' && <Badge className="bg-amber-100 text-amber-700">Atualização de Dados</Badge>}
+                    {selectedLog.action === 'DELETE' && <Badge variant="destructive">Exclusão Permanente</Badge>}
+                  </div>
+                </div>
+
+                <div className="bg-muted/50 p-4 rounded-lg space-y-3">
+                  <div className="flex items-center gap-2 text-xs font-bold text-muted-foreground uppercase tracking-widest">
+                    <Calendar className="w-3 h-3" /> Data e Hora
+                  </div>
+                  <div className="text-sm font-mono font-bold">
+                    {format(parseISO(selectedLog.timestamp), "dd/MM/yyyy 'às' HH:mm:ss", { locale: ptBR })}
+                  </div>
+                </div>
+              </div>
+
+              <div className="bg-muted/30 p-4 rounded-lg border border-dashed flex gap-4 items-center">
+                <div className="w-10 h-10 rounded-full bg-accent flex items-center justify-center text-accent-foreground font-black text-lg">
+                  {selectedLog.userEmail.charAt(0).toUpperCase()}
+                </div>
+                <div>
+                  <p className="text-[10px] uppercase font-bold text-muted-foreground flex items-center gap-1">
+                    <User className="w-2 h-2" /> Responsável
+                  </p>
+                  <p className="text-sm font-bold">{selectedLog.userEmail}</p>
+                </div>
+                <div className="ml-auto text-right border-l pl-4">
+                  <p className="text-[10px] uppercase font-bold text-muted-foreground">ID do Usuário</p>
+                  <p className="text-[10px] font-mono opacity-50">{selectedLog.userId}</p>
+                </div>
+              </div>
+
+              <div className="space-y-3">
+                <h4 className="text-xs font-bold uppercase text-primary flex items-center gap-2">
+                  <FileJson className="w-3 h-3" /> Dados do Snapshot
+                </h4>
+                <div className="max-h-[300px] overflow-auto rounded-md border bg-slate-950 p-4">
+                  {selectedLog.details && Object.keys(selectedLog.details).length > 0 ? (
+                    <pre className="text-[11px] text-emerald-400 font-mono leading-relaxed">
+                      {JSON.stringify(selectedLog.details, null, 2)}
+                    </pre>
+                  ) : (
+                    <p className="text-[11px] text-slate-500 italic text-center py-10">
+                      Nenhum snapshot de dados detalhado foi capturado para esta ação (Padrão para exclusões).
+                    </p>
+                  )}
+                </div>
+                <p className="text-[9px] text-muted-foreground italic">
+                  * Os dados acima representam o estado final do objeto no momento em que a ação foi disparada.
+                </p>
+              </div>
+            </div>
+          )}
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsDetailsOpen(false)} className="w-full">
+              Fechar Detalhamento
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
