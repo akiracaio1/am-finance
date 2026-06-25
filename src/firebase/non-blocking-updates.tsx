@@ -1,4 +1,3 @@
-
 'use client';
     
 import {
@@ -8,6 +7,7 @@ import {
   deleteDoc,
   collection,
   doc,
+  getFirestore,
   CollectionReference,
   DocumentReference,
   SetOptions,
@@ -33,9 +33,10 @@ function logActivity(action: 'CREATE' | 'UPDATE' | 'DELETE', path: string, data:
   if (entityType === 'auditLogs') return;
 
   const logId = `log_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
-  const logRef = doc(collection(user.providerData[0]?.uid ? doc(doc(collection(user.auth.app.options as any, "users"), user.uid), "auditLogs") as any : any, "users", user.uid, "auditLogs"), logId);
+  const db = getFirestore();
+  const logRef = doc(db, "users", user.uid, "auditLogs", logId);
 
-  // Tentativa simplificada de gravar log
+  // Tentativa simplificada de pegar uma descrição útil
   const description = data?.description || data?.name || data?.customerName || entityId;
   
   const logData = {
@@ -123,7 +124,6 @@ export function updateDocumentNonBlocking(docRef: DocumentReference, data: any) 
  * Does NOT await the write operation internally.
  */
 export function deleteDocumentNonBlocking(docRef: DocumentReference) {
-  // Para delete, tentamos pegar o ID para o log antes de sumir
   deleteDoc(docRef)
     .then(() => logActivity('DELETE', docRef.path, { description: 'Item removido' }))
     .catch(error => {
