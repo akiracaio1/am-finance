@@ -16,6 +16,7 @@ import {
   FileSearch,
   Wallet,
   LayoutGrid,
+  Settings,
   LogOut
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -35,6 +36,7 @@ const menuItems = [
   { name: "Diagnóstico", icon: FileSearch, href: "/import-diagnosis" },
   { name: "Plano de Contas", icon: BookOpen, href: "/chart-of-accounts" },
   { name: "Centros de Custo", icon: LayoutGrid, href: "/cost-centers" },
+  { name: "Configurações", icon: Settings, href: "/settings" },
 ];
 
 export function AppSidebar() {

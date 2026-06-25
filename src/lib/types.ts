@@ -5,6 +5,7 @@ export type PersonType = 'Pessoa Física' | 'Pessoa Jurídica';
 export type EntryType = 'Provision' | 'Confirmed';
 export type BankAccountType = 'Corrente' | 'Poupança' | 'Investimento' | 'Caixinha';
 export type CostCenterStatus = 'Active' | 'Archived';
+export type AuditAction = 'CREATE' | 'UPDATE' | 'DELETE';
 
 export interface Supplier {
   id: string;
@@ -113,20 +114,22 @@ export interface BankTransaction {
   ignored?: boolean;
 }
 
-export interface NoMovementDay {
-  date: string;
+export interface AuditLog {
+  id: string;
+  userId: string;
+  userEmail: string;
+  action: AuditAction;
+  entityType: string;
+  entityId: string;
+  description: string;
+  timestamp: string;
 }
 
-export interface FinancialEntry {
+export interface UserProfile {
   id: string;
-  description: string;
-  amount: number;
-  dueDate: string;
-  paymentDate?: string;
-  status: string;
-  supplierId?: string;
-  type: AccountType;
-  category: string;
-  interest?: number;
-  fine?: number;
+  email: string;
+  companyId: string;
+  displayName?: string;
+  role?: 'admin' | 'user';
+  createdAt: any;
 }

@@ -13,7 +13,7 @@
         "pixKey": { "type": "string" },
         "cnpj": { "type": "string" },
         "contactName": { "type": "string" },
-        "email": { "type": "string", "format": "email" },
+        "email": { "type": "string" },
         "phone": { "type": "string" },
         "category": { "type": "string" },
         "notes": { "type": "string" },
@@ -148,6 +148,21 @@
         "ignored": { "type": "boolean" }
       },
       "required": ["id", "date", "amount", "description", "type", "reconciled"]
+    },
+    "AuditLog": {
+      "title": "AuditLog",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "userEmail": { "type": "string" },
+        "action": { "type": "string", "enum": ["CREATE", "UPDATE", "DELETE"] },
+        "entityType": { "type": "string" },
+        "entityId": { "type": "string" },
+        "description": { "type": "string" },
+        "timestamp": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "userId", "action", "entityType", "timestamp"]
     }
   },
   "auth": {
@@ -220,11 +235,11 @@
         }
       },
       {
-        "path": "/users/{userId}/bankAccounts/{bankAccountId}/noMovementDays/{date}",
+        "path": "/users/{userId}/auditLogs/{logId}",
         "definition": {
-          "entityName": "NoMovementDay",
-          "schema": { "type": "object", "properties": { "date": { "type": "string" } } },
-          "description": "Days explicitly marked as having no movement."
+          "entityName": "AuditLog",
+          "schema": { "$ref": "#/backend/entities/AuditLog" },
+          "description": "Stores activity logs for auditing."
         }
       }
     ]
