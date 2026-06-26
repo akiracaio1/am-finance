@@ -48,7 +48,9 @@ import {
   startOfMonth, 
   endOfMonth, 
   parseISO,
-  isValid
+  isValid,
+  isBefore,
+  isSameDay
 } from "date-fns";
 import { 
   exportToExcel, 
@@ -152,6 +154,20 @@ export default function ReportsPage() {
 
     const isReceivable = reportType.startsWith("receivable");
     const isPaid = reportType.endsWith("_paid");
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const getStatusLabel = (item: any) => {
+      if (item.status === 'Paid') return 'Liquidado';
+      if (!item.dueDate) return 'Em Aberto';
+      
+      const dueDate = new Date(item.dueDate + 'T12:00:00');
+      dueDate.setHours(0, 0, 0, 0);
+
+      if (isBefore(dueDate, today)) return 'Atrasado';
+      if (isSameDay(dueDate, today)) return 'Vence Hoje';
+      return 'Em Aberto';
+    };
 
     const exportData = filteredData.map((item: any) => {
       const category = categories?.find(c => c.id === item.accountCategoryId)?.name || 'Geral';
@@ -180,7 +196,8 @@ export default function ReportsPage() {
           'Valor Original (R$)': baseValue,
           'Juros/Multa (+)': (item.interest || 0) + (item.fine || 0),
           'Desconto (-)': (item.discount || 0),
-          'Valor Pago Líquido (R$)': net
+          'Valor Pago Líquido (R$)': net,
+          'Status': getStatusLabel(item)
         };
       }
 
@@ -193,7 +210,7 @@ export default function ReportsPage() {
         'Categoria': category,
         'Centro de Custo': centerName,
         'Valor (R$)': baseValue,
-        'Status': item.status === 'Paid' ? 'Liquidado' : 'Pendente'
+        'Status': getStatusLabel(item)
       };
     });
 
