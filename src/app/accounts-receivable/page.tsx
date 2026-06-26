@@ -33,7 +33,9 @@ import {
   ArrowUpDown,
   ArrowUp,
   ArrowDown,
-  Wallet
+  Wallet,
+  Filter,
+  X
 } from "lucide-react";
 import { useUser, useFirestore, useCollection, useMemoFirebase } from "@/firebase";
 import { collection, doc, query, where } from "firebase/firestore";
@@ -123,14 +125,10 @@ export default function AccountsReceivablePage() {
   const { data: categories } = useCollection<AccountCategory>(categoriesQuery);
   const { data: accounts } = useCollection<BankAccount>(accountsQuery);
 
-  // Filtragem de Categorias: Apenas categorias folha alcançáveis na árvore de Receitas
   const leafCategories = useMemo(() => {
     if (!categories) return [];
     
-    // 1. Identificar Roots válidos de Receita
     const validRoots = categories.filter(c => c.type === 'Revenue' && (!c.parentCategoryId || c.parentCategoryId === ""));
-    
-    // 2. Construir mapa de quem é filho de quem
     const childrenMap: Record<string, string[]> = {};
     categories.forEach(c => {
       if (c.parentCategoryId) {
@@ -139,7 +137,6 @@ export default function AccountsReceivablePage() {
       }
     });
 
-    // 3. Função recursiva para validar se um item é alcançável
     const reachableIds = new Set<string>();
     const checkReachable = (id: string) => {
       reachableIds.add(id);
@@ -147,7 +144,6 @@ export default function AccountsReceivablePage() {
     };
     validRoots.forEach(r => checkReachable(r.id));
 
-    // 4. Retornar as folhas (contas de lançamento) alcançáveis
     return categories.filter(cat => 
       reachableIds.has(cat.id) && 
       !categories.some(child => child.parentCategoryId === cat.id)
@@ -228,7 +224,7 @@ export default function AccountsReceivablePage() {
     e.preventDefault();
     if (!db || !user) return;
 
-    const entryId = editingEntry ? editingEntry.id : `rec_${Date.now()}`;
+    const entryId = editingEntry ? editingEntry.id : `rec_${Date.now()}_${Math.random().toString(36).substring(2, 5)}`;
     const data: any = {
       id: entryId, 
       customerName: formCustomer, 
@@ -321,6 +317,11 @@ export default function AccountsReceivablePage() {
             R$ {totalPaid.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
           </CardContent>
         </Card>
+      </div>
+
+      <div className="flex items-center gap-3 bg-muted/40 p-3 rounded-lg border border-dashed text-xs text-muted-foreground">
+        <Info className="w-4 h-4 text-primary" />
+        <span>Exibindo {sortedEntries.length} de {entries?.length || 0} lançamentos totais. Use os filtros se não encontrar o que procura.</span>
       </div>
 
       <Card>
@@ -446,19 +447,12 @@ export default function AccountsReceivablePage() {
                   </TableRow>
                 );
               })}
-              {(!entries || entries.length === 0) && (
-                <TableRow>
-                  <TableCell colSpan={6} className="text-center py-12 text-muted-foreground italic">
-                    Nenhum recebimento encontrado.
-                  </TableCell>
-                </TableRow>
-              )}
             </TableBody>
           </Table>
         </CardContent>
       </Card>
 
-      {/* MODAL DE HISTÓRICO DE PAGAMENTOS */}
+      {/* ... Restante dos modais ... */}
       <Dialog open={isHistoryOpen} onOpenChange={setIsHistoryOpen}>
         <DialogContent className="max-w-2xl">
           <DialogHeader>
@@ -495,13 +489,6 @@ export default function AccountsReceivablePage() {
                 ))}
               </TableBody>
             </Table>
-          </div>
-          <div className="bg-emerald-50 p-4 rounded-lg flex items-start gap-3">
-            <Info className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
-            <p className="text-xs text-muted-foreground leading-relaxed">
-              O histórico mostra o desmembramento de um recebimento original quando ele é liquidado parcialmente. 
-              As partes marcadas como "Recebido" já foram conciliadas no banco.
-            </p>
           </div>
         </DialogContent>
       </Dialog>

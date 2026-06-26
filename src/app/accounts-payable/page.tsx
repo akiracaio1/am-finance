@@ -42,7 +42,8 @@ import {
   ArrowUpDown,
   ArrowUp,
   ArrowDown,
-  Wallet
+  Wallet,
+  X
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useUser, useFirestore, useCollection, useMemoFirebase } from "@/firebase";
@@ -267,14 +268,11 @@ export default function AccountsPayablePage() {
     return [...suppliers].sort((a, b) => a.name.localeCompare(b.name));
   }, [suppliers]);
 
-  // Estrutura hierárquica do Plano de Contas com Validação contra Órfãos
+  // Estrutura hierárquica do Plano de Contas
   const groupedLeafCategories = useMemo(() => {
     if (!categories) return [];
     
-    // 1. Identificar Roots válidos de Despesa
     const validRoots = categories.filter(c => c.type === 'Expense' && (!c.parentCategoryId || c.parentCategoryId === ""));
-    
-    // 2. Construir mapa de quem é filho de quem
     const childrenMap: Record<string, string[]> = {};
     categories.forEach(c => {
       if (c.parentCategoryId) {
@@ -283,7 +281,6 @@ export default function AccountsPayablePage() {
       }
     });
 
-    // 3. Função recursiva para validar se um item é alcançável a partir de um Root de Despesa
     const reachableIds = new Set<string>();
     const checkReachable = (id: string) => {
       reachableIds.add(id);
@@ -291,7 +288,6 @@ export default function AccountsPayablePage() {
     };
     validRoots.forEach(r => checkReachable(r.id));
 
-    // 4. Filtrar apenas as folhas (contas de lançamento) que são alcançáveis na árvore de Despesas
     const leaves = categories.filter(cat => 
       reachableIds.has(cat.id) && 
       !categories.some(child => child.parentCategoryId === cat.id)
@@ -316,7 +312,6 @@ export default function AccountsPayablePage() {
       }));
   }, [categories]);
 
-  // Lista simples de folhas para os filtros (apenas itens válidos e alcançáveis)
   const leafCategoriesFlat = useMemo(() => {
     return groupedLeafCategories.flatMap(g => g.items).sort((a, b) => a.code.localeCompare(b.code));
   }, [groupedLeafCategories]);
@@ -391,6 +386,8 @@ export default function AccountsPayablePage() {
       });
   }, [entries, selectedStatuses, selectedSupplierIds, selectedCategoryIds, filterDueDateStart, filterDueDateEnd, searchTerm, suppliers, categories, todayStr, mounted, sortConfig]);
 
+  const hasActiveFilters = searchTerm !== "" || selectedStatuses.length > 0 || selectedSupplierIds.length > 0 || selectedCategoryIds.length > 0 || filterDueDateStart !== "" || filterDueDateEnd !== "";
+
   const totalOverdue = allFilteredEntries.filter(e => e.dynamicStatus === 'Overdue').reduce((acc, curr) => acc + curr.originalAmount, 0);
   const totalDueToday = allFilteredEntries.filter(e => e.dynamicStatus === 'DueToday').reduce((acc, curr) => acc + curr.originalAmount, 0);
   const totalOpen = allFilteredEntries.filter(e => e.dynamicStatus === 'Open').reduce((acc, curr) => acc + curr.originalAmount, 0);
@@ -418,6 +415,16 @@ export default function AccountsPayablePage() {
     toast({ title: "Fornecedor criado e selecionado!" });
   };
 
+  const clearFilters = () => {
+    setSearchTerm("");
+    setSelectedStatuses([]);
+    setSelectedSupplierIds([]);
+    setSelectedCategoryIds([]);
+    setFilterDueDateStart("");
+    setFilterDueDateEnd("");
+    setSortConfig({ key: 'dueDate', direction: 'asc' });
+  };
+
   const handleSaveEntry = (e: React.FormEvent) => {
     e.preventDefault();
     if (!db || !user) return;
@@ -437,8 +444,10 @@ export default function AccountsPayablePage() {
       toast({ title: "Lançamento atualizado" });
     } else {
       if (isMultiEntry && installmentsDraft.length > 0) {
+        const batchTimestamp = Date.now();
         installmentsDraft.forEach((draft, i) => {
-          const id = `pay_${Date.now()}_${i}`;
+          // ID com timestamp do lote + índice + sufixo aleatório para evitar qualquer colisão
+          const id = `pay_${batchTimestamp}_${i}_${Math.random().toString(36).substring(2, 5)}`;
           setDocumentNonBlocking(
             doc(db, "users", user.uid, "accountsPayableEntries", id), 
             { 
@@ -455,7 +464,7 @@ export default function AccountsPayablePage() {
         });
         toast({ title: `${installmentsDraft.length} lançamentos gerados!` });
       } else {
-        const id = `pay_${Date.now()}`;
+        const id = `pay_${Date.now()}_${Math.random().toString(36).substring(2, 5)}`;
         setDocumentNonBlocking(
           doc(db, "users", user.uid, "accountsPayableEntries", id), 
           { 
@@ -594,7 +603,7 @@ export default function AccountsPayablePage() {
                   <Input type="date" value={filterDueDateEnd} onChange={e => setFilterDueDateEnd(e.target.value)} />
                 </div>
                 <div>
-                  <Button variant="ghost" className="w-full gap-2 text-muted-foreground hover:text-primary" onClick={() => { setSearchTerm(""); setSelectedStatuses([]); setSelectedSupplierIds([]); setSelectedCategoryIds([]); setFilterDueDateStart(""); setFilterDueDateEnd(""); setSortConfig({ key: 'dueDate', direction: 'asc' }); }}>
+                  <Button variant="ghost" className="w-full gap-2 text-muted-foreground hover:text-primary" onClick={clearFilters}>
                     <RotateCcw className="w-4 h-4" /> Limpar
                   </Button>
                 </div>
@@ -624,6 +633,21 @@ export default function AccountsPayablePage() {
           </Card>
         ))}
       </div>
+
+      {hasActiveFilters && (
+        <div className="flex items-center justify-between bg-amber-50 border border-amber-200 p-3 rounded-lg animate-in slide-in-from-top-2">
+          <div className="flex items-center gap-3 text-amber-800 text-sm">
+            <Filter className="w-4 h-4" />
+            <span>Filtros ativos estão reduzindo a lista abaixo.</span>
+            <Badge variant="outline" className="bg-amber-100 text-amber-900 border-amber-200">
+              Exibindo {allFilteredEntries.length} de {entries?.length || 0} lançamentos
+            </Badge>
+          </div>
+          <Button variant="ghost" size="sm" onClick={clearFilters} className="text-amber-900 hover:bg-amber-100 gap-1 h-7">
+            <X className="w-3 h-3" /> Limpar Filtros
+          </Button>
+        </div>
+      )}
 
       <Card>
         <CardContent className="pt-6">
@@ -769,8 +793,8 @@ export default function AccountsPayablePage() {
           </Table>
         </CardContent>
       </Card>
-
-      {/* MODAL DE HISTÓRICO DE PAGAMENTOS */}
+      
+      {/* ... Restante dos modais ... */}
       <Dialog open={isHistoryOpen} onOpenChange={setIsHistoryOpen}>
         <DialogContent className="max-w-2xl">
           <DialogHeader>
@@ -820,17 +844,9 @@ export default function AccountsPayablePage() {
               </TableBody>
             </Table>
           </div>
-          <div className="bg-primary/5 p-4 rounded-lg flex items-start gap-3">
-            <Info className="w-4 h-4 text-primary shrink-0 mt-0.5" />
-            <p className="text-xs text-muted-foreground leading-relaxed">
-              Registros parciais ocorrem quando uma conta é liquidada parcialmente. 
-              O sistema gera um novo lançamento para a parte paga e mantém o original aberto com o saldo restante.
-            </p>
-          </div>
         </DialogContent>
       </Dialog>
 
-      {/* MODAL DE NOVO LANÇAMENTO COM ABAS */}
       <Dialog open={isNewEntryOpen} onOpenChange={setIsNewEntryOpen}>
         <DialogContent className="max-w-3xl p-0 overflow-hidden">
           <form onSubmit={handleSaveEntry}>
@@ -1002,11 +1018,6 @@ export default function AccountsPayablePage() {
                                     {Math.abs(totalDraftValue - formAmount) >= 0.01 && <span className="ml-1 flex items-center gap-1 inline-flex"><AlertCircle className="w-3 h-3" /> Divergente do Total</span>}
                                   </div>
                                 )}
-                                {multiMode === 'recurrence' && (
-                                  <div className="text-xs font-bold px-2 py-1 rounded bg-muted">
-                                    Total Acumulado: R$ {totalDraftValue.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-                                  </div>
-                                )}
                               </div>
                               
                               <div className="max-h-[250px] overflow-y-auto border rounded-lg bg-background">
@@ -1020,27 +1031,24 @@ export default function AccountsPayablePage() {
                                   </TableHeader>
                                   <TableBody>
                                     {installmentsDraft.map((draft, idx) => (
-                                      <TableRow key={idx} className="hover:bg-muted/20">
-                                        <TableCell className="text-center py-1 text-xs font-bold text-muted-foreground">{idx + 1}</TableCell>
+                                      <TableRow key={idx}>
+                                        <TableCell className="text-center py-1 text-xs">{idx + 1}</TableCell>
                                         <TableCell className="py-1">
                                           <Input 
                                             type="date" 
                                             value={draft.date} 
                                             onChange={(e) => updateDraftItem(idx, 'date', e.target.value)}
-                                            className="h-8 text-xs border-none shadow-none focus-visible:ring-1"
+                                            className="h-8 text-xs"
                                           />
                                         </TableCell>
-                                        <TableCell className="py-1 text-right">
-                                          <div className="flex items-center justify-end gap-2">
-                                            <span className="text-xs text-muted-foreground">R$</span>
-                                            <Input 
-                                              type="number" 
-                                              step="0.01" 
-                                              value={draft.amount} 
-                                              onChange={(e) => updateDraftItem(idx, 'amount', Number(e.target.value))}
-                                              className="h-8 text-xs w-24 text-right border-none shadow-none focus-visible:ring-1 font-bold"
-                                            />
-                                          </div>
+                                        <TableCell className="py-1">
+                                          <Input 
+                                            type="number" 
+                                            step="0.01" 
+                                            value={draft.amount} 
+                                            onChange={(e) => updateDraftItem(idx, 'amount', Number(e.target.value))}
+                                            className="h-8 text-xs text-right"
+                                          />
                                         </TableCell>
                                       </TableRow>
                                     ))}
@@ -1053,34 +1061,24 @@ export default function AccountsPayablePage() {
                       )}
                     </div>
                   )}
-
-                  {!isMultiEntry && (
-                    <div className="py-10 text-center opacity-40">
-                      <Repeat className="w-10 h-10 mx-auto mb-2 text-muted-foreground" />
-                      <p className="text-sm">Selecione o checkbox acima para configurar parcelas ou recorrência.</p>
-                    </div>
-                  )}
                 </div>
               </TabsContent>
             </Tabs>
 
             <DialogFooter className="p-6 border-t bg-muted/10">
               <Button type="button" variant="outline" onClick={() => setIsNewEntryOpen(false)}>Cancelar</Button>
-              <Button type="submit" className="px-10" disabled={isMultiEntry && multiMode === 'installment' && (installmentsDraft.length === 0 || Math.abs(totalDraftValue - formAmount) >= 0.01)}>
-                {isMultiEntry ? `Salvar ${installmentsCount} Lançamentos` : 'Salvar Lançamento'}
-              </Button>
+              <Button type="submit" disabled={isMultiEntry && multiMode === 'installment' && Math.abs(totalDraftValue - formAmount) >= 0.01}>Salvar Lançamento</Button>
             </DialogFooter>
           </form>
         </DialogContent>
       </Dialog>
-
-      {/* MODAL CADASTRO RÁPIDO DE FORNECEDOR */}
+      
+      {/* ... Restante dos modais de Liquidar e Fornecedor ... */}
       <Dialog open={isQuickSupplierOpen} onOpenChange={setIsQuickSupplierOpen}>
         <DialogContent className="max-w-sm">
           <form onSubmit={handleSaveQuickSupplier}>
             <DialogHeader>
               <DialogTitle>Novo Fornecedor Rápido</DialogTitle>
-              <DialogDescription>Cadastre apenas o nome para avançar.</DialogDescription>
             </DialogHeader>
             <div className="py-4">
               <Label>Nome do Fornecedor</Label>
@@ -1127,11 +1125,10 @@ export default function AccountsPayablePage() {
                     <Calculator className="w-5 h-5 text-primary" />
                     R$ {(entryToPay.originalAmount + payInterest + payFine - payDiscount).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
                   </div>
-                  <p className="text-[10px] text-muted-foreground mt-1">Valor Original: R$ {entryToPay.originalAmount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
                 </div>
               </div>
               <DialogFooter>
-                <Button type="submit" className="w-full h-12 text-lg shadow-lg">Confirmar Pagamento</Button>
+                <Button type="submit" className="w-full">Confirmar Pagamento</Button>
               </DialogFooter>
             </form>
           )}

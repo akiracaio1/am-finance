@@ -114,9 +114,9 @@ export function updateDocumentNonBlocking(docRef: DocumentReference, data: any) 
 
 /**
  * Executa um deleteDoc de forma não-bloqueante com registro de auditoria.
- * Aceita opcionalmente os dados que estão sendo excluídos para manter no log.
+ * Aceita obrigatoriamente os dados que estão sendo excluídos para manter no log.
  */
-export function deleteDocumentNonBlocking(docRef: DocumentReference, dataForLog?: any) {
+export function deleteDocumentNonBlocking(docRef: DocumentReference, dataForLog: any) {
   deleteDoc(docRef)
     .then(() => logActivity('DELETE', docRef.path, dataForLog || { info: 'Item removido' }))
     .catch(error => {
