@@ -216,6 +216,12 @@ export default function ReportsPage() {
   const isReceivableReport = reportType.startsWith("receivable");
   const isPaidReport = reportType.endsWith("_paid");
 
+  // Helper para formatar data de forma segura durante a digitação
+  const safeFormatDate = (dateStr: string) => {
+    const parsed = parseISO(dateStr);
+    return isValid(parsed) ? format(parsed, 'dd/MM/yyyy') : '...';
+  };
+
   return (
     <div className="space-y-6 pb-20 animate-in fade-in duration-500">
       <div className="flex justify-between items-end">
@@ -316,7 +322,7 @@ export default function ReportsPage() {
                   {reportType === 'receivable_paid' && 'Contas Recebidas (Entradas)'}
                 </CardTitle>
                 <CardDescription>
-                  Período: {format(parseISO(startDate), 'dd/MM/yyyy')} até {format(parseISO(endDate), 'dd/MM/yyyy')}
+                  Período: {safeFormatDate(startDate)} até {safeFormatDate(endDate)}
                 </CardDescription>
               </div>
             </CardHeader>
