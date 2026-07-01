@@ -37,7 +37,8 @@ import {
   Filter,
   X,
   Search,
-  LayoutGrid
+  LayoutGrid,
+  RotateCcw
 } from "lucide-react";
 import { useUser, useFirestore, useCollection, useMemoFirebase } from "@/firebase";
 import { collection, doc, query, where } from "firebase/firestore";
@@ -400,6 +401,21 @@ export default function AccountsReceivablePage() {
           </div>
         </CardContent>
       </Card>
+
+      {(searchTerm || selectedStatuses.length > 0) && (
+        <div className="flex items-center justify-between bg-amber-50 border border-amber-200 p-3 rounded-lg animate-in slide-in-from-top-2">
+          <div className="flex items-center gap-3 text-amber-800 text-sm">
+            <Filter className="w-4 h-4" />
+            <span>Filtros ativos estão reduzindo a lista abaixo.</span>
+            <Badge variant="outline" className="bg-amber-100 text-amber-900 border-amber-200">
+              Exibindo {allFilteredEntries.length} de {entries?.length || 0} lançamentos
+            </Badge>
+          </div>
+          <Button variant="ghost" size="sm" onClick={clearFilters} className="text-amber-900 hover:bg-amber-100 gap-1 h-7">
+            <X className="w-3 h-3" /> Limpar Filtros
+          </Button>
+        </div>
+      )}
 
       <div className="flex items-center gap-3 bg-muted/40 p-3 rounded-lg border border-dashed text-xs text-muted-foreground">
         <Info className="w-4 h-4 text-primary" />
