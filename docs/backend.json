@@ -105,6 +105,7 @@
         "id": { "type": "string" },
         "customerName": { "type": "string" },
         "accountCategoryId": { "type": "string" },
+        "costCenterId": { "type": "string" },
         "description": { "type": "string" },
         "amount": { "type": "number" },
         "issueDate": { "type": "string", "format": "date" },

@@ -35,7 +35,9 @@ import {
   ArrowDown,
   Wallet,
   Filter,
-  X
+  X,
+  Search,
+  LayoutGrid
 } from "lucide-react";
 import { useUser, useFirestore, useCollection, useMemoFirebase } from "@/firebase";
 import { collection, doc, query, where } from "firebase/firestore";
@@ -57,14 +59,16 @@ import {
 import { 
   Select, 
   SelectContent, 
+  SelectGroup,
   SelectItem, 
+  SelectLabel,
   SelectTrigger, 
   SelectValue 
 } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "@/hooks/use-toast";
-import { AccountsReceivableEntry, AccountCategory, BankAccount } from "@/lib/types";
+import { AccountsReceivableEntry, AccountCategory, BankAccount, CostCenter, CostCenterGroup } from "@/lib/types";
 import { format, parseISO, isValid } from "date-fns";
 import { cn } from "@/lib/utils";
 
@@ -89,6 +93,11 @@ export default function AccountsReceivablePage() {
   const [formDueDate, setFormDueDate] = useState("");
   const [formCategoryId, setFormCategoryId] = useState("");
   const [formDescription, setFormDescription] = useState("");
+  const [formCostCenterId, setFormCostCenterId] = useState("");
+
+  // Filtros
+  const [searchTerm, setSearchTerm] = useState("");
+  const [selectedStatuses, setSelectedStatuses] = useState<string[]>([]);
 
   // Estado de Ordenação
   const [sortConfig, setSortConfig] = useState<SortConfig>({ key: 'dueDate', direction: 'asc' });
@@ -120,10 +129,22 @@ export default function AccountsReceivablePage() {
     return collection(db, "users", user.uid, "bankAccounts");
   }, [db, user]);
 
+  const groupsQuery = useMemoFirebase(() => {
+    if (!db || !user) return null;
+    return collection(db, "users", user.uid, "costCenterGroups");
+  }, [db, user]);
+
+  const centersQuery = useMemoFirebase(() => {
+    if (!db || !user) return null;
+    return collection(db, "users", user.uid, "costCenters");
+  }, [db, user]);
+
   const { data: entries, isLoading: loadingEntries } = useCollection<AccountsReceivableEntry>(entriesQuery);
   const { data: historyItems } = useCollection<AccountsReceivableEntry>(historyQuery);
   const { data: categories } = useCollection<AccountCategory>(categoriesQuery);
   const { data: accounts } = useCollection<BankAccount>(accountsQuery);
+  const { data: groups } = useCollection<CostCenterGroup>(groupsQuery);
+  const { data: centers } = useCollection<CostCenter>(centersQuery);
 
   const leafCategories = useMemo(() => {
     if (!categories) return [];
@@ -150,6 +171,14 @@ export default function AccountsReceivablePage() {
     ).sort((a, b) => a.code.localeCompare(b.code));
   }, [categories]);
 
+  const activeCentersByGroup = useMemo(() => {
+    if (!groups || !centers) return [];
+    return groups.sort((a,b) => a.name.localeCompare(b.name)).map(group => ({
+      ...group,
+      centers: centers.filter(c => c.groupId === group.id && c.status === 'Active').sort((a,b) => a.name.localeCompare(b.name))
+    })).filter(g => g.centers.length > 0);
+  }, [groups, centers]);
+
   const toggleSort = (key: SortConfig['key']) => {
     setSortConfig(prev => ({
       key,
@@ -162,9 +191,17 @@ export default function AccountsReceivablePage() {
     return sortConfig.direction === 'asc' ? <ArrowUp className="ml-2 h-3 w-3" /> : <ArrowDown className="ml-2 h-3 w-3" />;
   };
 
-  const sortedEntries = useMemo(() => {
-    if (!entries) return [];
-    return [...entries].sort((a, b) => {
+  const allFilteredEntries = useMemo(() => {
+    if (!mounted || !entries) return [];
+    return entries.filter(e => {
+      const statusMatch = selectedStatuses.length === 0 || selectedStatuses.includes(e.status);
+      const term = searchTerm.toLowerCase();
+      const searchMatch = !searchTerm || 
+        e.customerName.toLowerCase().includes(term) || 
+        (e.description || "").toLowerCase().includes(term);
+      
+      return statusMatch && searchMatch;
+    }).sort((a, b) => {
       const { key, direction } = sortConfig;
       let comparison = 0;
 
@@ -184,7 +221,7 @@ export default function AccountsReceivablePage() {
 
       return direction === 'asc' ? comparison : -comparison;
     });
-  }, [entries, sortConfig, categories]);
+  }, [entries, sortConfig, categories, selectedStatuses, searchTerm, mounted]);
 
   const handleOpenNew = () => {
     setEditingEntry(null);
@@ -194,6 +231,7 @@ export default function AccountsReceivablePage() {
     setFormDueDate("");
     setFormCategoryId("");
     setFormDescription("");
+    setFormCostCenterId("");
     setIsDialogOpen(true);
   };
 
@@ -205,6 +243,7 @@ export default function AccountsReceivablePage() {
     setFormDueDate(entry.dueDate || "");
     setFormCategoryId(entry.accountCategoryId);
     setFormDescription(entry.description || "");
+    setFormCostCenterId(entry.costCenterId || "");
     setIsDialogOpen(true);
   };
 
@@ -216,6 +255,7 @@ export default function AccountsReceivablePage() {
     setFormDueDate(entry.dueDate || "");
     setFormCategoryId(entry.accountCategoryId);
     setFormDescription(entry.description || "");
+    setFormCostCenterId(entry.costCenterId || "");
     setIsDialogOpen(true);
     toast({ title: "Dados copiados para novo lançamento" });
   };
@@ -229,6 +269,7 @@ export default function AccountsReceivablePage() {
       id: entryId, 
       customerName: formCustomer, 
       accountCategoryId: formCategoryId,
+      costCenterId: formCostCenterId === "none" || !formCostCenterId ? null : formCostCenterId,
       description: formDescription, 
       amount: Number(formAmount), 
       issueDate: formIssueDate || format(new Date(), "yyyy-MM-dd"),
@@ -278,6 +319,11 @@ export default function AccountsReceivablePage() {
     toast({ title: "Recebimento baixado com sucesso!" });
   };
 
+  const clearFilters = () => {
+    setSearchTerm("");
+    setSelectedStatuses([]);
+  };
+
   const totalOpen = entries?.filter(e => e.status === 'Open').reduce((acc, curr) => acc + curr.amount, 0) || 0;
   const totalPaid = entries?.filter(e => e.status === 'Paid').reduce((acc, curr) => acc + curr.amount, 0) || 0;
 
@@ -299,7 +345,13 @@ export default function AccountsReceivablePage() {
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <Card className="bg-amber-50/50 border-amber-100">
+        <Card 
+          className={cn(
+            "cursor-pointer transition-all hover:shadow-md",
+            selectedStatuses.includes('Open') ? "ring-2 ring-amber-500 bg-amber-50" : "bg-amber-50/50 border-amber-100"
+          )}
+          onClick={() => setSelectedStatuses(prev => prev.includes('Open') ? prev.filter(s => s !== 'Open') : [...prev, 'Open'])}
+        >
           <CardHeader className="p-4 pb-2 flex flex-row items-center justify-between space-y-0">
             <span className="text-[10px] font-bold text-amber-700 uppercase">A Receber</span>
             <Clock className="w-3 h-3 text-amber-500 opacity-50" />
@@ -308,7 +360,13 @@ export default function AccountsReceivablePage() {
             R$ {totalOpen.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
           </CardContent>
         </Card>
-        <Card className="bg-emerald-50/50 border-emerald-100">
+        <Card 
+          className={cn(
+            "cursor-pointer transition-all hover:shadow-md",
+            selectedStatuses.includes('Paid') ? "ring-2 ring-emerald-500 bg-emerald-50" : "bg-emerald-50/50 border-emerald-100"
+          )}
+          onClick={() => setSelectedStatuses(prev => prev.includes('Paid') ? prev.filter(s => s !== 'Paid') : [...prev, 'Paid'])}
+        >
           <CardHeader className="p-4 pb-2 flex flex-row items-center justify-between space-y-0">
             <span className="text-[10px] font-bold text-emerald-700 uppercase">Total Recebido</span>
             <TrendingUp className="w-3 h-3 text-emerald-500 opacity-50" />
@@ -319,9 +377,33 @@ export default function AccountsReceivablePage() {
         </Card>
       </div>
 
+      <Card className="bg-muted/30 border-dashed">
+        <CardContent className="pt-6">
+          <div className="flex gap-4 items-end">
+            <div className="flex-1 space-y-2">
+              <Label>Busca Rápida</Label>
+              <div className="relative">
+                <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+                <Input 
+                  placeholder="Cliente ou descrição..." 
+                  className="pl-9 bg-background" 
+                  value={searchTerm} 
+                  onChange={(e) => setSearchTerm(e.target.value)} 
+                />
+              </div>
+            </div>
+            {(searchTerm || selectedStatuses.length > 0) && (
+              <Button variant="ghost" className="gap-2 text-muted-foreground hover:text-primary" onClick={clearFilters}>
+                <RotateCcw className="w-4 h-4" /> Limpar Filtros
+              </Button>
+            )}
+          </div>
+        </CardContent>
+      </Card>
+
       <div className="flex items-center gap-3 bg-muted/40 p-3 rounded-lg border border-dashed text-xs text-muted-foreground">
         <Info className="w-4 h-4 text-primary" />
-        <span>Exibindo {sortedEntries.length} de {entries?.length || 0} lançamentos totais. Use os filtros se não encontrar o que procura.</span>
+        <span>Exibindo {allFilteredEntries.length} de {entries?.length || 0} lançamentos totais.</span>
       </div>
 
       <Card>
@@ -333,7 +415,7 @@ export default function AccountsReceivablePage() {
                   <div className="flex items-center">Vencimento <SortIcon column="dueDate" /></div>
                 </TableHead>
                 <TableHead className="cursor-pointer hover:bg-muted/50 transition-colors" onClick={() => toggleSort('customerName')}>
-                  <div className="flex items-center">Origem / Cliente <SortIcon column="customerName" /></div>
+                  <div className="flex items-center">Origem / Centro de Custo <SortIcon column="customerName" /></div>
                 </TableHead>
                 <TableHead className="cursor-pointer hover:bg-muted/50 transition-colors" onClick={() => toggleSort('accountCategoryId')}>
                   <div className="flex items-center">Categoria <SortIcon column="accountCategoryId" /></div>
@@ -348,7 +430,7 @@ export default function AccountsReceivablePage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {sortedEntries.map((entry) => {
+              {allFilteredEntries.map((entry) => {
                 const category = categories?.find(c => c.id === entry.accountCategoryId);
                 const dueDateObj = entry.dueDate ? new Date(entry.dueDate + 'T12:00:00') : null;
                 const bankAccount = accounts?.find(a => a.id === entry.bankAccountId);
@@ -368,6 +450,12 @@ export default function AccountsReceivablePage() {
                       <div className="flex flex-col">
                         <div className="flex items-center gap-2">
                           <span className="truncate max-w-[150px]">{entry.customerName}</span>
+                          {entry.costCenterId && (
+                            <Badge variant="outline" className="text-[8px] h-4 py-0 flex items-center gap-1 bg-muted/50 border-primary/20">
+                              <LayoutGrid className="w-2 h-2" />
+                              {centers?.find(c => c.id === entry.costCenterId)?.name}
+                            </Badge>
+                          )}
                           {entry.rootEntryId && (
                             <Badge variant="outline" className="text-[8px] h-4 py-0 bg-amber-50 text-amber-700 border-amber-200 flex items-center gap-1">
                               <Layers className="w-2 h-2" /> Parcial
@@ -452,7 +540,7 @@ export default function AccountsReceivablePage() {
         </CardContent>
       </Card>
 
-      {/* ... Restante dos modais ... */}
+      {/* MODAL HISTORICO */}
       <Dialog open={isHistoryOpen} onOpenChange={setIsHistoryOpen}>
         <DialogContent className="max-w-2xl">
           <DialogHeader>
@@ -493,6 +581,7 @@ export default function AccountsReceivablePage() {
         </DialogContent>
       </Dialog>
 
+      {/* MODAL NOVO/EDITAR */}
       <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
         <DialogContent className="max-w-md">
           <form onSubmit={handleSaveEntry}>
@@ -530,7 +619,7 @@ export default function AccountsReceivablePage() {
                   />
                 </div>
               </div>
-              <div className="grid grid-cols-1 gap-4">
+              <div className="grid grid-cols-2 gap-4">
                 <div className="grid gap-2">
                   <Label>Vencimento*</Label>
                   <Input 
@@ -539,6 +628,21 @@ export default function AccountsReceivablePage() {
                     onChange={e => setFormDueDate(e.target.value)} 
                     required 
                   />
+                </div>
+                <div className="grid gap-2">
+                  <Label>Centro de Custo</Label>
+                  <Select value={formCostCenterId} onValueChange={setFormCostCenterId}>
+                    <SelectTrigger><SelectValue placeholder="Opcional..." /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">Nenhum</SelectItem>
+                      {activeCentersByGroup.map(group => (
+                        <SelectGroup key={group.id}>
+                          <SelectLabel className="text-[10px] uppercase text-primary font-bold">{group.name}</SelectLabel>
+                          {group.centers.map(center => (<SelectItem key={center.id} value={center.id}>{center.name}</SelectItem>))}
+                        </SelectGroup>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
               </div>
               <div className="grid gap-2">
