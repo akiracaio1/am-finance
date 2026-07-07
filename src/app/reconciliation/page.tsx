@@ -41,7 +41,8 @@ import {
   Trash2,
   FileSpreadsheet,
   Download,
-  AlertCircle
+  AlertCircle,
+  Eye
 } from "lucide-react";
 import { useUser, useFirestore, useCollection, useMemoFirebase } from "@/firebase";
 import { collection, doc } from "firebase/firestore";
@@ -716,7 +717,7 @@ export default function ReconciliationPage() {
       toast({ title: "Lançamentos transferidos!" });
     }
 
-    deleteDocumentNonBlocking(doc(db, "users", user.uid, "bankAccounts", selectedAccountId));
+    deleteDocumentNonBlocking(doc(db, "users", user.uid, "bankAccounts", selectedAccountId), selectedAccount);
     toast({ title: "Conta excluída com sucesso." });
     
     setSelectedAccountId("");
@@ -740,6 +741,18 @@ export default function ReconciliationPage() {
     setEntryAdjustments(prev => ({ ...prev, [entryToAdjust.id]: { interest: tempAdjInterest, fine: tempAdjFine, discount: tempAdjDiscount, settlementAmount: tempSettlementAmount } }));
     setIsAdjustmentModalOpen(false);
     if (!selectedMatchEntryIds.includes(entryToAdjust.id)) setSelectedMatchEntries(prev => [...prev, entryToAdjust.id]);
+  };
+
+  const handleDeleteTransaction = (transaction: BankTransaction) => {
+    if (!db || !user || !selectedAccountId) return;
+    if (transaction.reconciled) {
+      toast({ variant: "destructive", title: "Ação Negada", description: "Desfaça a conciliação antes de excluir o registro bancário." });
+      return;
+    }
+    if (confirm(`Excluir o registro "${transaction.description}" permanentemente do extrato?`)) {
+      deleteDocumentNonBlocking(doc(db, "users", user.uid, "bankAccounts", selectedAccountId, "bankTransactions", transaction.id), transaction);
+      toast({ title: "Registro removido do extrato" });
+    }
   };
 
   return (
@@ -861,12 +874,9 @@ export default function ReconciliationPage() {
                               <Button size="icon" variant="ghost" className="h-7 w-7 text-primary" onClick={() => toggleIgnoreTransaction(txn)} title="Restaurar Transação"><RotateCcw className="w-3 h-3" /></Button>
                             ) : !txn.reconciled ? (
                               <>
-                                <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => { setMatchingTransaction(txn); setSelectedMatchEntries([]); setEntryAdjustments({}); setIsMatchModalOpen(true); }} title="Conciliar"><ArrowRightLeft className="w-3 h-3" /></Button>
-                                {isCaixinha ? (
-                                  <Button size="icon" variant="ghost" className="h-7 w-7 text-destructive" onClick={() => deleteDocumentNonBlocking(doc(db!, "users", user!.uid, "bankAccounts", selectedAccountId, "bankTransactions", txn.id))} title="Excluir Registro Fís"><Trash2 className="w-3 h-3" /></Button>
-                                ) : (
-                                  <Button size="icon" variant="ghost" className="h-7 w-7 text-muted-foreground hover:text-destructive" onClick={() => toggleIgnoreTransaction(txn)} title="Desconsiderar"><EyeOff className="w-3 h-3" /></Button>
-                                )}
+                                <Button size="icon" variant="ghost" className="h-7 w-7 text-primary" onClick={() => { setMatchingTransaction(txn); setSelectedMatchEntries([]); setEntryAdjustments({}); setIsMatchModalOpen(true); }} title="Conciliar"><ArrowRightLeft className="w-3 h-3" /></Button>
+                                <Button size="icon" variant="ghost" className="h-7 w-7 text-muted-foreground hover:text-destructive" onClick={() => toggleIgnoreTransaction(txn)} title="Desconsiderar"><EyeOff className="w-3 h-3" /></Button>
+                                <Button size="icon" variant="ghost" className="h-7 w-7 text-destructive" onClick={() => handleDeleteTransaction(txn)} title="Excluir Registro"><Trash2 className="w-3 h-3" /></Button>
                               </>
                             ) : (
                               <Button size="icon" variant="ghost" className="h-7 w-7 text-destructive" onClick={() => undoMatch(txn)} title="Desfazer"><X className="w-3 h-3" /></Button>
