@@ -82,6 +82,8 @@
         "originalAmount": { "type": "number" },
         "issueDate": { "type": "string", "format": "date" },
         "dueDate": { "type": "string", "format": "date" },
+        "expectedPaymentDate": { "type": "string", "format": "date", "description": "Date used for Cash Flow Forecast." },
+        "planningStatus": { "type": "string", "enum": ["Programmed", "Negotiating", "Suspended"], "default": "Programmed" },
         "paymentMethod": { "type": "string" },
         "status": { "type": "string", "enum": ["Open", "Paid", "Overdue", "DueToday"] },
         "entryType": { "type": "string", "enum": ["Provision", "Confirmed"] },
@@ -110,6 +112,8 @@
         "amount": { "type": "number" },
         "issueDate": { "type": "string", "format": "date" },
         "dueDate": { "type": "string", "format": "date" },
+        "expectedReceivalDate": { "type": "string", "format": "date", "description": "Date used for Cash Flow Forecast." },
+        "planningStatus": { "type": "string", "enum": ["Programmed", "Negotiating", "Suspended"], "default": "Programmed" },
         "status": { "type": "string", "enum": ["Open", "Paid"] },
         "paymentDate": { "type": "string", "format": "date" },
         "bankAccountId": { "type": "string" },
@@ -118,6 +122,22 @@
         "updatedAt": { "type": "string", "format": "date-time" }
       },
       "required": ["id", "customerName", "accountCategoryId", "description", "amount", "issueDate", "dueDate", "status", "createdAt", "updatedAt"]
+    },
+    "ManualForecast": {
+      "title": "ManualForecast",
+      "type": "object",
+      "description": "Hypothetical entries for Cash Flow simulation.",
+      "properties": {
+        "id": { "type": "string" },
+        "description": { "type": "string" },
+        "type": { "type": "string", "enum": ["INFLOW", "OUTFLOW"] },
+        "amount": { "type": "number" },
+        "expectedDate": { "type": "string", "format": "date" },
+        "scenario": { "type": "string", "enum": ["Conservative", "Realistic", "Optimistic"] },
+        "category": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "description", "type", "amount", "expectedDate", "scenario"]
     },
     "BankAccount": {
       "title": "BankAccount",
@@ -218,6 +238,14 @@
           "entityName": "AccountsReceivableEntry",
           "schema": { "$ref": "#/backend/entities/AccountsReceivableEntry" },
           "description": "Stores accounts receivable entries."
+        }
+      },
+      {
+        "path": "/users/{userId}/manualForecasts/{forecastId}",
+        "definition": {
+          "entityName": "ManualForecast",
+          "schema": { "$ref": "#/backend/entities/ManualForecast" },
+          "description": "Stores manual simulations for cash flow."
         }
       },
       {

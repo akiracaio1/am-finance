@@ -38,7 +38,9 @@ import {
   X,
   Search,
   LayoutGrid,
-  RotateCcw
+  RotateCcw,
+  CalendarClock,
+  Target
 } from "lucide-react";
 import { useUser, useFirestore, useCollection, useMemoFirebase } from "@/firebase";
 import { collection, doc, query, where } from "firebase/firestore";
@@ -69,7 +71,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "@/hooks/use-toast";
-import { AccountsReceivableEntry, AccountCategory, BankAccount, CostCenter, CostCenterGroup } from "@/lib/types";
+import { AccountsReceivableEntry, AccountCategory, BankAccount, CostCenter, CostCenterGroup, PlanningStatus } from "@/lib/types";
 import { format, parseISO, isValid } from "date-fns";
 import { cn } from "@/lib/utils";
 
@@ -92,6 +94,8 @@ export default function AccountsReceivablePage() {
   const [formAmount, setFormAmount] = useState<number>(0);
   const [formIssueDate, setFormIssueDate] = useState("");
   const [formDueDate, setFormDueDate] = useState("");
+  const [formExpectedDate, setFormExpectedDate] = useState("");
+  const [formPlanningStatus, setFormPlanningStatus] = useState<PlanningStatus>("Programmed");
   const [formCategoryId, setFormCategoryId] = useState("");
   const [formDescription, setFormDescription] = useState("");
   const [formCostCenterId, setFormCostCenterId] = useState("");
@@ -230,6 +234,8 @@ export default function AccountsReceivablePage() {
     setFormAmount(0);
     setFormIssueDate(format(new Date(), "yyyy-MM-dd"));
     setFormDueDate("");
+    setFormExpectedDate("");
+    setFormPlanningStatus("Programmed");
     setFormCategoryId("");
     setFormDescription("");
     setFormCostCenterId("");
@@ -242,6 +248,8 @@ export default function AccountsReceivablePage() {
     setFormAmount(entry.amount);
     setFormIssueDate(entry.issueDate || format(new Date(), "yyyy-MM-dd"));
     setFormDueDate(entry.dueDate || "");
+    setFormExpectedDate(entry.expectedReceivalDate || "");
+    setFormPlanningStatus(entry.planningStatus || "Programmed");
     setFormCategoryId(entry.accountCategoryId);
     setFormDescription(entry.description || "");
     setFormCostCenterId(entry.costCenterId || "");
@@ -254,6 +262,8 @@ export default function AccountsReceivablePage() {
     setFormAmount(entry.amount);
     setFormIssueDate(entry.issueDate || format(new Date(), "yyyy-MM-dd"));
     setFormDueDate(entry.dueDate || "");
+    setFormExpectedDate(entry.expectedReceivalDate || "");
+    setFormPlanningStatus(entry.planningStatus || "Programmed");
     setFormCategoryId(entry.accountCategoryId);
     setFormDescription(entry.description || "");
     setFormCostCenterId(entry.costCenterId || "");
@@ -275,6 +285,8 @@ export default function AccountsReceivablePage() {
       amount: Number(formAmount), 
       issueDate: formIssueDate || format(new Date(), "yyyy-MM-dd"),
       dueDate: formDueDate,
+      expectedReceivalDate: formExpectedDate || null,
+      planningStatus: formPlanningStatus,
       status: editingEntry ? editingEntry.status : 'Open', 
       updatedAt: new Date().toISOString(),
     };
@@ -417,11 +429,6 @@ export default function AccountsReceivablePage() {
         </div>
       )}
 
-      <div className="flex items-center gap-3 bg-muted/40 p-3 rounded-lg border border-dashed text-xs text-muted-foreground">
-        <Info className="w-4 h-4 text-primary" />
-        <span>Exibindo {allFilteredEntries.length} de {entries?.length || 0} lançamentos totais.</span>
-      </div>
-
       <Card>
         <CardContent className="pt-6">
           <Table>
@@ -460,6 +467,11 @@ export default function AccountsReceivablePage() {
                           {dueDateObj && isValid(dueDateObj) ? format(dueDateObj, "dd/MM/yy") : '-'}
                         </div>
                         <span className="text-[9px] text-muted-foreground uppercase ml-5">Emissão: {entry.issueDate ? format(parseISO(entry.issueDate), "dd/MM/yy") : '-'}</span>
+                        {entry.expectedReceivalDate && (
+                          <span className="text-[9px] text-primary font-bold ml-5 mt-0.5 flex items-center gap-1">
+                            <CalendarClock className="w-2.5 h-2.5" /> Prev: {format(parseISO(entry.expectedReceivalDate), "dd/MM/yy")}
+                          </span>
+                        )}
                       </div>
                     </TableCell>
                     <TableCell className="font-medium text-xs">
@@ -472,9 +484,9 @@ export default function AccountsReceivablePage() {
                               {centers?.find(c => c.id === entry.costCenterId)?.name}
                             </Badge>
                           )}
-                          {entry.rootEntryId && (
-                            <Badge variant="outline" className="text-[8px] h-4 py-0 bg-amber-50 text-amber-700 border-amber-200 flex items-center gap-1">
-                              <Layers className="w-2 h-2" /> Parcial
+                          {entry.planningStatus === 'Programmed' && (
+                            <Badge variant="outline" className="text-[8px] h-4 py-0 bg-emerald-50 text-emerald-700 border-emerald-200 flex items-center gap-1">
+                              <Target className="w-2 h-2" /> Programado
                             </Badge>
                           )}
                         </div>
@@ -556,64 +568,38 @@ export default function AccountsReceivablePage() {
         </CardContent>
       </Card>
 
-      {/* MODAL HISTORICO */}
-      <Dialog open={isHistoryOpen} onOpenChange={setIsHistoryOpen}>
-        <DialogContent className="max-w-2xl">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2"><History className="w-5 h-5 text-emerald-600" /> Histórico de Recebimentos</DialogTitle>
-            <DialogDescription>Relação de todas as entradas vinculadas a este item.</DialogDescription>
-          </DialogHeader>
-          <div className="py-4">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Data / Venc.</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead className="text-right">Valor</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {historyItems?.sort((a,b) => b.updatedAt.localeCompare(a.updatedAt)).map((item) => (
-                  <TableRow key={item.id}>
-                    <TableCell className="text-xs">
-                      <div className="flex flex-col">
-                        <span>Venc: {item.dueDate ? format(parseISO(item.dueDate), "dd/MM/yy") : '-'}</span>
-                        {item.paymentDate && <span className="text-[10px] text-emerald-600 font-bold">Rec: {format(parseISO(item.paymentDate), "dd/MM/yy")}</span>}
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant={item.status === 'Paid' ? 'default' : 'outline'} className={cn(item.status === 'Paid' ? "bg-emerald-100 text-emerald-700 hover:bg-emerald-100 border-none" : "")}>
-                        {item.status === 'Paid' ? 'Recebido' : 'A Receber'}
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="text-right font-bold text-emerald-700">
-                      R$ {item.amount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </div>
-        </DialogContent>
-      </Dialog>
-
       {/* MODAL NOVO/EDITAR */}
       <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-        <DialogContent className="max-w-md">
+        <DialogContent className="max-w-xl">
           <form onSubmit={handleSaveEntry}>
             <DialogHeader>
               <DialogTitle>{editingEntry ? 'Editar' : 'Novo'} Recebimento</DialogTitle>
+              <DialogDescription>Ajuste os dados e configure a data prevista para o Forecast.</DialogDescription>
             </DialogHeader>
             <div className="grid gap-4 py-4">
-              <div className="grid gap-2">
-                <Label>Origem (Canal de Venda / Cliente)*</Label>
-                <Input 
-                  value={formCustomer} 
-                  onChange={e => setFormCustomer(e.target.value)} 
-                  placeholder="Ex: iFood, Balcão, WhatsApp..." 
-                  required 
-                />
+              <div className="grid grid-cols-4 gap-4">
+                <div className="grid gap-2 col-span-3">
+                  <Label>Origem (Canal de Venda / Cliente)*</Label>
+                  <Input 
+                    value={formCustomer} 
+                    onChange={e => setFormCustomer(e.target.value)} 
+                    placeholder="Ex: iFood, Balcão, WhatsApp..." 
+                    required 
+                  />
+                </div>
+                <div className="grid gap-2">
+                  <Label className="flex items-center gap-1 text-primary"><Target className="w-3 h-3" /> Planejamento</Label>
+                  <Select value={formPlanningStatus} onValueChange={(v: any) => setFormPlanningStatus(v)}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="Programmed">Programado</SelectItem>
+                      <SelectItem value="Negotiating">Negociando</SelectItem>
+                      <SelectItem value="Suspended">Suspenso</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
               </div>
+
               <div className="grid grid-cols-2 gap-4">
                 <div className="grid gap-2">
                   <Label>Valor*</Label>
@@ -635,7 +621,7 @@ export default function AccountsReceivablePage() {
                   />
                 </div>
               </div>
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-3 gap-4">
                 <div className="grid gap-2">
                   <Label>Vencimento*</Label>
                   <Input 
@@ -643,6 +629,15 @@ export default function AccountsReceivablePage() {
                     value={formDueDate} 
                     onChange={e => setFormDueDate(e.target.value)} 
                     required 
+                  />
+                </div>
+                <div className="grid gap-2">
+                  <Label className="text-primary flex items-center gap-1 font-bold"><CalendarClock className="w-3 h-3" /> Data Prevista</Label>
+                  <Input 
+                    type="date" 
+                    value={formExpectedDate} 
+                    onChange={e => setFormExpectedDate(e.target.value)} 
+                    className="border-primary/30"
                   />
                 </div>
                 <div className="grid gap-2">

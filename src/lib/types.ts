@@ -6,6 +6,8 @@ export type EntryType = 'Provision' | 'Confirmed';
 export type BankAccountType = 'Corrente' | 'Poupança' | 'Investimento' | 'Caixinha';
 export type CostCenterStatus = 'Active' | 'Archived';
 export type AuditAction = 'CREATE' | 'UPDATE' | 'DELETE';
+export type PlanningStatus = 'Programmed' | 'Negotiating' | 'Suspended';
+export type ForecastScenario = 'Conservative' | 'Realistic' | 'Optimistic';
 
 export interface Supplier {
   id: string;
@@ -58,8 +60,10 @@ export interface AccountsPayableEntry {
   costCenterId?: string;
   description: string;
   originalAmount: number;
-  issueDate: string; // Obrigatório para Competência
+  issueDate: string;
   dueDate: string;
+  expectedPaymentDate?: string;
+  planningStatus?: PlanningStatus;
   paymentMethod?: string;
   status: 'Open' | 'Paid' | 'Overdue' | 'DueToday';
   entryType: EntryType;
@@ -71,7 +75,7 @@ export interface AccountsPayableEntry {
   fine?: number;
   discount?: number;
   installmentInfo?: string;
-  rootEntryId?: string; // Vínculo para pagamentos parciais
+  rootEntryId?: string;
 }
 
 export interface AccountsReceivableEntry {
@@ -80,15 +84,28 @@ export interface AccountsReceivableEntry {
   accountCategoryId: string;
   description: string;
   amount: number;
-  issueDate: string; // Obrigatório para Competência
+  issueDate: string;
   dueDate: string;
+  expectedReceivalDate?: string;
+  planningStatus?: PlanningStatus;
   status: 'Open' | 'Paid';
   paymentDate?: string;
   bankAccountId?: string;
   createdAt: string;
   updatedAt: string;
   costCenterId?: string;
-  rootEntryId?: string; // Vínculo para pagamentos parciais
+  rootEntryId?: string;
+}
+
+export interface ManualForecast {
+  id: string;
+  description: string;
+  type: 'INFLOW' | 'OUTFLOW';
+  amount: number;
+  expectedDate: string;
+  scenario: ForecastScenario;
+  category?: string;
+  createdAt: string;
 }
 
 export interface BankAccount {
@@ -123,7 +140,7 @@ export interface AuditLog {
   entityId: string;
   description: string;
   timestamp: string;
-  details?: any; // Snapshot dos dados
+  details?: any;
 }
 
 export interface UserProfile {

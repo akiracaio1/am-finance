@@ -43,7 +43,9 @@ import {
   ArrowUp,
   ArrowDown,
   Wallet,
-  X
+  X,
+  CalendarClock,
+  Target
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useUser, useFirestore, useCollection, useMemoFirebase } from "@/firebase";
@@ -79,7 +81,7 @@ import { Collapsible, CollapsibleContent } from "@/components/ui/collapsible";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { toast } from "@/hooks/use-toast";
-import { Supplier, AccountCategory, AccountsPayableEntry, EntryType, CostCenter, CostCenterGroup, BankAccount } from "@/lib/types";
+import { Supplier, AccountCategory, AccountsPayableEntry, EntryType, CostCenter, CostCenterGroup, BankAccount, PlanningStatus } from "@/lib/types";
 import { 
   format, 
   isBefore,
@@ -93,6 +95,7 @@ import {
 
 type InstallmentDraft = {
   date: string;
+  expectedDate: string;
   amount: number;
 };
 
@@ -121,6 +124,8 @@ export default function AccountsPayablePage() {
   const [formAmount, setFormAmount] = useState<number>(0);
   const [formIssueDate, setFormIssueDate] = useState("");
   const [formDueDate, setFormDueDate] = useState("");
+  const [formExpectedDate, setFormExpectedDate] = useState("");
+  const [formPlanningStatus, setFormPlanningStatus] = useState<PlanningStatus>("Programmed");
   const [formSupplierId, setFormSupplierId] = useState("");
   const [formCategoryId, setFormCategoryId] = useState("");
   const [formCostCenterId, setFormCostCenterId] = useState("");
@@ -168,6 +173,7 @@ export default function AccountsPayablePage() {
 
     const drafts: InstallmentDraft[] = [];
     const startDate = parseISO(formDueDate);
+    const startExpectedDate = formExpectedDate ? parseISO(formExpectedDate) : startDate;
     
     if (!isValid(startDate)) {
       setInstallmentsDraft([]);
@@ -185,11 +191,23 @@ export default function AccountsPayablePage() {
 
     for (let i = 0; i < installmentsCount; i++) {
       let currentDueDate: Date;
+      let currentExpectedDate: Date;
       switch(recurrenceInterval) {
-        case 'weekly': currentDueDate = addWeeks(startDate, i); break;
-        case 'fortnightly': currentDueDate = addDays(startDate, i * 14); break;
-        case 'daily': currentDueDate = addDays(startDate, i); break;
-        default: currentDueDate = addMonths(startDate, i);
+        case 'weekly': 
+          currentDueDate = addWeeks(startDate, i); 
+          currentExpectedDate = addWeeks(startExpectedDate, i);
+          break;
+        case 'fortnightly': 
+          currentDueDate = addDays(startDate, i * 14); 
+          currentExpectedDate = addDays(startExpectedDate, i * 14);
+          break;
+        case 'daily': 
+          currentDueDate = addDays(startDate, i); 
+          currentExpectedDate = addDays(startExpectedDate, i);
+          break;
+        default: 
+          currentDueDate = addMonths(startDate, i);
+          currentExpectedDate = addMonths(startExpectedDate, i);
       }
 
       let installmentValue = baseValue;
@@ -203,11 +221,12 @@ export default function AccountsPayablePage() {
 
       drafts.push({
         date: format(currentDueDate, "yyyy-MM-dd"),
+        expectedDate: format(currentExpectedDate, "yyyy-MM-dd"),
         amount: installmentValue
       });
     }
     setInstallmentsDraft(drafts);
-  }, [isMultiEntry, multiMode, installmentsCount, recurrenceInterval, formAmount, formDueDate]);
+  }, [isMultiEntry, multiMode, installmentsCount, recurrenceInterval, formAmount, formDueDate, formExpectedDate]);
 
   const updateDraftItem = (index: number, field: keyof InstallmentDraft, value: any) => {
     const newDrafts = [...installmentsDraft];
@@ -268,7 +287,6 @@ export default function AccountsPayablePage() {
     return [...suppliers].sort((a, b) => a.name.localeCompare(b.name));
   }, [suppliers]);
 
-  // Estrutura hierárquica do Plano de Contas
   const groupedLeafCategories = useMemo(() => {
     if (!categories) return [];
     
@@ -435,6 +453,8 @@ export default function AccountsPayablePage() {
       costCenterId: formCostCenterId === "none" || !formCostCenterId ? null : formCostCenterId,
       description: formDescription, 
       issueDate: formIssueDate || format(new Date(), "yyyy-MM-dd"),
+      expectedPaymentDate: formExpectedDate || null,
+      planningStatus: formPlanningStatus,
       entryType: formType, 
       updatedAt: new Date().toISOString(),
     };
@@ -446,7 +466,6 @@ export default function AccountsPayablePage() {
       if (isMultiEntry && installmentsDraft.length > 0) {
         const batchTimestamp = Date.now();
         installmentsDraft.forEach((draft, i) => {
-          // ID com timestamp do lote + índice + sufixo aleatório para evitar qualquer colisão
           const id = `pay_${batchTimestamp}_${i}_${Math.random().toString(36).substring(2, 5)}`;
           setDocumentNonBlocking(
             doc(db, "users", user.uid, "accountsPayableEntries", id), 
@@ -456,6 +475,7 @@ export default function AccountsPayablePage() {
               status: 'Open', 
               originalAmount: draft.amount, 
               dueDate: draft.date, 
+              expectedPaymentDate: draft.expectedDate,
               installmentInfo: `${i + 1}/${installmentsDraft.length}`,
               createdAt: new Date().toISOString() 
             }, 
@@ -505,6 +525,8 @@ export default function AccountsPayablePage() {
     setFormAmount(entry.originalAmount);
     setFormIssueDate(entry.issueDate || format(new Date(), "yyyy-MM-dd"));
     setFormDueDate(entry.dueDate || "");
+    setFormExpectedDate(entry.expectedPaymentDate || "");
+    setFormPlanningStatus(entry.planningStatus || "Programmed");
     setFormSupplierId(entry.supplierId);
     setFormCategoryId(entry.accountCategoryId);
     setFormCostCenterId(entry.costCenterId || "");
@@ -556,6 +578,8 @@ export default function AccountsPayablePage() {
             setFormAmount(0);
             setFormIssueDate(format(new Date(), "yyyy-MM-dd"));
             setFormDueDate("");
+            setFormExpectedDate("");
+            setFormPlanningStatus("Programmed");
             setFormSupplierId("");
             setFormCategoryId("");
             setFormCostCenterId(""); 
@@ -687,6 +711,11 @@ export default function AccountsPayablePage() {
                       <div className="flex flex-col">
                         <span className="font-bold">{dueDateObj && isValid(dueDateObj) ? format(dueDateObj, "dd/MM/yy") : '-'}</span>
                         <span className="text-[9px] text-muted-foreground uppercase">Emissão: {entry.issueDate ? format(parseISO(entry.issueDate), "dd/MM/yy") : '-'}</span>
+                        {entry.expectedPaymentDate && (
+                          <span className="text-[9px] text-primary font-bold mt-0.5 flex items-center gap-1">
+                            <CalendarClock className="w-2.5 h-2.5" /> Previsão: {format(parseISO(entry.expectedPaymentDate), "dd/MM/yy")}
+                          </span>
+                        )}
                       </div>
                     </TableCell>
                     <TableCell className="font-medium text-xs truncate max-w-[150px]">{suppliers?.find(s => s.id === entry.supplierId)?.name || '-'}</TableCell>
@@ -711,9 +740,9 @@ export default function AccountsPayablePage() {
                               <Clock className="w-2 h-2" /> Provisão
                             </Badge>
                           )}
-                          {entry.rootEntryId && (
-                            <Badge variant="outline" className="text-[8px] h-4 py-0 bg-amber-50 text-amber-700 border-amber-200 flex items-center gap-1">
-                              <Layers className="w-2 h-2" /> Parcial
+                          {entry.planningStatus === 'Programmed' && (
+                            <Badge variant="outline" className="text-[8px] h-4 py-0 bg-emerald-50 text-emerald-700 border-emerald-200 flex items-center gap-1">
+                              <Target className="w-2 h-2" /> Programado
                             </Badge>
                           )}
                         </div>
@@ -770,6 +799,8 @@ export default function AccountsPayablePage() {
                             setFormAmount(entry.originalAmount); 
                             setFormIssueDate(entry.issueDate || "");
                             setFormDueDate(entry.dueDate || ""); 
+                            setFormExpectedDate(entry.expectedPaymentDate || "");
+                            setFormPlanningStatus(entry.planningStatus || "Programmed");
                             setFormSupplierId(entry.supplierId); 
                             setFormCategoryId(entry.accountCategoryId); 
                             setFormCostCenterId(entry.costCenterId || ""); 
@@ -794,7 +825,6 @@ export default function AccountsPayablePage() {
         </CardContent>
       </Card>
       
-      {/* ... Restante dos modais ... */}
       <Dialog open={isHistoryOpen} onOpenChange={setIsHistoryOpen}>
         <DialogContent className="max-w-2xl">
           <DialogHeader>
@@ -867,12 +897,23 @@ export default function AccountsPayablePage() {
 
               <TabsContent value="basic" className="p-6 pt-4 space-y-4">
                 <div className="grid grid-cols-4 gap-4">
-                  <div className="grid gap-2 col-span-3"><Label>Descrição*</Label><Input value={formDescription} onChange={e => setFormDescription(e.target.value)} required /></div>
+                  <div className="grid gap-2 col-span-2"><Label>Descrição*</Label><Input value={formDescription} onChange={e => setFormDescription(e.target.value)} required /></div>
                   <div className="grid gap-2">
-                    <Label>Tipo*</Label>
+                    <Label>Natureza*</Label>
                     <Select value={formType} onValueChange={(v: any) => setFormType(v)}>
                       <SelectTrigger><SelectValue /></SelectTrigger>
                       <SelectContent><SelectItem value="Confirmed">Confirmado</SelectItem><SelectItem value="Provision">Provisão</SelectItem></SelectContent>
+                    </Select>
+                  </div>
+                  <div className="grid gap-2">
+                    <Label className="flex items-center gap-1 text-primary"><Target className="w-3 h-3" /> Planejamento*</Label>
+                    <Select value={formPlanningStatus} onValueChange={(v: any) => setFormPlanningStatus(v)}>
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="Programmed">Programado</SelectItem>
+                        <SelectItem value="Negotiating">Em Negociação</SelectItem>
+                        <SelectItem value="Suspended">Suspenso</SelectItem>
+                      </SelectContent>
                     </Select>
                   </div>
                 </div>
@@ -910,8 +951,11 @@ export default function AccountsPayablePage() {
                     <Label>{isMultiEntry && multiMode === 'installment' ? 'Valor Total*' : 'Valor*'}</Label>
                     <Input type="number" step="0.01" value={formAmount || ""} onChange={e => setFormAmount(Number(e.target.value))} required />
                   </div>
-                  <div className="grid gap-2"><Label>Data Emissão*</Label><Input type="date" value={formIssueDate} onChange={e => setFormIssueDate(e.target.value)} required /></div>
-                  <div className="grid gap-2"><Label>{editingEntry ? 'Vencimento*' : '1º Vencimento*'}</Label><Input type="date" value={formDueDate} onChange={e => setFormDueDate(e.target.value)} required /></div>
+                  <div className="grid gap-2"><Label>Vencimento*</Label><Input type="date" value={formDueDate} onChange={e => setFormDueDate(e.target.value)} required /></div>
+                  <div className="grid gap-2">
+                    <Label className="text-primary flex items-center gap-1 font-bold"><CalendarClock className="w-3 h-3" /> Data Prevista</Label>
+                    <Input type="date" value={formExpectedDate} onChange={e => setFormExpectedDate(e.target.value)} className="border-primary/30" />
+                  </div>
                   <div className="grid gap-2">
                     <Label>Centro de Custo</Label>
                     <Select value={formCostCenterId} onValueChange={setFormCostCenterId}>
@@ -928,6 +972,7 @@ export default function AccountsPayablePage() {
                     </Select>
                   </div>
                 </div>
+                <p className="text-[10px] text-muted-foreground italic flex items-center gap-1"><Info className="w-3 h-3" /> A <strong>Data Prevista</strong> é o dia real que você pretende pagar. É ela que alimenta o Forecast.</p>
               </TabsContent>
 
               <TabsContent value="recurrence" className="p-6 pt-4">
@@ -1026,6 +1071,7 @@ export default function AccountsPayablePage() {
                                     <TableRow>
                                       <TableHead className="w-12 text-center h-8">#</TableHead>
                                       <TableHead className="h-8">Vencimento</TableHead>
+                                      <TableHead className="h-8">Data Prevista</TableHead>
                                       <TableHead className="h-8 text-right">Valor</TableHead>
                                     </TableRow>
                                   </TableHeader>
@@ -1038,7 +1084,15 @@ export default function AccountsPayablePage() {
                                             type="date" 
                                             value={draft.date} 
                                             onChange={(e) => updateDraftItem(idx, 'date', e.target.value)}
-                                            className="h-8 text-xs"
+                                            className="h-8 text-[10px]"
+                                          />
+                                        </TableCell>
+                                        <TableCell className="py-1">
+                                          <Input 
+                                            type="date" 
+                                            value={draft.expectedDate} 
+                                            onChange={(e) => updateDraftItem(idx, 'expectedDate', e.target.value)}
+                                            className="h-8 text-[10px] border-primary/30"
                                           />
                                         </TableCell>
                                         <TableCell className="py-1">
@@ -1047,7 +1101,7 @@ export default function AccountsPayablePage() {
                                             step="0.01" 
                                             value={draft.amount} 
                                             onChange={(e) => updateDraftItem(idx, 'amount', Number(e.target.value))}
-                                            className="h-8 text-xs text-right"
+                                            className="h-8 text-[10px] text-right"
                                           />
                                         </TableCell>
                                       </TableRow>
@@ -1073,7 +1127,6 @@ export default function AccountsPayablePage() {
         </DialogContent>
       </Dialog>
       
-      {/* ... Restante dos modais de Liquidar e Fornecedor ... */}
       <Dialog open={isQuickSupplierOpen} onOpenChange={setIsQuickSupplierOpen}>
         <DialogContent className="max-w-sm">
           <form onSubmit={handleSaveQuickSupplier}>
