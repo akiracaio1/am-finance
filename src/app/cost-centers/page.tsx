@@ -69,6 +69,10 @@ export default function CostCentersPage() {
   const [editingGroup, setEditingGroup] = useState<CostCenterGroup | null>(null);
   const [editingCenter, setEditingCenter] = useState<CostCenter | null>(null);
 
+  // Estados dos Selects (FormData fix)
+  const [formParentGroupId, setFormParentGroupId] = useState<string>("none");
+  const [formGroupId, setFormGroupId] = useState<string>("");
+
   // Filtros
   const [searchTerm, setSearchTerm] = useState("");
   const [filterStatus, setFilterStatus] = useState<string>("Active");
@@ -119,13 +123,12 @@ export default function CostCentersPage() {
     const formData = new FormData(e.currentTarget);
     
     const id = editingGroup ? editingGroup.id : `ccg_${Date.now()}`;
-    const parentId = formData.get("parentGroupId") as string;
     
     const data: CostCenterGroup = {
       id,
       name: formData.get("name") as string,
       description: formData.get("description") as string,
-      parentGroupId: parentId === "none" ? undefined : parentId,
+      parentGroupId: formParentGroupId === "none" ? undefined : formParentGroupId,
       createdAt: editingGroup ? editingGroup.createdAt : new Date().toISOString(),
       updatedAt: new Date().toISOString()
     };
@@ -145,7 +148,7 @@ export default function CostCentersPage() {
     
     const data: CostCenter = {
       id,
-      groupId: formData.get("groupId") as string,
+      groupId: formGroupId,
       name: formData.get("name") as string,
       description: formData.get("description") as string,
       status: editingCenter ? editingCenter.status : 'Active',
@@ -181,7 +184,7 @@ export default function CostCentersPage() {
       return;
     }
     if (confirm(`Excluir o grupo "${group.name}" permanentemente?`)) {
-      deleteDocumentNonBlocking(doc(db, "users", user.uid, "costCenterGroups", group.id));
+      deleteDocumentNonBlocking(doc(db, "users", user.uid, "costCenterGroups", group.id), group);
       toast({ title: "Grupo removido" });
     }
   };
@@ -229,7 +232,11 @@ export default function CostCentersPage() {
                 variant="ghost" 
                 size="icon" 
                 className="h-7 w-7" 
-                onClick={() => { setEditingGroup(group); setIsGroupDialogOpen(true); }}
+                onClick={() => { 
+                  setEditingGroup(group); 
+                  setFormParentGroupId(group.parentGroupId || "none");
+                  setIsGroupDialogOpen(true); 
+                }}
               >
                 <Pencil className="w-3.5 h-3.5" />
               </Button>
@@ -275,7 +282,11 @@ export default function CostCentersPage() {
                       variant="ghost" 
                       size="icon" 
                       className="h-7 w-7" 
-                      onClick={() => { setEditingCenter(center); setIsCenterDialogOpen(true); }}
+                      onClick={() => { 
+                        setEditingCenter(center); 
+                        setFormGroupId(center.groupId);
+                        setIsCenterDialogOpen(true); 
+                      }}
                     >
                       <Pencil className="w-3.5 h-3.5" />
                     </Button>
@@ -294,7 +305,7 @@ export default function CostCentersPage() {
                       className="h-7 w-7 text-destructive"
                       onClick={() => {
                         if (confirm(`Excluir o centro "${center.name}" permanentemente?`)) {
-                          deleteDocumentNonBlocking(doc(db!, "users", user!.uid, "costCenters", center.id));
+                          deleteDocumentNonBlocking(doc(db!, "users", user!.uid, "costCenters", center.id), center);
                           toast({ title: "Excluído" });
                         }
                       }}
@@ -329,10 +340,10 @@ export default function CostCentersPage() {
           <Button variant="outline" className="gap-2" onClick={handleExportExcel} disabled={!centers || centers.length === 0}>
             <Download className="w-4 h-4" /> Exportar Excel
           </Button>
-          <Button variant="outline" className="gap-2" onClick={() => { setEditingGroup(null); setIsGroupDialogOpen(true); }}>
+          <Button variant="outline" className="gap-2" onClick={() => { setEditingGroup(null); setFormParentGroupId("none"); setIsGroupDialogOpen(true); }}>
             <FolderPlus className="w-4 h-4" /> Novo Grupo / Subgrupo
           </Button>
-          <Button className="gap-2 shadow-lg" disabled={!groups || groups.length === 0} onClick={() => { setEditingCenter(null); setIsCenterDialogOpen(true); }}>
+          <Button className="gap-2 shadow-lg" disabled={!groups || groups.length === 0} onClick={() => { setEditingCenter(null); setFormGroupId(groups?.[0]?.id || ""); setIsCenterDialogOpen(true); }}>
             <Plus className="w-4 h-4" /> Novo Centro de Custo
           </Button>
         </div>
@@ -378,7 +389,7 @@ export default function CostCentersPage() {
               <p className="font-bold text-muted-foreground">Nenhuma estrutura cadastrada.</p>
               <p className="text-xs text-muted-foreground">Comece criando um Grupo Raiz (ex: Operação) e depois seus Centros.</p>
             </div>
-            <Button onClick={() => setIsGroupDialogOpen(true)} variant="outline" className="gap-2">
+            <Button onClick={() => { setEditingGroup(null); setFormParentGroupId("none"); setIsGroupDialogOpen(true); }} variant="outline" className="gap-2">
               <FolderPlus className="w-4 h-4" /> Criar Primeiro Grupo
             </Button>
           </div>
@@ -396,7 +407,7 @@ export default function CostCentersPage() {
             <div className="grid gap-4 py-4">
               <div className="grid gap-2">
                 <Label>Grupo Pai (opcional para Subgrupos)</Label>
-                <Select name="parentGroupId" defaultValue={editingGroup?.parentGroupId || "none"}>
+                <Select value={formParentGroupId} onValueChange={setFormParentGroupId}>
                   <SelectTrigger><SelectValue placeholder="Sem grupo pai (Raiz)" /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="none">Nenhum (Este é um Grupo Raiz)</SelectItem>
@@ -431,7 +442,7 @@ export default function CostCentersPage() {
             <div className="grid gap-4 py-4">
               <div className="grid gap-2">
                 <Label>Grupo / Subgrupo Pai *</Label>
-                <Select name="groupId" defaultValue={editingCenter?.groupId} required>
+                <Select value={formGroupId} onValueChange={setFormGroupId}>
                   <SelectTrigger><SelectValue placeholder="Selecione o grupo..." /></SelectTrigger>
                   <SelectContent>
                     {groups?.map(g => <SelectItem key={g.id} value={g.id}>{g.name}</SelectItem>)}
