@@ -13,21 +13,12 @@ import {
   AlertCircle,
   Clock,
   Plus,
-  ArrowRight,
-  Info,
   CalendarDays,
   Target,
   BarChart3,
-  Search,
-  LayoutGrid,
   Loader2,
-  Settings2,
-  ChevronDown,
-  ChevronUp,
-  Filter,
-  CheckCircle2,
-  MinusCircle,
-  HelpCircle
+  HelpCircle,
+  Wallet
 } from "lucide-react";
 import { 
   AreaChart, 
@@ -52,14 +43,9 @@ import {
   addDays, 
   addWeeks, 
   addMonths, 
-  parseISO, 
   startOfDay, 
-  isSameDay, 
   isValid,
-  isBefore,
-  differenceInDays,
-  eachDayOfInterval,
-  endOfDay
+  eachDayOfInterval
 } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { cn } from "@/lib/utils";
@@ -601,5 +587,3 @@ export default function CashFlowForecastPage() {
     </div>
   );
 }
-
-interface Wallet extends React.ForwardRefExoticComponent<any> {}
