@@ -946,11 +946,12 @@ export default function AccountsPayablePage() {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-4 gap-4">
+                <div className="grid grid-cols-5 gap-4">
                   <div className="grid gap-2">
                     <Label>{isMultiEntry && multiMode === 'installment' ? 'Valor Total*' : 'Valor*'}</Label>
                     <Input type="number" step="0.01" value={formAmount || ""} onChange={e => setFormAmount(Number(e.target.value))} required />
                   </div>
+                  <div className="grid gap-2"><Label>Emissão*</Label><Input type="date" value={formIssueDate} onChange={e => setFormIssueDate(e.target.value)} required /></div>
                   <div className="grid gap-2"><Label>Vencimento*</Label><Input type="date" value={formDueDate} onChange={e => setFormDueDate(e.target.value)} required /></div>
                   <div className="grid gap-2">
                     <Label className="text-primary flex items-center gap-1 font-bold"><CalendarClock className="w-3 h-3" /> Data Prevista</Label>
