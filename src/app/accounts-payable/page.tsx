@@ -895,7 +895,7 @@ export default function AccountsPayablePage() {
                 </TabsList>
               </div>
 
-              <TabsContent value="basic" className="p-6 pt-4 space-y-4">
+              <TabsContent value="basic" className="p-6 pt-4 space-y-6">
                 <div className="grid grid-cols-4 gap-4">
                   <div className="grid gap-2 col-span-2"><Label>Descrição*</Label><Input value={formDescription} onChange={e => setFormDescription(e.target.value)} required /></div>
                   <div className="grid gap-2">
@@ -946,15 +946,21 @@ export default function AccountsPayablePage() {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-5 gap-4">
+                <div className="grid grid-cols-2 gap-4">
                   <div className="grid gap-2">
                     <Label>{isMultiEntry && multiMode === 'installment' ? 'Valor Total*' : 'Valor*'}</Label>
                     <Input type="number" step="0.01" value={formAmount || ""} onChange={e => setFormAmount(Number(e.target.value))} required />
                   </div>
-                  <div className="grid gap-2"><Label>Emissão*</Label><Input type="date" value={formIssueDate} onChange={e => setFormIssueDate(e.target.value)} required /></div>
-                  <div className="grid gap-2"><Label>Vencimento*</Label><Input type="date" value={formDueDate} onChange={e => setFormDueDate(e.target.value)} required /></div>
                   <div className="grid gap-2">
-                    <Label className="text-primary flex items-center gap-1 font-bold"><CalendarClock className="w-3 h-3" /> Data Prevista</Label>
+                    <Label className="flex items-center gap-1 font-bold text-accent"><CalendarDays className="w-3 h-3" /> Data de Emissão*</Label>
+                    <Input type="date" value={formIssueDate} onChange={e => setFormIssueDate(e.target.value)} required />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-3 gap-4">
+                  <div className="grid gap-2"><Label>Data de Vencimento*</Label><Input type="date" value={formDueDate} onChange={e => setFormDueDate(e.target.value)} required /></div>
+                  <div className="grid gap-2">
+                    <Label className="text-primary flex items-center gap-1 font-bold"><CalendarClock className="w-3 h-3" /> Data Prevista (Forecast)</Label>
                     <Input type="date" value={formExpectedDate} onChange={e => setFormExpectedDate(e.target.value)} className="border-primary/30" />
                   </div>
                   <div className="grid gap-2">
@@ -973,7 +979,7 @@ export default function AccountsPayablePage() {
                     </Select>
                   </div>
                 </div>
-                <p className="text-[10px] text-muted-foreground italic flex items-center gap-1"><Info className="w-3 h-3" /> A <strong>Data Prevista</strong> é o dia real que você pretende pagar. É ela que alimenta o Forecast.</p>
+                <p className="text-[10px] text-muted-foreground italic flex items-center gap-1"><Info className="w-3 h-3" /> A <strong>Data de Emissão</strong> registra a competência. A <strong>Data Prevista</strong> é o dia real que você planeja pagar (alimenta o Forecast).</p>
               </TabsContent>
 
               <TabsContent value="recurrence" className="p-6 pt-4">
