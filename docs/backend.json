@@ -2,10 +2,9 @@
 {
   "entities": {
     "Supplier": {
-      "$schema": "http://json-schema.org/draft-07/schema#",
       "title": "Supplier",
       "type": "object",
-      "description": "Represents a vendor or supplier with whom the business conducts transactions.",
+      "description": "Represents a vendor or supplier.",
       "properties": {
         "id": { "type": "string" },
         "name": { "type": "string" },
@@ -23,7 +22,6 @@
       "required": ["id", "name", "personType", "createdAt", "updatedAt"]
     },
     "AccountCategory": {
-      "$schema": "http://json-schema.org/draft-07/schema#",
       "title": "AccountCategory",
       "type": "object",
       "description": "Defines a category within the chart of accounts.",
@@ -40,7 +38,6 @@
       "required": ["id", "name", "type", "createdAt", "updatedAt"]
     },
     "CostCenterGroup": {
-      "$schema": "http://json-schema.org/draft-07/schema#",
       "title": "CostCenterGroup",
       "type": "object",
       "properties": {
@@ -54,7 +51,6 @@
       "required": ["id", "name", "createdAt"]
     },
     "CostCenter": {
-      "$schema": "http://json-schema.org/draft-07/schema#",
       "title": "CostCenter",
       "type": "object",
       "properties": {
@@ -70,7 +66,6 @@
       "required": ["id", "groupId", "name", "status", "createdAt", "updatedAt"]
     },
     "AccountsPayableEntry": {
-      "$schema": "http://json-schema.org/draft-07/schema#",
       "title": "AccountsPayableEntry",
       "type": "object",
       "properties": {
@@ -82,9 +77,8 @@
         "originalAmount": { "type": "number" },
         "issueDate": { "type": "string", "format": "date" },
         "dueDate": { "type": "string", "format": "date" },
-        "expectedPaymentDate": { "type": "string", "format": "date", "description": "Date used for Cash Flow Forecast." },
-        "planningStatus": { "type": "string", "enum": ["Programmed", "Negotiating", "Suspended"], "default": "Programmed" },
-        "paymentMethod": { "type": "string" },
+        "expectedPaymentDate": { "type": "string", "format": "date" },
+        "planningStatus": { "type": "string", "enum": ["Programmed", "Negotiating", "Suspended"] },
         "status": { "type": "string", "enum": ["Open", "Paid", "Overdue", "DueToday"] },
         "entryType": { "type": "string", "enum": ["Provision", "Confirmed"] },
         "paymentDate": { "type": "string", "format": "date" },
@@ -92,7 +86,6 @@
         "interest": { "type": "number" },
         "fine": { "type": "number" },
         "discount": { "type": "number" },
-        "installmentInfo": { "type": "string" },
         "rootEntryId": { "type": "string" },
         "createdAt": { "type": "string", "format": "date-time" },
         "updatedAt": { "type": "string", "format": "date-time" }
@@ -100,7 +93,6 @@
       "required": ["id", "supplierId", "accountCategoryId", "description", "originalAmount", "issueDate", "dueDate", "status", "entryType", "createdAt", "updatedAt"]
     },
     "AccountsReceivableEntry": {
-      "$schema": "http://json-schema.org/draft-07/schema#",
       "title": "AccountsReceivableEntry",
       "type": "object",
       "properties": {
@@ -112,8 +104,8 @@
         "amount": { "type": "number" },
         "issueDate": { "type": "string", "format": "date" },
         "dueDate": { "type": "string", "format": "date" },
-        "expectedReceivalDate": { "type": "string", "format": "date", "description": "Date used for Cash Flow Forecast." },
-        "planningStatus": { "type": "string", "enum": ["Programmed", "Negotiating", "Suspended"], "default": "Programmed" },
+        "expectedReceivalDate": { "type": "string", "format": "date" },
+        "planningStatus": { "type": "string", "enum": ["Programmed", "Negotiating", "Suspended"] },
         "status": { "type": "string", "enum": ["Open", "Paid"] },
         "paymentDate": { "type": "string", "format": "date" },
         "bankAccountId": { "type": "string" },
@@ -126,7 +118,7 @@
     "ManualForecast": {
       "title": "ManualForecast",
       "type": "object",
-      "description": "Hypothetical entries for Cash Flow simulation.",
+      "description": "Simulated entries for Cash Flow.",
       "properties": {
         "id": { "type": "string" },
         "description": { "type": "string" },
@@ -134,7 +126,6 @@
         "amount": { "type": "number" },
         "expectedDate": { "type": "string", "format": "date" },
         "scenario": { "type": "string", "enum": ["Conservative", "Realistic", "Optimistic"] },
-        "category": { "type": "string" },
         "createdAt": { "type": "string", "format": "date-time" }
       },
       "required": ["id", "description", "type", "amount", "expectedDate", "scenario"]
@@ -164,7 +155,6 @@
         "type": { "type": "string", "enum": ["CREDIT", "DEBIT"] },
         "reconciled": { "type": "boolean" },
         "reconciledEntryId": { "type": "string" },
-        "fitId": { "type": "string" },
         "bankAccountId": { "type": "string" },
         "ignored": { "type": "boolean" }
       },
@@ -182,7 +172,7 @@
         "entityId": { "type": "string" },
         "description": { "type": "string" },
         "timestamp": { "type": "string", "format": "date-time" },
-        "details": { "type": "object", "description": "JSON snapshot of the entity data at the time of log." }
+        "details": { "type": "object" }
       },
       "required": ["id", "userId", "action", "entityType", "timestamp"]
     }
@@ -262,6 +252,20 @@
           "entityName": "BankTransaction",
           "schema": { "$ref": "#/backend/entities/BankTransaction" },
           "description": "Bank transactions imported from OFX."
+        }
+      },
+      {
+        "path": "/users/{userId}/bankAccounts/{bankAccountId}/noMovementDays/{dayId}",
+        "definition": {
+          "entityName": "NoMovementDay",
+          "schema": { 
+            "type": "object",
+            "properties": {
+              "date": { "type": "string", "format": "date" }
+            },
+            "required": ["date"]
+          },
+          "description": "Marked days with no bank movement."
         }
       },
       {

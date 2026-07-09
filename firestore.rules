@@ -3,6 +3,7 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
+    // Funções auxiliares para verificações comuns
     function isSignedIn() {
       return request.auth != null;
     }
@@ -11,74 +12,62 @@ service cloud.firestore {
       return isSignedIn() && request.auth.uid == userId;
     }
 
+    // Regras para dados específicos do usuário
     match /users/{userId} {
+      // Permite que o dono gerencie seu próprio documento de perfil
       allow get, write: if isOwner(userId);
 
+      // Regras para subcoleções (Dono tem acesso total de leitura e escrita)
+      
       match /suppliers/{supplierId} {
-        allow get, list: if isOwner(userId);
-        allow create: if isOwner(userId) && request.resource.data.id == supplierId;
-        allow update: if isOwner(userId) && request.resource.data.id == resource.data.id;
-        allow delete: if isOwner(userId);
+        allow read, write: if isOwner(userId);
       }
 
       match /accountCategories/{categoryId} {
-        allow get, list: if isOwner(userId);
-        allow create: if isOwner(userId) && request.resource.data.id == categoryId;
-        allow update: if isOwner(userId) && request.resource.data.id == resource.data.id;
-        allow delete: if isOwner(userId);
+        allow read, write: if isOwner(userId);
       }
 
       match /costCenterGroups/{groupId} {
-        allow get, list: if isOwner(userId);
-        allow create: if isOwner(userId) && request.resource.data.id == groupId;
-        allow update: if isOwner(userId) && request.resource.data.id == resource.data.id;
-        allow delete: if isOwner(userId);
+        allow read, write: if isOwner(userId);
       }
 
       match /costCenters/{centerId} {
-        allow get, list: if isOwner(userId);
-        allow create: if isOwner(userId) && request.resource.data.id == centerId;
-        allow update: if isOwner(userId) && request.resource.data.id == resource.data.id;
-        allow delete: if isOwner(userId);
+        allow read, write: if isOwner(userId);
       }
 
       match /bankAccounts/{bankAccountId} {
-        allow get, list: if isOwner(userId);
-        allow create: if isOwner(userId) && request.resource.data.id == bankAccountId;
-        allow update: if isOwner(userId) && request.resource.data.id == resource.data.id;
-        allow delete: if isOwner(userId);
+        allow read, write: if isOwner(userId);
 
         match /bankTransactions/{transactionId} {
-          allow get, list: if isOwner(userId);
-          allow create: if isOwner(userId) && request.resource.data.id == transactionId;
-          allow update: if isOwner(userId) && request.resource.data.id == resource.data.id;
-          allow delete: if isOwner(userId);
+          allow read, write: if isOwner(userId);
+        }
+        
+        // Regras para marcação de dias sem movimento (Conciliação)
+        match /noMovementDays/{dayId} {
+          allow read, write: if isOwner(userId);
         }
       }
 
+      // Regras para o módulo de Planejamento / Forecast
       match /manualForecasts/{forecastId} {
-        allow get, list, write: if isOwner(userId);
+        allow read, write: if isOwner(userId);
       }
 
       match /accountsPayableEntries/{entryId} {
-        allow get, list: if isOwner(userId);
-        allow create: if isOwner(userId) && request.resource.data.id == entryId;
-        allow update: if isOwner(userId) && request.resource.data.id == resource.data.id;
-        allow delete: if isOwner(userId);
+        allow read, write: if isOwner(userId);
       }
 
       match /accountsReceivableEntries/{entryId} {
-        allow get, list: if isOwner(userId);
-        allow create: if isOwner(userId) && request.resource.data.id == entryId;
-        allow update: if isOwner(userId) && request.resource.data.id == resource.data.id;
-        allow delete: if isOwner(userId);
+        allow read, write: if isOwner(userId);
       }
 
+      // Regras para Logs de Auditoria
       match /auditLogs/{logId} {
-        allow get, list, write: if isOwner(userId);
+        allow read, write: if isOwner(userId);
       }
     }
 
+    // Regras para perfis de empresas (usado no cadastro)
     match /companies/{companyId} {
       allow create: if isSignedIn();
       allow get, update: if isSignedIn();
