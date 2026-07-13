@@ -1,7 +1,7 @@
 
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { 
   Table, 
   TableBody, 
@@ -69,9 +69,11 @@ export default function CostCentersPage() {
   const [editingGroup, setEditingGroup] = useState<CostCenterGroup | null>(null);
   const [editingCenter, setEditingCenter] = useState<CostCenter | null>(null);
 
-  // Estados dos Selects (FormData fix)
+  // Estados dos Formulários (Controlados)
   const [formParentGroupId, setFormParentGroupId] = useState<string>("none");
   const [formGroupId, setFormGroupId] = useState<string>("");
+  const [formName, setFormName] = useState("");
+  const [formDescription, setFormDescription] = useState("");
 
   // Filtros
   const [searchTerm, setSearchTerm] = useState("");
@@ -117,18 +119,17 @@ export default function CostCentersPage() {
     toast({ title: "Excel gerado com sucesso!" });
   };
 
-  const handleSaveGroup = (e: React.FormEvent<HTMLFormElement>) => {
+  const handleSaveGroup = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!db || !user) return;
-    const formData = new FormData(e.currentTarget);
+    if (!db || !user || !formName) return;
     
     const id = editingGroup ? editingGroup.id : `ccg_${Date.now()}`;
     
-    const data: CostCenterGroup = {
+    const data: any = {
       id,
-      name: formData.get("name") as string,
-      description: formData.get("description") as string,
-      parentGroupId: formParentGroupId === "none" ? undefined : formParentGroupId,
+      name: formName,
+      description: formDescription,
+      parentGroupId: formParentGroupId === "none" ? null : formParentGroupId,
       createdAt: editingGroup ? editingGroup.createdAt : new Date().toISOString(),
       updatedAt: new Date().toISOString()
     };
@@ -137,20 +138,21 @@ export default function CostCentersPage() {
     toast({ title: editingGroup ? "Grupo atualizado" : "Grupo criado" });
     setIsGroupDialogOpen(false);
     setEditingGroup(null);
+    setFormName("");
+    setFormDescription("");
   };
 
-  const handleSaveCenter = (e: React.FormEvent<HTMLFormElement>) => {
+  const handleSaveCenter = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!db || !user) return;
-    const formData = new FormData(e.currentTarget);
+    if (!db || !user || !formName || !formGroupId) return;
     
     const id = editingCenter ? editingCenter.id : `cc_${Date.now()}`;
     
     const data: CostCenter = {
       id,
       groupId: formGroupId,
-      name: formData.get("name") as string,
-      description: formData.get("description") as string,
+      name: formName,
+      description: formDescription,
       status: editingCenter ? editingCenter.status : 'Active',
       createdAt: editingCenter ? editingCenter.createdAt : new Date().toISOString(),
       updatedAt: new Date().toISOString()
@@ -160,6 +162,8 @@ export default function CostCentersPage() {
     toast({ title: editingCenter ? "Centro atualizado" : "Centro criado" });
     setIsCenterDialogOpen(false);
     setEditingCenter(null);
+    setFormName("");
+    setFormDescription("");
   };
 
   const toggleStatus = (center: CostCenter) => {
@@ -189,12 +193,11 @@ export default function CostCentersPage() {
     }
   };
 
-  // Lógica de Renderização Recursiva para Grupos e Centros
-  const renderTree = (parentGroupId: string | undefined = undefined, level: number = 0) => {
+  const renderTree = (parentGroupId: string | null = null, level: number = 0) => {
     if (!groups) return null;
 
     const filteredGroups = groups
-      .filter(g => g.parentGroupId === parentGroupId)
+      .filter(g => (g.parentGroupId === parentGroupId || (parentGroupId === null && !g.parentGroupId)))
       .sort((a, b) => a.name.localeCompare(b.name));
 
     return filteredGroups.map(group => {
@@ -235,6 +238,8 @@ export default function CostCentersPage() {
                 onClick={() => { 
                   setEditingGroup(group); 
                   setFormParentGroupId(group.parentGroupId || "none");
+                  setFormName(group.name);
+                  setFormDescription(group.description || "");
                   setIsGroupDialogOpen(true); 
                 }}
               >
@@ -253,10 +258,7 @@ export default function CostCentersPage() {
 
           {isExpanded && (
             <div className="space-y-1">
-              {/* Subgrupos */}
               {renderTree(group.id, level + 1)}
-
-              {/* Centros de Custo (Folhas) */}
               {groupCenters.map(center => (
                 <div 
                   key={center.id} 
@@ -285,6 +287,8 @@ export default function CostCentersPage() {
                       onClick={() => { 
                         setEditingCenter(center); 
                         setFormGroupId(center.groupId);
+                        setFormName(center.name);
+                        setFormDescription(center.description || "");
                         setIsCenterDialogOpen(true); 
                       }}
                     >
@@ -340,10 +344,10 @@ export default function CostCentersPage() {
           <Button variant="outline" className="gap-2" onClick={handleExportExcel} disabled={!centers || centers.length === 0}>
             <Download className="w-4 h-4" /> Exportar Excel
           </Button>
-          <Button variant="outline" className="gap-2" onClick={() => { setEditingGroup(null); setFormParentGroupId("none"); setIsGroupDialogOpen(true); }}>
+          <Button variant="outline" className="gap-2" onClick={() => { setEditingGroup(null); setFormParentGroupId("none"); setFormName(""); setFormDescription(""); setIsGroupDialogOpen(true); }}>
             <FolderPlus className="w-4 h-4" /> Novo Grupo / Subgrupo
           </Button>
-          <Button className="gap-2 shadow-lg" disabled={!groups || groups.length === 0} onClick={() => { setEditingCenter(null); setFormGroupId(groups?.[0]?.id || ""); setIsCenterDialogOpen(true); }}>
+          <Button className="gap-2 shadow-lg" disabled={!groups || groups.length === 0} onClick={() => { setEditingCenter(null); setFormGroupId(groups?.[0]?.id || ""); setFormName(""); setFormDescription(""); setIsCenterDialogOpen(true); }}>
             <Plus className="w-4 h-4" /> Novo Centro de Custo
           </Button>
         </div>
@@ -389,7 +393,7 @@ export default function CostCentersPage() {
               <p className="font-bold text-muted-foreground">Nenhuma estrutura cadastrada.</p>
               <p className="text-xs text-muted-foreground">Comece criando um Grupo Raiz (ex: Operação) e depois seus Centros.</p>
             </div>
-            <Button onClick={() => { setEditingGroup(null); setFormParentGroupId("none"); setIsGroupDialogOpen(true); }} variant="outline" className="gap-2">
+            <Button onClick={() => { setEditingGroup(null); setFormParentGroupId("none"); setFormName(""); setFormDescription(""); setIsGroupDialogOpen(true); }} variant="outline" className="gap-2">
               <FolderPlus className="w-4 h-4" /> Criar Primeiro Grupo
             </Button>
           </div>
@@ -419,14 +423,29 @@ export default function CostCentersPage() {
               </div>
               <div className="grid gap-2">
                 <Label htmlFor="gname">Nome do Grupo *</Label>
-                <Input id="gname" name="name" defaultValue={editingGroup?.name} placeholder="Ex: Operação Interna" required />
+                <Input 
+                  id="gname" 
+                  value={formName} 
+                  onChange={(e) => setFormName(e.target.value)} 
+                  placeholder="Ex: Operação Interna" 
+                  required 
+                />
               </div>
               <div className="grid gap-2">
                 <Label htmlFor="gdesc">Descrição</Label>
-                <Input id="gdesc" name="description" defaultValue={editingGroup?.description} placeholder="Opcional..." />
+                <Input 
+                  id="gdesc" 
+                  value={formDescription} 
+                  onChange={(e) => setFormDescription(e.target.value)} 
+                  placeholder="Opcional..." 
+                />
               </div>
             </div>
-            <DialogFooter><Button type="submit" className="w-full">{editingGroup ? 'Salvar Alterações' : 'Criar Grupo'}</Button></DialogFooter>
+            <DialogFooter>
+              <Button type="submit" className="w-full">
+                {editingGroup ? 'Salvar Alterações' : 'Criar Grupo'}
+              </Button>
+            </DialogFooter>
           </form>
         </DialogContent>
       </Dialog>
@@ -451,14 +470,29 @@ export default function CostCentersPage() {
               </div>
               <div className="grid gap-2">
                 <Label htmlFor="cname">Nome do Centro *</Label>
-                <Input id="cname" name="name" defaultValue={editingCenter?.name} placeholder="Ex: Unidade Shopping" required />
+                <Input 
+                  id="cname" 
+                  value={formName} 
+                  onChange={(e) => setFormName(e.target.value)} 
+                  placeholder="Ex: Unidade Shopping" 
+                  required 
+                />
               </div>
               <div className="grid gap-2">
                 <Label htmlFor="cdesc">Descrição</Label>
-                <Input id="cdesc" name="description" defaultValue={editingCenter?.description} placeholder="Opcional..." />
+                <Input 
+                  id="cdesc" 
+                  value={formDescription} 
+                  onChange={(e) => setFormDescription(e.target.value)} 
+                  placeholder="Opcional..." 
+                />
               </div>
             </div>
-            <DialogFooter><Button type="submit" className="w-full">{editingCenter ? 'Salvar Alterações' : 'Criar Centro'}</Button></DialogFooter>
+            <DialogFooter>
+              <Button type="submit" className="w-full">
+                {editingCenter ? 'Salvar Alterações' : 'Criar Centro'}
+              </Button>
+            </DialogFooter>
           </form>
         </DialogContent>
       </Dialog>
