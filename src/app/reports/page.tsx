@@ -17,7 +17,8 @@ import {
   TrendingUp,
   Clock,
   LayoutGrid,
-  Wallet
+  Wallet,
+  CalendarDays
 } from "lucide-react";
 import { 
   Select, 
@@ -66,7 +67,7 @@ import {
   TableRow 
 } from "@/components/ui/table";
 
-type ReportType = "payable_pending" | "payable_paid" | "receivable_pending" | "receivable_paid";
+type ReportType = "payable_pending" | "payable_paid" | "payable_issued" | "receivable_pending" | "receivable_paid" | "receivable_issued";
 
 export default function ReportsPage() {
   const { user } = useUser();
@@ -125,19 +126,25 @@ export default function ReportsPage() {
     if (!payables || !receivables) return [];
 
     const isReceivable = reportType.startsWith("receivable");
-    const isPaid = reportType.endsWith("_paid");
+    const isPaidOnly = reportType.endsWith("_paid");
+    const isIssuedOnly = reportType.endsWith("_issued");
     const source = isReceivable ? receivables : payables;
 
     return source.filter(item => {
-      const itemDate = isPaid ? item.paymentDate : item.dueDate;
-      const statusMatch = isPaid ? item.status === 'Paid' : item.status !== 'Paid';
+      let itemDate = item.dueDate;
+      if (isPaidOnly) itemDate = item.paymentDate || "";
+      if (isIssuedOnly) itemDate = item.issueDate || "";
+
+      const statusMatch = isPaidOnly ? item.status === 'Paid' : (isIssuedOnly ? true : item.status !== 'Paid');
       
       if (!itemDate || !statusMatch) return false;
       return itemDate >= startDate && itemDate <= endDate;
     }).sort((a, b) => {
-      const dateA = isPaid ? a.paymentDate! : a.dueDate;
-      const dateB = isPaid ? b.paymentDate! : b.dueDate;
-      return dateA.localeCompare(dateB);
+      let dateA = a.dueDate;
+      let dateB = b.dueDate;
+      if (isPaidOnly) { dateA = a.paymentDate!; dateB = b.paymentDate!; }
+      if (isIssuedOnly) { dateA = a.issueDate!; dateB = b.issueDate!; }
+      return (dateA || "").localeCompare(dateB || "");
     });
   }, [payables, receivables, reportType, startDate, endDate]);
 
@@ -153,7 +160,8 @@ export default function ReportsPage() {
     if (filteredData.length === 0) return;
 
     const isReceivable = reportType.startsWith("receivable");
-    const isPaid = reportType.endsWith("_paid");
+    const isPaidReport = reportType.endsWith("_paid");
+    const isIssuedReport = reportType.endsWith("_issued");
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
@@ -175,10 +183,14 @@ export default function ReportsPage() {
       const bankAccountName = accounts?.find(a => a.id === item.bankAccountId)?.name || 'N/A';
       const entityLabel = isReceivable ? 'Cliente' : 'Fornecedor';
       const entityName = isReceivable ? item.customerName : (suppliers?.find(s => s.id === item.supplierId)?.name || 'N/A');
-      const dateLabel = isPaid ? 'Data Pagamento/Recebimento' : 'Vencimento';
-      const dateValue = isPaid ? item.paymentDate : item.dueDate;
-      const formattedDate = dateValue ? format(isPaid ? parseISO(dateValue) : new Date(dateValue + 'T12:00:00'), 'dd/MM/yyyy') : '-';
-      const formattedIssueDate = item.issueDate ? format(parseISO(item.issueDate), 'dd/MM/yyyy') : '-';
+      
+      let dateLabel = 'Vencimento';
+      if (isPaidReport) dateLabel = 'Data Pagamento/Recebimento';
+      if (isIssuedReport) dateLabel = 'Data de Emissão (Competência)';
+
+      const dateValue = isPaidReport ? item.paymentDate : (isIssuedReport ? item.issueDate : item.dueDate);
+      const formattedDate = dateValue ? format(new Date(dateValue + 'T12:00:00'), 'dd/MM/yyyy') : '-';
+      const formattedIssueDate = item.issueDate ? format(new Date(item.issueDate + 'T12:00:00'), 'dd/MM/yyyy') : '-';
 
       const baseValue = item.amount || item.originalAmount;
 
@@ -204,7 +216,8 @@ export default function ReportsPage() {
       return {
         [dateLabel]: formattedDate,
         'Data de Emissão': formattedIssueDate,
-        'Conta Bancária': isPaid ? bankAccountName : 'Pendente',
+        'Vencimento': item.dueDate ? format(new Date(item.dueDate + 'T12:00:00'), 'dd/MM/yyyy') : '-',
+        'Conta Bancária': item.status === 'Paid' ? bankAccountName : 'Pendente',
         [entityLabel]: entityName,
         'Descrição': item.description,
         'Categoria': category,
@@ -232,6 +245,7 @@ export default function ReportsPage() {
 
   const isReceivableReport = reportType.startsWith("receivable");
   const isPaidReport = reportType.endsWith("_paid");
+  const isIssuedReport = reportType.endsWith("_issued");
 
   // Helper para formatar data de forma segura durante a digitação
   const safeFormatDate = (dateStr: string) => {
@@ -247,18 +261,18 @@ export default function ReportsPage() {
             <FileSpreadsheet className="text-primary w-8 h-8" />
             Relatórios Estratégicos
           </h1>
-          <p className="text-muted-foreground">Visão completa de fluxo e pendências (Pagar e Receber).</p>
+          <p className="text-muted-foreground">Visão completa por Vencimento, Pagamento ou Competência (DRE).</p>
         </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
-        <Card className="lg:col-span-1 h-fit">
-          <CardHeader>
+        <Card className="lg:col-span-1 h-fit shadow-md">
+          <CardHeader className="bg-primary/5">
             <CardTitle className="text-sm font-bold flex items-center gap-2">
               <Filter className="w-4 h-4" /> Filtros de Relatório
             </CardTitle>
           </CardHeader>
-          <CardContent className="space-y-6">
+          <CardContent className="space-y-6 pt-6">
             <div className="space-y-2">
               <Label className="text-[10px] uppercase font-bold text-muted-foreground">Módulo e Natureza</Label>
               <Select value={reportType} onValueChange={(v: any) => setReportType(v)}>
@@ -268,19 +282,25 @@ export default function ReportsPage() {
                 <SelectContent>
                   <SelectItem value="payable_pending">Contas a Pagar (Pendentes)</SelectItem>
                   <SelectItem value="payable_paid">Contas a Pagar (Pagas)</SelectItem>
+                  <SelectItem value="payable_issued" className="font-bold text-primary">Contas a Pagar (Competência/DRE)</SelectItem>
                   <SelectItem value="receivable_pending">Contas a Receber (Pendentes)</SelectItem>
                   <SelectItem value="receivable_paid">Contas Receber (Recebidas)</SelectItem>
+                  <SelectItem value="receivable_issued" className="font-bold text-emerald-600">Contas a Receber (Competência/DRE)</SelectItem>
                 </SelectContent>
               </Select>
             </div>
 
             <div className="space-y-4 pt-4 border-t">
               <div className="space-y-2">
-                <Label className="text-[10px] uppercase font-bold text-muted-foreground">Data Inicial ({isPaidReport ? 'Pagto/Rec.' : 'Venc.'})</Label>
+                <Label className="text-[10px] uppercase font-bold text-muted-foreground">
+                  Data Inicial ({isPaidReport ? 'Pagto.' : (isIssuedReport ? 'Emissão' : 'Venc.')})
+                </Label>
                 <Input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} />
               </div>
               <div className="space-y-2">
-                <Label className="text-[10px] uppercase font-bold text-muted-foreground">Data Final ({isPaidReport ? 'Pagto/Rec.' : 'Venc.'})</Label>
+                <Label className="text-[10px] uppercase font-bold text-muted-foreground">
+                  Data Final ({isPaidReport ? 'Pagto.' : (isIssuedReport ? 'Emissão' : 'Venc.')})
+                </Label>
                 <Input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} />
               </div>
             </div>
@@ -299,7 +319,7 @@ export default function ReportsPage() {
 
         <div className="lg:col-span-3 space-y-6">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <Card className="bg-primary/5 border-none">
+            <Card className="bg-primary/5 border-none shadow-sm">
               <CardContent className="pt-6 flex items-center gap-4">
                 <div className={cn(
                   "p-3 rounded-full", 
@@ -308,14 +328,14 @@ export default function ReportsPage() {
                   {isReceivableReport ? <TrendingUp className="w-6 h-6" /> : <TrendingDown className="w-6 h-6" />}
                 </div>
                 <div>
-                  <p className="text-[10px] font-bold uppercase text-muted-foreground">Volume do Período</p>
+                  <p className="text-[10px] font-bold uppercase text-muted-foreground">Volume {isIssuedReport ? 'Faturado' : 'do Período'}</p>
                   <p className={cn("text-2xl font-black", isReceivableReport ? "text-emerald-700" : "text-destructive")}>
                     {formatCurrency(totalValue)}
                   </p>
                 </div>
               </CardContent>
             </Card>
-            <Card className="bg-muted/30 border-none">
+            <Card className="bg-muted/30 border-none shadow-sm">
               <CardContent className="pt-6 flex items-center gap-4">
                 <div className="p-3 rounded-full bg-background text-primary">
                   <Calculator className="w-6 h-6" />
@@ -328,30 +348,40 @@ export default function ReportsPage() {
             </Card>
           </div>
 
-          <Card>
+          <Card className="shadow-sm">
             <CardHeader className="flex flex-row items-center justify-between border-b bg-muted/10">
               <div>
                 <CardTitle className="text-lg flex items-center gap-2">
                   {isReceivableReport ? <ArrowUpCircle className="w-5 h-5 text-emerald-600" /> : <ArrowDownCircle className="w-5 h-5 text-destructive" />}
                   {reportType === 'payable_pending' && 'Contas a Pagar Pendentes'}
-                  {reportType === 'payable_paid' && 'Contas Pagas (Realizado)'}
+                  {reportType === 'payable_paid' && 'Contas Pagas (Fluxo de Caixa)'}
+                  {reportType === 'payable_issued' && 'Contas a Pagar (Competência/DRE)'}
                   {reportType === 'receivable_pending' && 'Contas a Receber Pendentes'}
-                  {reportType === 'receivable_paid' && 'Contas Recebidas (Entradas)'}
+                  {reportType === 'receivable_paid' && 'Contas Recebidas (Realizado)'}
+                  {reportType === 'receivable_issued' && 'Contas a Receber (Competência/DRE)'}
                 </CardTitle>
                 <CardDescription>
-                  Período: {safeFormatDate(startDate)} até {safeFormatDate(endDate)}
+                  Baseado na {isIssuedReport ? 'Data de Emissão' : (isPaidReport ? 'Data de Liquidação' : 'Data de Vencimento')}: 
+                  <span className="font-bold ml-1">{safeFormatDate(startDate)} até {safeFormatDate(endDate)}</span>
                 </CardDescription>
               </div>
+              {isIssuedReport && (
+                <Badge variant="outline" className="bg-amber-50 text-amber-700 border-amber-200 flex gap-1 items-center">
+                  <CalendarDays className="w-3 h-3" /> Foco DRE
+                </Badge>
+              )}
             </CardHeader>
             <CardContent className="p-0">
               <div className="max-h-[600px] overflow-auto">
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>{isPaidReport ? (isReceivableReport ? 'Recebimento' : 'Pagamento') : 'Vencimento'}</TableHead>
+                      <TableHead>
+                        {isPaidReport ? (isReceivableReport ? 'Recebimento' : 'Pagamento') : (isIssuedReport ? 'Emissão' : 'Vencimento')}
+                      </TableHead>
                       <TableHead>{isReceivableReport ? 'Cliente / Origem' : 'Fornecedor'}</TableHead>
                       <TableHead>Descrição / Categoria</TableHead>
-                      <TableHead>Centro de Custo / Conta</TableHead>
+                      <TableHead>Status / Conta</TableHead>
                       <TableHead className="text-right">Valor {isPaidReport ? 'Líquido' : ''}</TableHead>
                     </TableRow>
                   </TableHeader>
@@ -362,13 +392,16 @@ export default function ReportsPage() {
                         ? baseVal + (item.interest || 0) + (item.fine || 0) - (item.discount || 0)
                         : baseVal;
                       
-                      const dateToDisplay = isPaidReport ? item.paymentDate : item.dueDate;
-                      const dateObj = dateToDisplay ? (isPaidReport ? parseISO(dateToDisplay) : new Date(dateToDisplay + 'T12:00:00')) : null;
+                      let dateToDisplay = item.dueDate;
+                      if (isPaidReport) dateToDisplay = item.paymentDate;
+                      if (isIssuedReport) dateToDisplay = item.issueDate;
+
+                      const dateObj = dateToDisplay ? new Date(dateToDisplay + 'T12:00:00') : null;
                       const center = centers?.find(c => c.id === item.costCenterId);
                       const bankAccount = accounts?.find(a => a.id === item.bankAccountId);
 
                       return (
-                        <TableRow key={item.id}>
+                        <TableRow key={item.id} className="hover:bg-muted/30 transition-colors">
                           <TableCell className="text-xs font-medium">
                             {dateObj && isValid(dateObj) ? format(dateObj, 'dd/MM/yy') : '-'}
                           </TableCell>
@@ -383,15 +416,16 @@ export default function ReportsPage() {
                           </TableCell>
                           <TableCell className="text-xs">
                             <div className="flex flex-col gap-1">
-                              {center && (
-                                <div className="flex items-center gap-1.5 text-muted-foreground">
-                                  <LayoutGrid className="w-3 h-3" />
-                                  {center.name}
-                                </div>
-                              )}
+                              <div className="flex items-center gap-1.5">
+                                {item.status === 'Paid' ? (
+                                  <Badge className="text-[8px] h-3.5 px-1 bg-emerald-100 text-emerald-700 hover:bg-emerald-100 border-none">Liquidado</Badge>
+                                ) : (
+                                  <Badge variant="outline" className="text-[8px] h-3.5 px-1">Aberto</Badge>
+                                )}
+                              </div>
                               {bankAccount && (
-                                <div className="flex items-center gap-1.5 text-primary italic font-medium">
-                                  <Wallet className="w-3 h-3" />
+                                <div className="flex items-center gap-1.5 text-primary italic font-medium text-[10px]">
+                                  <Wallet className="w-2.5 h-2.5" />
                                   {bankAccount.name}
                                 </div>
                               )}
@@ -434,13 +468,13 @@ export default function ReportsPage() {
             <Clock className="w-5 h-5 text-primary" />
           </div>
           <div className="space-y-1">
-            <h4 className="text-sm font-bold">Dica de Auditoria</h4>
+            <h4 className="text-sm font-bold">Por que usar o Relatório de Emissão?</h4>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-2">
               <p className="text-xs text-muted-foreground leading-relaxed">
-                <strong>Análise por Conta Bancária:</strong> Os relatórios de itens pagos agora mostram por qual conta o dinheiro transitou, facilitando o batimento com seus extratos físicos ou de PDF.
+                <strong>Visão de Competência (DRE):</strong> Este relatório mostra o impacto real da sua operação. Se você comprou R$ 10.000 em insumos em Junho, mesmo que vá pagar apenas em Agosto, esses R$ 10.000 devem ser computados na DRE de Junho para você saber se teve lucro ou prejuízo no mês.
               </p>
               <p className="text-xs text-muted-foreground leading-relaxed">
-                <strong>Exportação Inteligente:</strong> Ao exportar para Excel, a nova coluna "Conta Bancária" permitirá que você faça tabelas dinâmicas para ver o faturamento total por banco ou canal de recebimento.
+                <strong>Diferença de Fluxo de Caixa:</strong> Diferente dos relatórios de "Pagos", que olham para o dinheiro saindo do banco, o relatório de Emissão olha para o compromisso assumido. É a ferramenta essencial para o seu contador e para o seu controle de lucratividade.
               </p>
             </div>
           </div>
