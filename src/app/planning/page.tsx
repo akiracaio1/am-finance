@@ -124,7 +124,7 @@ export default function CashFlowForecastPage() {
 
   // Lógica Principal de Cálculo do Forecast
   const forecastData = useMemo(() => {
-    if (!mounted || !accounts) return null;
+    if (!mounted || !accounts || !payables || !receivables) return null;
 
     const today = startOfDay(new Date());
     let horizonEnd = addDays(today, 30);
@@ -137,8 +137,21 @@ export default function CashFlowForecastPage() {
 
     const interval = eachDayOfInterval({ start: today, end: horizonEnd });
     
-    // Saldo Inicial Hoje (Soma de todas as contas)
-    const currentBankBalance = accounts.reduce((acc, curr) => acc + (curr.initialBalance || 0), 0);
+    // Saldo Atual Realizado HOJE = Inicial + Tudo Pago no Passado
+    const totalInitialBalance = accounts.reduce((acc, curr) => acc + (curr.initialBalance || 0), 0);
+    
+    const totalPaidReceivables = receivables
+      .filter(r => r.status === 'Paid')
+      .reduce((acc, curr) => acc + curr.amount, 0);
+
+    const totalPaidPayables = payables
+      .filter(p => p.status === 'Paid')
+      .reduce((acc, curr) => {
+        const netValue = curr.originalAmount + (curr.interest || 0) + (curr.fine || 0) - (curr.discount || 0);
+        return acc + netValue;
+      }, 0);
+
+    const currentBankBalance = totalInitialBalance + totalPaidReceivables - totalPaidPayables;
 
     // Preparar Entradas e Saídas do Forecast
     const filterByScenario = (item: any, type: 'payable' | 'receivable' | 'manual') => {

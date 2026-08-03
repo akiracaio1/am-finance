@@ -67,7 +67,21 @@ export default function DashboardPage() {
     const todayStr = format(today, "yyyy-MM-dd");
     const currentMonthStart = startOfMonth(today);
 
-    const totalBalance = accounts.reduce((acc, curr) => acc + (curr.initialBalance || 0), 0);
+    // Saldo em Caixa = Saldo Inicial + Entradas Pagas - Saídas Pagas
+    const totalInitialBalance = accounts.reduce((acc, curr) => acc + (curr.initialBalance || 0), 0);
+    
+    const totalPaidReceivables = receivables
+      .filter(r => r.status === 'Paid')
+      .reduce((acc, curr) => acc + curr.amount, 0);
+
+    const totalPaidPayables = payables
+      .filter(p => p.status === 'Paid')
+      .reduce((acc, curr) => {
+        const netValue = curr.originalAmount + (curr.interest || 0) + (curr.fine || 0) - (curr.discount || 0);
+        return acc + netValue;
+      }, 0);
+
+    const totalBalance = totalInitialBalance + totalPaidReceivables - totalPaidPayables;
     
     const totalReceivables = receivables
       .filter(r => r.status === 'Open')
@@ -89,7 +103,7 @@ export default function DashboardPage() {
     const chartData = [3, 2, 1, 0].map(offset => {
       const monthDate = subMonths(today, offset);
       const mStart = startOfMonth(monthDate);
-      const mEnd = startOfMonth(subMonths(monthDate, -1)); // Simplificado para o exemplo
+      const mEnd = startOfMonth(subMonths(monthDate, -1)); 
       
       const value = receivables
         .filter(r => r.status === 'Paid' && r.paymentDate && parseISO(r.paymentDate) >= mStart && parseISO(r.paymentDate) < mEnd)
@@ -145,7 +159,7 @@ export default function DashboardPage() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">R$ {kpis?.totalBalance.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</div>
-            <p className="text-[10px] text-muted-foreground mt-1">Soma de todas as contas ativas</p>
+            <p className="text-[10px] text-muted-foreground mt-1">Soma inicial + realizados</p>
           </CardContent>
         </Card>
 
